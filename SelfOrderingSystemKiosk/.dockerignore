@@ -1,0 +1,13 @@
+**/.git
+**/.vs
+**/bin
+**/obj
+**/out
+**/*.user
+**/*.suo
+**/node_modules
+**/.env
+**/.env.*
+fly.toml
+README.md
+*.md

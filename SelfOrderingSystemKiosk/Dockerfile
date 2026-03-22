@@ -20,11 +20,10 @@ WORKDIR /app
 # Copy published app from build stage
 COPY --from=build /app/publish .
 
-# Expose port (Render will set PORT env var, but default to 8080)
+# EXPOSE 8080 matches Fly.io internal_port; Render uses dynamic PORT (see Program.cs).
 EXPOSE 8080
 
-# Set environment - Render will override PORT
-ENV ASPNETCORE_URLS=http://0.0.0.0:8080
+# Do not set ASPNETCORE_URLS here — Render injects PORT; Fly sets URLs in fly.toml [env].
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Start the application

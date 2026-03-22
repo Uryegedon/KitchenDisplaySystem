@@ -1,0 +1,118 @@
+/* kiosk.css */
+
+/* === Global Styles === */
+body {
+    font-family: 'Kameron', 'Segoe UI', sans-serif;
+    background-color: #fff8f0;
+    margin: 0;
+    padding: 0;
+    text-align: center;
+}
+
+/* Shared container layout */
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    position: relative; /* allows for back button positioning */
+    padding: 20px;
+}
+
+/* Headings */
+h1 {
+    font-family: 'Kameron', serif;
+    font-size: 2.8em;
+    color: #d35400;
+    margin-bottom: 20px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+
+h2 {
+    color: #444;
+    font-size: 1.4em;
+    font-weight: 400;
+    margin-bottom: 10px;
+}
+
+p {
+    font-size: 1.1em;
+    color: #666;
+    margin-bottom: 20px;
+}
+
+/* 🔙 Back Button */
+.back-btn {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background-color: transparent;
+    border: none;
+    color: #d35400;
+    font-size: 1.8em;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+    .back-btn:hover {
+        color: #e67e22;
+        transform: scale(1.1);
+    }
+
+/* Choices container */
+.choices {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 40px;
+    flex-wrap: wrap;
+}
+
+/* Card styles */
+.card {
+    width: 260px;
+    padding: 25px 20px;
+    background-color: #fff;
+    border-radius: 20px;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    border: 3px solid transparent;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+    .card:hover {
+        transform: scale(1.05);
+        border-color: #e67e22;
+        box-shadow: 0 10px 22px rgba(230, 126, 34, 0.25);
+    }
+
+    .card img {
+        width: 70px;
+        height: 70px;
+        object-fit: contain;
+        margin-bottom: 10px;
+    }
+
+    .card h3 {
+        font-family: 'Kameron', serif;
+        color: #d35400;
+        font-size: 1.3em;
+        margin-top: 0;
+        margin-bottom: 8px;
+    }
+
+    .card p {
+        color: #666;
+        font-size: 0.95em;
+        line-height: 1.6;
+        max-width: 220px;
+        margin: 0;
+    }
+

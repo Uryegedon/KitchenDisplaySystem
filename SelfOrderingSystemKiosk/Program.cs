@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
@@ -6,6 +7,13 @@ using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Render sets PORT; Fly uses ASPNETCORE_URLS from fly.toml. Prefer PORT when present.
+var portEnv = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrEmpty(portEnv))
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{portEnv}");
+}
 
 // Add services to the container.
 builder.Services.AddControllersWithViews()
@@ -86,6 +94,13 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 builder.Services.AddSingleton<IMongoDatabase>(sp =>
 {
     var client = sp.GetRequiredService<IMongoClient>();
@@ -102,6 +117,8 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
 }
+
+app.UseForwardedHeaders();
 
 app.UseStaticFiles();
 
@@ -126,12 +143,5 @@ app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Dashboard}/{action=Index}/{id?}",
     defaults: new { area = "Admin" });
-
-// Use PORT environment variable for Render/cloud deployments
-var port = Environment.GetEnvironmentVariable("PORT");
-if (!string.IsNullOrEmpty(port))
-{
-    app.Urls.Add($"http://0.0.0.0:{port}");
-}
 
 app.Run();

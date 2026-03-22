@@ -1,0 +1,16 @@
+# Render Blueprint — https://docs.render.com/docs/infrastructure-as-code
+# After deploy, set secrets in the dashboard (or via render env):
+#   DataCon__ConnectionString, QrOrdering__PublicSiteUrl (use https://<service>.onrender.com)
+services:
+  - type: web
+    name: self-ordering-kiosk
+    runtime: docker
+    # dockerfilePath / dockerContext are relative to the REPO root (not rootDir).
+    rootDir: SelfOrderingSystemKiosk
+    dockerfilePath: ./SelfOrderingSystemKiosk/Dockerfile
+    dockerContext: ./SelfOrderingSystemKiosk
+    plan: free
+    region: oregon
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production

@@ -1,0 +1,33 @@
+# Fly.io — https://fly.io/docs/
+# 1. Install CLI: https://fly.io/docs/hands-on/install-flyctl/
+# 2. From this folder: fly auth login
+# 3. Pick a unique app name (globally unique) and replace "kitchen-display-system" below,
+#    or run: fly launch --dockerfile Dockerfile (creates/merges this file)
+# 4. Set secrets (never commit real connection strings):
+#    fly secrets set DataCon__ConnectionString="mongodb+srv://..."
+#    fly secrets set QrOrdering__PublicSiteUrl="https://YOUR-APP.fly.dev"
+# 5. fly deploy
+
+app = "kitchen-display-system"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  ASPNETCORE_ENVIRONMENT = "Production"
+  # Kestrel listens here; must match http_service.internal_port
+  ASPNETCORE_URLS = "http://0.0.0.0:8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
