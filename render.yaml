@@ -5,10 +5,10 @@ services:
   - type: web
     name: self-ordering-kiosk
     runtime: docker
-    # dockerfilePath / dockerContext are relative to the REPO root (not rootDir).
+    # Build from repo root so ./Dockerfile exists (see monorepo Dockerfile).
     rootDir: SelfOrderingSystemKiosk
-    dockerfilePath: ./SelfOrderingSystemKiosk/Dockerfile
-    dockerContext: ./SelfOrderingSystemKiosk
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: free
     region: oregon
     envVars:
