@@ -1,6 +1,6 @@
 namespace SelfOrderingSystemKiosk.Models
 {
-    /// <summary>Single menu / kiosk category from configuration (stable Key matches InventoryItem.Category).</summary>
+    /// <summary>Single menu / kiosk category from configuration (stable Key matches MenuItem.Category).</summary>
     public class MenuCategoryOption
     {
         public string Key { get; set; } = "";

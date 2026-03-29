@@ -13,13 +13,13 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
     public class KitchenController : Controller
     {
         private readonly OrderService _orderService;
-        private readonly StockService _stockService;
+        private readonly MenuItemService _menuItems;
         private readonly ILogger<KitchenController> _logger;
 
-        public KitchenController(OrderService orderService, StockService stockService, ILogger<KitchenController> logger)
+        public KitchenController(OrderService orderService, MenuItemService menuItems, ILogger<KitchenController> logger)
         {
             _orderService = orderService;
-            _stockService = stockService;
+            _menuItems = menuItems;
             _logger = logger;
         }
 
@@ -79,7 +79,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                         {
                             try
                             {
-                                await _stockService.DecrementStockAsync(orderItem.ItemName, orderItem.Quantity, "Sale", "Order", order.Id);
+                                await _menuItems.DecrementStockAsync(orderItem.ItemName, orderItem.Quantity, "Sale", "Order", order.Id);
                                 _logger.LogInformation("Decremented stock for {Item} by {Qty}", orderItem.ItemName, orderItem.Quantity);
                             }
                             catch (Exception ex)

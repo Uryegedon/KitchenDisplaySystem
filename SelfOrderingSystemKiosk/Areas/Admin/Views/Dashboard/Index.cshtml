@@ -3,7 +3,7 @@
     var todayRevenue = ViewBag.TodaysRevenue != null ? (decimal)ViewBag.TodaysRevenue : 0m;
     var todayRevenueDineIn = ViewBag.TodaysRevenueDineIn != null ? (decimal)ViewBag.TodaysRevenueDineIn : 0m;
     var todayRevenueTakeOut = ViewBag.TodaysRevenueTakeOut != null ? (decimal)ViewBag.TodaysRevenueTakeOut : 0m;
-    var lowStockItemsList = ViewBag.LowStockList as List<SelfOrderingSystemKiosk.Models.InventoryItem> ?? new List<SelfOrderingSystemKiosk.Models.InventoryItem>();
+    var lowStockItemsList = ViewBag.LowStockList as List<SelfOrderingSystemKiosk.Models.LowStockDashboardRow> ?? new List<SelfOrderingSystemKiosk.Models.LowStockDashboardRow>();
     var todayRevenueAlaCarte = ViewBag.TodaysRevenueAlaCarte != null ? (decimal)ViewBag.TodaysRevenueAlaCarte : 0m;
     var todayRevenueUnlimited = ViewBag.TodaysRevenueUnlimited != null ? (decimal)ViewBag.TodaysRevenueUnlimited : 0m;
 }
@@ -63,14 +63,17 @@
                         @foreach (var item in lowStockItemsList)
                         {
                             <div class="lowstock-row">
-                                <div class="lowstock-name">@item.Item</div>
+                                <div class="lowstock-name">
+                                    @item.Name
+                                    <span class="pill muted" style="margin-left:8px;font-size:0.75rem;">@item.Kind</span>
+                                </div>
                                 <div class="lowstock-meta">
                                     <span class="pill warning">Stock: @item.CurrentStock</span>
                                     <span class="pill muted">Reorder at @item.ReorderLevel</span>
                                 </div>
                                 <div class="lowstock-actions" style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
                                     <input type="number" id="restock-qty-@item.Id" min="1" value="10" style="width: 80px; padding: 6px; border: 1px solid #f0d7bf; border-radius: 6px; font-size: 0.9em;" />
-                                    <button type="button" class="btn-restock" onclick="restockItem('@item.Id', '@item.Item')" style="padding: 6px 12px; background: #27ae60; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9em; font-weight: 600;">Restock</button>
+                                    <button type="button" class="btn-restock" data-item-name="@item.Name" onclick="restockItem('@item.Id', this.dataset.itemName)" style="padding: 6px 12px; background: #27ae60; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9em; font-weight: 600;">Restock</button>
                                 </div>
                             </div>
                         }

@@ -11,7 +11,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
     public class KioskController : Controller
     {
         private readonly OrderService _orderService;
-        private readonly StockService _stockService;
+        private readonly MenuItemService _menuItems;
         private readonly MenuCategoryRegistry _menuCategories;
         private readonly ILogger<KioskController> _logger;
 
@@ -22,10 +22,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private const string OrderChannelKiosk = "Kiosk";
         private const string OrderChannelQr = "Qr";
 
-        public KioskController(OrderService orderService, StockService stockService, MenuCategoryRegistry menuCategories, ILogger<KioskController> logger)
+        public KioskController(OrderService orderService, MenuItemService menuItems, MenuCategoryRegistry menuCategories, ILogger<KioskController> logger)
         {
             _orderService = orderService;
-            _stockService = stockService;
+            _menuItems = menuItems;
             _menuCategories = menuCategories;
             _logger = logger;
         }
@@ -154,7 +154,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             ViewBag.ExperienceType = "AlaCarte";
             ViewBag.IsReorder = isReorder;
             // Only show available items from Stock collection
-            var items = await _stockService.GetAvailableAsync() ?? new List<InventoryItem>();
+            var items = await _menuItems.GetAvailableAsync() ?? new List<MenuItem>();
             ViewBag.MenuCategories = _menuCategories.KioskTabs;
             ApplyOrderingSessionToViewBag();
             return View(items);
@@ -186,7 +186,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             }
             
             // Only show available items from Stock collection
-            var items = await _stockService.GetAvailableAsync() ?? new List<InventoryItem>();
+            var items = await _menuItems.GetAvailableAsync() ?? new List<MenuItem>();
             ViewBag.MenuCategories = _menuCategories.KioskTabs;
             ApplyOrderingSessionToViewBag();
             return View(items);

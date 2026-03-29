@@ -1,19 +1,21 @@
-@model IEnumerable<SelfOrderingSystemKiosk.Models.InventoryItem>
+@model IEnumerable<SelfOrderingSystemKiosk.Models.MenuItem>
 @using SelfOrderingSystemKiosk.Models
+@using SelfOrderingSystemKiosk.Services
 @{
-    ViewData["Title"] = "Menu & Inventory Management";
+    ViewData["Title"] = "Menu (foods)";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     var menuCats = ViewBag.MenuCategories as IEnumerable<MenuCategoryOption>;
     var menuFormCats = ViewBag.MenuCategoryFormList as IEnumerable<MenuCategoryOption>;
+    var foodCats = ViewBag.FoodCategories as IEnumerable<string> ?? FoodCategoryRegistry.All;
     var catFilter = ViewBag.CategoryFilter as string ?? "all";
 }
 
 <div class="content">
     <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">
         <div>
-            <p style="margin-top: 0;">Manage menu items, inventory, prices, and availability all in one place.</p>
+            <p style="margin-top: 0;">Sellable dishes shown on the kiosk (stored in <strong>MenuItems</strong>). Ingredients are under <a asp-area="Admin" asp-controller="Inventory" asp-action="Index">Ingredients</a>.</p>
             <p style="color: #666; font-size: 0.9em; margin-top: 5px;">
-                <i class="bi bi-info-circle"></i> Showing items from MongoDB Stock collection. Rows with availability <strong>Unavailable</strong> sort to the bottom. Use category <strong>Unavailable</strong> or the switch to hide items from the kiosk instead of deleting.
+                <i class="bi bi-info-circle"></i> Kiosk tab = Wings / Appetizer / Add-Ons. Food type = chicken, shrimp, etc. Unavailable rows sort to the bottom.
             </p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
@@ -29,7 +31,7 @@
     }
 
     <form method="get" asp-area="Admin" asp-controller="Menu" asp-action="Index" style="margin-bottom: 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <label for="categoryFilter" style="font-weight: 600; margin: 0;">Category</label>
+        <label for="categoryFilter" style="font-weight: 600; margin: 0;">Kiosk tab</label>
         <select name="categoryFilter" id="categoryFilter" onchange="this.form.submit()" style="padding: 8px 12px; min-width: 220px; border: 2px solid #ddd; border-radius: 5px;">
             @if (catFilter == "all")
             {
@@ -63,7 +65,8 @@
                 <thead>
                     <tr>
                         <th>Menu Item</th>
-                        <th>Category</th>
+                        <th>Kiosk tab</th>
+                        <th>Food type</th>
                         <th>Price (₱)</th>
                         <th>Stock</th>
                         <th>Status</th>
@@ -85,6 +88,7 @@
                                 </div>
                             </td>
                             <td>@i.Category</td>
+                            <td>@(i.FoodCategory ?? "—")</td>
                             <td>₱@i.Price.ToString("0.00")</td>
                             <td>
                                 <span class="@(i.CurrentStock <= i.ReorderLevel ? "text-danger" : "text-success")">
@@ -123,6 +127,7 @@
                                             data-unit="@i.Unit"
                                             data-reorder="@i.ReorderLevel"
                                             data-menuorder="@i.MenuOrder"
+                                            data-foodcategory="@i.FoodCategory"
                                             data-availability="@i.Availability"
                                             data-image="@i.Image">
                                         Edit
@@ -426,7 +431,7 @@
     }
 
     // Edit Modal Functions
-    function openEditModal(id, name, category, price, stock, unit, reorderLevel, menuOrder, availability, image) {
+    function openEditModal(id, name, category, foodCategory, price, stock, unit, reorderLevel, menuOrder, availability, image) {
         try {
             const modal = document.getElementById('editItemModal');
             if (!modal) {
@@ -458,6 +463,8 @@
             if (reorderField) reorderField.value = reorderLevel || '10';
             const menuOrderField = document.getElementById('editMenuOrder');
             if (menuOrderField) menuOrderField.value = menuOrder !== undefined && menuOrder !== null && menuOrder !== '' ? menuOrder : '0';
+            const foodCatField = document.getElementById('editFoodCategory');
+            if (foodCatField) foodCatField.value = foodCategory || '';
             if (availabilityField) availabilityField.value = availability || 'Available';
             if (imageField) imageField.value = image || '';
             
@@ -492,6 +499,7 @@
                 id,
                 name,
                 button.getAttribute('data-category'),
+                button.getAttribute('data-foodcategory'),
                 button.getAttribute('data-price'),
                 button.getAttribute('data-stock'),
                 button.getAttribute('data-unit'),
@@ -583,7 +591,7 @@
             
             <div class="form-row">
                 <div class="form-group">
-                    <label>Category *</label>
+                    <label>Kiosk tab *</label>
                     <select name="category" required>
                         @if (menuCats != null)
                         {
@@ -598,6 +606,16 @@
                     <label>Price (₱) *</label>
                     <input type="number" step="0.01" name="price" placeholder="0.00" required min="0" />
                 </div>
+            </div>
+            <div class="form-group">
+                <label>Food type</label>
+                <select name="foodCategory">
+                    <option value="">— Optional —</option>
+                    @foreach (var fc in foodCats)
+                    {
+                        <option value="@fc">@fc</option>
+                    }
+                </select>
             </div>
 
             <div class="form-group">
@@ -677,7 +695,7 @@
             
             <div class="form-row">
                 <div class="form-group">
-                    <label>Category *</label>
+                    <label>Kiosk tab *</label>
                     <select name="Category" id="editCategory" required>
                         @if (menuFormCats != null)
                         {
@@ -699,6 +717,16 @@
                     <label>Price (₱) *</label>
                     <input type="number" step="0.01" name="Price" id="editPrice" placeholder="0.00" required min="0" />
                 </div>
+            </div>
+            <div class="form-group">
+                <label>Food type</label>
+                <select name="FoodCategory" id="editFoodCategory">
+                    <option value="">— Optional —</option>
+                    @foreach (var fc in foodCats)
+                    {
+                        <option value="@fc">@fc</option>
+                    }
+                </select>
             </div>
 
             <div class="form-group">

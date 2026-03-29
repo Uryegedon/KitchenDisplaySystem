@@ -68,7 +68,10 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
 // Each service gets the database itself internally
 builder.Services.AddSingleton<StockMovementService>();
 builder.Services.AddSingleton<MenuCategoryRegistry>();
-builder.Services.AddSingleton<StockService>();
+builder.Services.AddSingleton<FoodCategoryRegistry>();
+builder.Services.AddSingleton<IngredientCategoryRegistry>();
+builder.Services.AddSingleton<MenuItemService>();
+builder.Services.AddSingleton<IngredientStockService>();
 builder.Services.AddSingleton<UserService>();
 builder.Services.AddSingleton<AuthService>();
 
@@ -79,6 +82,7 @@ builder.Services.AddSingleton<QrCodeService>();
 builder.Services.AddScoped<ChickenService>();
 
 builder.Services.AddHostedService<OrderIndexesHostedService>();
+builder.Services.AddHostedService<MenuAndIngredientsBootstrapHostedService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>

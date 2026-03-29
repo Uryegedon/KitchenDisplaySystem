@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
 
 namespace SelfOrderingSystemKiosk.Controllers
@@ -8,12 +9,14 @@ namespace SelfOrderingSystemKiosk.Controllers
     [Authorize(Roles = "Admin,Kitchen")]
     public class DashboardController : Controller
     {
-        private readonly StockService _stockService;
+        private readonly MenuItemService _menuItems;
+        private readonly IngredientStockService _ingredients;
         private readonly OrderService _orderService;
 
-        public DashboardController(StockService stockService, OrderService orderService)
+        public DashboardController(MenuItemService menuItems, IngredientStockService ingredients, OrderService orderService)
         {
-            _stockService = stockService;
+            _menuItems = menuItems;
+            _ingredients = ingredients;
             _orderService = orderService;
         }
 
@@ -21,47 +24,63 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             ViewData["Title"] = "Admin dashboard";
 
-            var allMenuItems = await _stockService.GetAllAsync();
+            var menuList = await _menuItems.GetAllAsync();
+            var ingredientList = await _ingredients.GetAllAsync();
 
-            var totalMenuItems = allMenuItems?.Count ?? 0;
-            var totalInventoryItems = allMenuItems?.Count ?? 0;
+            ViewBag.TotalMenuItems = menuList?.Count ?? 0;
+            ViewBag.TotalInventoryItems = ingredientList?.Count ?? 0;
 
-            var lowStockList = allMenuItems?
-                .Where(i => i.CurrentStock <= i.ReorderLevel)
-                .OrderBy(i => i.Item)
-                .ToList() ?? new List<SelfOrderingSystemKiosk.Models.InventoryItem>();
+            var lowRows = new List<LowStockDashboardRow>();
+            if (menuList != null)
+            {
+                lowRows.AddRange(menuList
+                    .Where(i => i.CurrentStock <= i.ReorderLevel)
+                    .Select(m => new LowStockDashboardRow
+                    {
+                        Id = m.Id,
+                        Name = m.Item ?? "",
+                        Kind = "Menu",
+                        CurrentStock = m.CurrentStock,
+                        ReorderLevel = m.ReorderLevel
+                    }));
+            }
 
-            var lowStockItems = lowStockList.Count;
+            if (ingredientList != null)
+            {
+                lowRows.AddRange(ingredientList
+                    .Where(i => i.CurrentStock <= i.ReorderLevel)
+                    .Select(g => new LowStockDashboardRow
+                    {
+                        Id = g.Id,
+                        Name = g.Item ?? "",
+                        Kind = "Ingredient",
+                        CurrentStock = g.CurrentStock,
+                        ReorderLevel = g.ReorderLevel
+                    }));
+            }
+
+            lowRows = lowRows.OrderBy(r => r.Kind).ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            ViewBag.LowStockList = lowRows;
+            ViewBag.LowStockItems = lowRows.Count;
 
             var todayStart = DateTime.UtcNow.Date;
             var todayEnd = todayStart.AddDays(1);
             var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd);
 
-            var todaysSales = todayOrders.Count;
-            var todaysRevenue = todayOrders.Where(o => o.Total > 0).Sum(o => o.Total);
-            var todaysRevenueAlaCarte = todayOrders
+            ViewBag.TodaysSales = todayOrders.Count;
+            ViewBag.TodaysRevenue = todayOrders.Where(o => o.Total > 0).Sum(o => o.Total);
+            ViewBag.TodaysRevenueAlaCarte = todayOrders
                 .Where(o => (o.OrderType ?? "AlaCarte") == "AlaCarte" && o.Total > 0)
                 .Sum(o => o.Total);
-            var todaysRevenueUnlimited = todayOrders
+            ViewBag.TodaysRevenueUnlimited = todayOrders
                 .Where(o => o.OrderType == "Unlimited" && o.Total > 0)
                 .Sum(o => o.Total);
-            var todaysRevenueDineIn = todayOrders
+            ViewBag.TodaysRevenueDineIn = todayOrders
                 .Where(o => (o.DiningType ?? "DineIn") == "DineIn" && o.Total > 0)
                 .Sum(o => o.Total);
-            var todaysRevenueTakeOut = todayOrders
+            ViewBag.TodaysRevenueTakeOut = todayOrders
                 .Where(o => o.DiningType == "TakeOut" && o.Total > 0)
                 .Sum(o => o.Total);
-
-            ViewBag.TotalMenuItems = totalMenuItems;
-            ViewBag.TotalInventoryItems = totalInventoryItems;
-            ViewBag.LowStockItems = lowStockItems;
-            ViewBag.LowStockList = lowStockList;
-            ViewBag.TodaysSales = todaysSales;
-            ViewBag.TodaysRevenue = todaysRevenue;
-            ViewBag.TodaysRevenueAlaCarte = todaysRevenueAlaCarte;
-            ViewBag.TodaysRevenueUnlimited = todaysRevenueUnlimited;
-            ViewBag.TodaysRevenueDineIn = todaysRevenueDineIn;
-            ViewBag.TodaysRevenueTakeOut = todaysRevenueTakeOut;
 
             return View();
         }
@@ -72,16 +91,27 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             try
             {
-                var item = await _stockService.GetByIdAsync(id);
-                if (item == null)
-                    return Json(new { success = false, message = "Item not found." });
+                var menu = await _menuItems.GetByIdAsync(id);
+                if (menu != null)
+                {
+                    var ok = await _menuItems.IncreaseStockAsync(id, quantity, "Dashboard", null, "Dashboard restock");
+                    if (!ok)
+                        return Json(new { success = false, message = "Could not restock menu item." });
+                    var updated = await _menuItems.GetByIdAsync(id);
+                    return Json(new { success = true, message = $"Restocked {updated?.Item} by {quantity}. New stock: {updated?.CurrentStock}" });
+                }
 
-                var ok = await _stockService.IncreaseStockAsync(id, quantity, "Dashboard", null, "Dashboard restock");
-                if (!ok)
-                    return Json(new { success = false, message = "Could not restock." });
+                var ing = await _ingredients.GetByIdAsync(id);
+                if (ing != null)
+                {
+                    var ok = await _ingredients.IncreaseStockAsync(id, quantity, "Dashboard", null, "Dashboard restock");
+                    if (!ok)
+                        return Json(new { success = false, message = "Could not restock ingredient." });
+                    var updated = await _ingredients.GetByIdAsync(id);
+                    return Json(new { success = true, message = $"Restocked {updated?.Item} by {quantity}. New stock: {updated?.CurrentStock}" });
+                }
 
-                var updated = await _stockService.GetByIdAsync(id);
-                return Json(new { success = true, message = $"Successfully restocked {updated?.Item} by {quantity}. New stock: {updated?.CurrentStock}" });
+                return Json(new { success = false, message = "Item not found." });
             }
             catch (Exception ex)
             {

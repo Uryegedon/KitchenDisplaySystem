@@ -1,42 +1,73 @@
-@model IEnumerable<SelfOrderingSystemKiosk.Models.InventoryItem>
+@model IEnumerable<SelfOrderingSystemKiosk.Models.IngredientItem>
+@using SelfOrderingSystemKiosk.Services
 @{
-    ViewData["Title"] = "Inventory Management";
+    ViewData["Title"] = "Ingredients inventory";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+    var catFilter = ViewBag.CategoryFilter as string ?? "all";
+    var categories = IngredientCategoryRegistry.All;
 }
 
 <div class="content fade-in">
-    <div class="header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
         <div>
-            <p style="margin-top: 0;">Monitor and manage your stock efficiently. Showing data from MongoDB Stock collection.</p>
+            <p style="margin-top: 0;">Kitchen ingredients (not shown on the customer kiosk). Data is in MongoDB collection <strong>Ingredients</strong>.</p>
             @if (ViewBag.ItemCount != null)
             {
-                <p style="color: #666; font-size: 0.9em;">Total items in Stock: <strong>@ViewBag.ItemCount</strong></p>
+                <p style="color: #666; font-size: 0.9em;">Showing <strong>@ViewBag.ItemCount</strong> row(s) for this filter.</p>
             }
         </div>
-        <div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <a asp-area="Admin" asp-controller="Menu" asp-action="Index" class="btn btn-add" style="text-decoration: none; display: inline-block; padding: 12px 25px; font-size: 1rem;">
-                <i class="bi bi-arrow-left"></i> Back to Menu Management
+                <i class="bi bi-arrow-left"></i> Menu (foods)
             </a>
         </div>
     </div>
 
-    <!-- Add Form -->
+    <form method="get" asp-area="Admin" asp-controller="Inventory" asp-action="Index" style="margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <label for="categoryFilter" style="font-weight: 600; margin: 0;">Category</label>
+        <select name="categoryFilter" id="categoryFilter" onchange="this.form.submit()" style="padding: 8px 12px; min-width: 260px; border: 2px solid #ddd; border-radius: 5px;">
+            @if (catFilter == "all")
+            {
+                <option value="all" selected>All categories</option>
+            }
+            else
+            {
+                <option value="all">All categories</option>
+            }
+            @foreach (var c in categories)
+            {
+                if (catFilter == c)
+                {
+                    <option value="@c" selected>@c</option>
+                }
+                else
+                {
+                    <option value="@c">@c</option>
+                }
+            }
+        </select>
+    </form>
+
     <div class="inventory-form" style="margin-bottom:1rem;">
-        <h2>Add New Item</h2>
-        <form method="post" asp-action="Add" onsubmit="return confirmAction('Add this new item?')">
+        <h2>Add ingredient</h2>
+        <form method="post" asp-action="Add" onsubmit="return confirmAction('Add this ingredient?')">
             <div class="form-row-horizontal" style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;">
-                <input type="text" name="item" placeholder="Item Name" required />
-                <input type="text" name="category" placeholder="Category" required />
-                <input type="number" name="stock" placeholder="Current Stock" required />
-                <input type="text" name="unit" placeholder="Unit (e.g. pcs, kg)" required />
-                <input type="number" step="0.01" name="price" placeholder="Price" required />
-                <input type="number" name="reorderLevel" placeholder="Reorder Level" required />
-                <button type="submit" class="btn btn-add">Add Item</button>
+                <input type="text" name="item" placeholder="Name" required />
+                <select name="ingredientCategory" required style="padding: 8px; min-width: 200px;">
+                    <option value="">— Category —</option>
+                    @foreach (var c in categories)
+                    {
+                        <option value="@c">@c</option>
+                    }
+                </select>
+                <input type="number" name="stock" placeholder="Current stock" value="0" required />
+                <input type="text" name="unit" placeholder="Unit (g, ml, pcs)" value="g" required />
+                <input type="number" name="reorderLevel" placeholder="Reorder level" value="10" required />
+                <button type="submit" class="btn btn-add">Add</button>
             </div>
         </form>
     </div>
 
-    <!-- Table -->
     <div class="table-container" id="inventoryTableContainer" style="margin-top:0; max-height: 600px !important; overflow-y: auto !important; overflow-x: auto !important;">
         @if (Model != null && Model.Any())
         {
@@ -55,13 +86,10 @@
                         <th class="sortable" data-column="unit" onclick="sortTable(3, 'unit'); return false;" style="cursor: pointer;">
                             Unit <span class="sort-icon" style="margin-left: 5px;">⇅</span>
                         </th>
-                        <th class="sortable" data-column="price" onclick="sortTable(4, 'price'); return false;" style="cursor: pointer;">
-                            Price <span class="sort-icon" style="margin-left: 5px;">⇅</span>
+                        <th class="sortable" data-column="reorder" onclick="sortTable(4, 'reorder'); return false;" style="cursor: pointer;">
+                            Reorder <span class="sort-icon" style="margin-left: 5px;">⇅</span>
                         </th>
-                        <th class="sortable" data-column="reorder" onclick="sortTable(5, 'reorder'); return false;" style="cursor: pointer;">
-                            Reorder Level <span class="sort-icon" style="margin-left: 5px;">⇅</span>
-                        </th>
-                        <th class="sortable" data-column="status" onclick="sortTable(6, 'status'); return false;" style="cursor: pointer;">
+                        <th class="sortable" data-column="status" onclick="sortTable(5, 'status'); return false;" style="cursor: pointer;">
                             Status <span class="sort-icon" style="margin-left: 5px;">⇅</span>
                         </th>
                         <th>Actions</th>
@@ -72,10 +100,9 @@
                     {
                         <tr>
                             <td data-sort-value="@i.Item.ToLower()">@i.Item</td>
-                            <td data-sort-value="@i.Category.ToLower()">@i.Category</td>
+                            <td data-sort-value="@i.IngredientCategory.ToLower()">@i.IngredientCategory</td>
                             <td data-sort-value="@i.CurrentStock">@i.CurrentStock</td>
                             <td data-sort-value="@i.Unit.ToLower()">@i.Unit</td>
-                            <td data-sort-value="@i.Price">₱@i.Price.ToString("0.00")</td>
                             <td data-sort-value="@i.ReorderLevel">@i.ReorderLevel</td>
                             <td data-sort-value="@i.Status.ToLower()">
                                 @if (i.Status == "Low Stock")
@@ -92,8 +119,11 @@
                                 }
                             </td>
                             <td>
-                                <div class="action-buttons">
-                                    <a asp-action="Edit" asp-route-id="@i.Id" class="btn btn-edit" onclick="return confirmAction('Edit this item?')">Edit</a>
+                                <div class="action-buttons" style="display:flex; gap:6px; flex-wrap:wrap;">
+                                    <a asp-action="Edit" asp-route-id="@i.Id" class="btn btn-edit">Edit</a>
+                                    <form asp-area="Admin" asp-controller="Inventory" asp-action="Delete" asp-route-id="@i.Id" method="post" style="display:inline;" onsubmit="return confirm('Delete this ingredient?');">
+                                        <button type="submit" class="btn btn-delete" style="padding:6px 12px;">Delete</button>
+                                    </form>
                                 </div>
                             </td>
                         </tr>
@@ -103,12 +133,11 @@
         }
         else
         {
-            <p class="no-data">No inventory items found.</p>
+            <p class="no-data">No ingredients for this filter.</p>
         }
     </div>
 </div>
 
-<!-- Success Message -->
 @if (TempData["Message"] != null)
 {
     <div id="successPopup" class="confirm-popup active">
@@ -121,12 +150,10 @@
 
 @section Scripts {
     <script>
-        // Confirmation popup logic
         function confirmAction(message) {
             return confirm(message);
         }
 
-        // Auto-close success popup
         document.addEventListener("DOMContentLoaded", function () {
             const popup = document.getElementById("successPopup");
             const closeBtn = document.getElementById("closePopup");
@@ -136,38 +163,18 @@
             }
         });
 
-        // Sorting functionality
         let currentSortColumn = -1;
         let currentSortDirection = 'asc';
 
         function sortTable(columnIndex, columnType) {
-            console.log('sortTable called:', columnIndex, columnType);
-            
             const table = document.getElementById('inventoryTable');
-            if (!table) {
-                console.error('Table not found');
-                alert('Table not found. Please refresh the page.');
-                return;
-            }
-            
+            if (!table) return;
             const tbody = document.getElementById('inventoryTableBody');
-            if (!tbody) {
-                console.error('Table body not found');
-                alert('Table body not found. Please refresh the page.');
-                return;
-            }
-            
+            if (!tbody) return;
             const rows = Array.from(tbody.querySelectorAll('tr'));
-            if (rows.length === 0) {
-                console.warn('No rows to sort');
-                return;
-            }
-            
-            console.log('Found', rows.length, 'rows to sort');
-            
+            if (rows.length === 0) return;
             const headers = table.querySelectorAll('thead th');
 
-            // Remove sort indicators from all headers
             headers.forEach(header => {
                 const icon = header.querySelector('.sort-icon');
                 if (icon) {
@@ -176,7 +183,6 @@
                 }
             });
 
-            // Toggle sort direction if clicking the same column
             if (currentSortColumn === columnIndex) {
                 currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
             } else {
@@ -184,7 +190,6 @@
                 currentSortColumn = columnIndex;
             }
 
-            // Update sort indicator
             const currentHeader = headers[columnIndex];
             if (currentHeader) {
                 const currentIcon = currentHeader.querySelector('.sort-icon');
@@ -194,39 +199,26 @@
                 }
             }
 
-            // Sort rows
             rows.sort((a, b) => {
                 const aCell = a.cells[columnIndex];
                 const bCell = b.cells[columnIndex];
-                
                 if (!aCell || !bCell) return 0;
-                
                 const aValue = aCell.getAttribute('data-sort-value') || aCell.textContent.trim();
                 const bValue = bCell.getAttribute('data-sort-value') || bCell.textContent.trim();
-
                 let comparison = 0;
-
-                // Handle numeric sorting for stock, price, and reorder level
-                if (columnType === 'stock' || columnType === 'price' || columnType === 'reorder') {
+                if (columnType === 'stock' || columnType === 'reorder') {
                     const aNum = parseFloat(aValue) || 0;
                     const bNum = parseFloat(bValue) || 0;
                     comparison = aNum - bNum;
                 } else {
-                    // String sorting
                     comparison = aValue.localeCompare(bValue, undefined, { sensitivity: 'base' });
                 }
-
                 return currentSortDirection === 'asc' ? comparison : -comparison;
             });
 
-            // Remove all rows from tbody
             rows.forEach(row => {
-                if (row.parentNode === tbody) {
-                    tbody.removeChild(row);
-                }
+                if (row.parentNode === tbody) tbody.removeChild(row);
             });
-
-            // Append sorted rows
             rows.forEach(row => tbody.appendChild(row));
         }
     </script>
