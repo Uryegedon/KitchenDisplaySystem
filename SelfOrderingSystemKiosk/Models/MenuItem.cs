@@ -44,5 +44,9 @@ namespace SelfOrderingSystemKiosk.Models
 
         [BsonElement("Image")]
         public string Image { get; set; } = "/images/wings.png";
+
+        /// <summary>Ingredients deducted when this dish is sold (kitchen stock).</summary>
+        [BsonElement("recipe")]
+        public List<MenuRecipeLine>? Recipe { get; set; }
     }
 }

@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "e:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\SelfOrderingSystemKiosk.csproj": {}
+    "E:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\SelfOrderingSystemKiosk.csproj": {}
   },
   "projects": {
-    "e:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\SelfOrderingSystemKiosk.csproj": {
+    "E:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\SelfOrderingSystemKiosk.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "e:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\SelfOrderingSystemKiosk.csproj",
+        "projectUniqueName": "E:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\SelfOrderingSystemKiosk.csproj",
         "projectName": "SelfOrderingSystemKiosk",
-        "projectPath": "e:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\SelfOrderingSystemKiosk.csproj",
+        "projectPath": "E:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\SelfOrderingSystemKiosk.csproj",
         "packagesPath": "C:\\Users\\Nyak\\.nuget\\packages\\",
-        "outputPath": "e:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\obj\\",
+        "outputPath": "E:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

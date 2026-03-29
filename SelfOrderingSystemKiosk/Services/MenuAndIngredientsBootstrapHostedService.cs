@@ -82,7 +82,8 @@ namespace SelfOrderingSystemKiosk.Services
             Price = d.Price,
             Status = d.Status ?? "In Stock",
             Availability = string.IsNullOrEmpty(d.Availability) ? "Available" : d.Availability,
-            Image = string.IsNullOrEmpty(d.Image) ? "/images/wings.png" : d.Image
+            Image = string.IsNullOrEmpty(d.Image) ? "/images/wings.png" : d.Image,
+            Recipe = null
         };
 
         private async Task SeedIngredientsIfNeededAsync(IMongoDatabase db, string ingCollection, CancellationToken ct)

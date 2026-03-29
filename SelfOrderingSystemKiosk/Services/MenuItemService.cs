@@ -8,14 +8,21 @@ namespace SelfOrderingSystemKiosk.Services
     {
         private readonly IMongoCollection<MenuItem> _collection;
         private readonly StockMovementService _movements;
+        private readonly IngredientStockService _ingredients;
         private readonly ILogger<MenuItemService> _logger;
 
-        public MenuItemService(IMongoClient mongoClient, IConfiguration config, StockMovementService movements, ILogger<MenuItemService> logger)
+        public MenuItemService(
+            IMongoClient mongoClient,
+            IConfiguration config,
+            StockMovementService movements,
+            IngredientStockService ingredients,
+            ILogger<MenuItemService> logger)
         {
             var dbName = config["KitchenDatabase:DatabaseName"] ?? "Kitchen";
             var collectionName = config["KitchenDatabase:MenuItemsCollectionName"] ?? "MenuItems";
             _collection = mongoClient.GetDatabase(dbName).GetCollection<MenuItem>(collectionName);
             _movements = movements;
+            _ingredients = ingredients;
             _logger = logger;
         }
 
@@ -142,6 +149,32 @@ namespace SelfOrderingSystemKiosk.Services
                     ReferenceId = referenceId,
                     Note = null
                 });
+            }
+
+            if (item.Recipe is { Count: > 0 })
+            {
+                foreach (var line in item.Recipe)
+                {
+                    if (string.IsNullOrWhiteSpace(line.IngredientId) || line.QuantityPerUnit <= 0)
+                        continue;
+                    var total = (long)line.QuantityPerUnit * quantity;
+                    var useQty = total > int.MaxValue ? int.MaxValue : (int)total;
+                    if (useQty <= 0)
+                        continue;
+                    try
+                    {
+                        await _ingredients.DecrementForSaleAsync(
+                            line.IngredientId.Trim(),
+                            useQty,
+                            item.Item ?? itemName,
+                            referenceType ?? "Order",
+                            referenceId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Recipe decrement failed for menu {Menu} ingredient {IngredientId}", itemName, line.IngredientId);
+                    }
+                }
             }
 
             return true;

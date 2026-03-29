@@ -1,5 +1,6 @@
 @model IEnumerable<SelfOrderingSystemKiosk.Models.IngredientItem>
 @using SelfOrderingSystemKiosk.Services
+@using System.Net
 @{
     ViewData["Title"] = "Ingredients inventory";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
@@ -7,10 +8,91 @@
     var categories = IngredientCategoryRegistry.All;
 }
 
+<style>
+    .inv-modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 10000;
+        justify-content: center;
+        align-items: center;
+    }
+    .inv-modal-overlay.active { display: flex; }
+    .inv-modal-content {
+        background: white;
+        padding: 28px;
+        border-radius: 15px;
+        max-width: 480px;
+        width: 92%;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    }
+    .inv-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #eee;
+    }
+    .inv-modal-header h2 { margin: 0; font-size: 1.35rem; color: #333; }
+    .inv-close {
+        background: none;
+        border: none;
+        font-size: 1.75rem;
+        cursor: pointer;
+        color: #999;
+        line-height: 1;
+    }
+    .inv-close:hover { color: #333; }
+    .inv-form-grid { display: flex; flex-direction: column; gap: 14px; }
+    .inv-form-grid label { font-weight: 600; color: #555; font-size: 0.95rem; }
+    .inv-form-grid input, .inv-form-grid select {
+        width: 100%;
+        padding: 10px;
+        border: 2px solid #ddd;
+        border-radius: 5px;
+        font-size: 1rem;
+        margin-top: 4px;
+        box-sizing: border-box;
+    }
+    .inv-form-grid input:focus, .inv-form-grid select:focus {
+        outline: none;
+        border-color: #ff6b35;
+    }
+    .inv-modal-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 22px;
+        padding-top: 16px;
+        border-top: 1px solid #eee;
+    }
+    .inv-btn-cancel {
+        padding: 10px 18px;
+        background: #6c757d;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    .inv-btn-save {
+        padding: 10px 18px;
+        background: #e67e22;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: 600;
+    }
+</style>
+
 <div class="content fade-in">
     <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
         <div>
-            <p style="margin-top: 0;">Kitchen ingredients (not shown on the customer kiosk). Data is in MongoDB collection <strong>Ingredients</strong>.</p>
+            <p style="margin-top: 0;">Kitchen ingredients. <strong>Ingredients</strong>.</p>
             @if (ViewBag.ItemCount != null)
             {
                 <p style="color: #666; font-size: 0.9em;">Showing <strong>@ViewBag.ItemCount</strong> row(s) for this filter.</p>
@@ -99,10 +181,10 @@
                     @foreach (var i in Model)
                     {
                         <tr>
-                            <td data-sort-value="@i.Item.ToLower()">@i.Item</td>
-                            <td data-sort-value="@i.IngredientCategory.ToLower()">@i.IngredientCategory</td>
+                            <td data-sort-value="@(i.Item ?? "").ToLower()">@i.Item</td>
+                            <td data-sort-value="@(i.IngredientCategory ?? "").ToLower()">@i.IngredientCategory</td>
                             <td data-sort-value="@i.CurrentStock">@i.CurrentStock</td>
-                            <td data-sort-value="@i.Unit.ToLower()">@i.Unit</td>
+                            <td data-sort-value="@(i.Unit ?? "").ToLower()">@i.Unit</td>
                             <td data-sort-value="@i.ReorderLevel">@i.ReorderLevel</td>
                             <td data-sort-value="@i.Status.ToLower()">
                                 @if (i.Status == "Low Stock")
@@ -119,12 +201,16 @@
                                 }
                             </td>
                             <td>
-                                <div class="action-buttons" style="display:flex; gap:6px; flex-wrap:wrap;">
-                                    <a asp-action="Edit" asp-route-id="@i.Id" class="btn btn-edit">Edit</a>
-                                    <form asp-area="Admin" asp-controller="Inventory" asp-action="Delete" asp-route-id="@i.Id" method="post" style="display:inline;" onsubmit="return confirm('Delete this ingredient?');">
-                                        <button type="submit" class="btn btn-delete" style="padding:6px 12px;">Delete</button>
-                                    </form>
-                                </div>
+                                <button type="button"
+                                        class="btn btn-edit inv-edit-btn"
+                                        data-id="@i.Id"
+                                        data-item="@WebUtility.HtmlEncode(i.Item ?? "")"
+                                        data-category="@WebUtility.HtmlEncode(i.IngredientCategory ?? "")"
+                                        data-stock="@i.CurrentStock"
+                                        data-unit="@WebUtility.HtmlEncode(i.Unit ?? "")"
+                                        data-reorder="@i.ReorderLevel">
+                                    Edit
+                                </button>
                             </td>
                         </tr>
                     }
@@ -135,6 +221,42 @@
         {
             <p class="no-data">No ingredients for this filter.</p>
         }
+    </div>
+</div>
+
+<div class="inv-modal-overlay" id="invEditModal" aria-hidden="true">
+    <div class="inv-modal-content" role="dialog" aria-labelledby="invEditTitle">
+        <div class="inv-modal-header">
+            <h2 id="invEditTitle">Edit ingredient</h2>
+            <button type="button" class="inv-close" onclick="closeInvEditModal()" aria-label="Close">&times;</button>
+        </div>
+        <form asp-area="Admin" asp-controller="Inventory" asp-action="Edit" method="post" class="inv-form-grid" id="invEditForm">
+            <input type="hidden" name="Id" id="invEditId" />
+            <label>Name<br />
+                <input type="text" name="Item" id="invEditItem" required />
+            </label>
+            <label>Category<br />
+                <select name="IngredientCategory" id="invEditCategory" required>
+                    @foreach (var c in categories)
+                    {
+                        <option value="@c">@c</option>
+                    }
+                </select>
+            </label>
+            <label>Current stock<br />
+                <input type="number" name="CurrentStock" id="invEditStock" required />
+            </label>
+            <label>Unit<br />
+                <input type="text" name="Unit" id="invEditUnit" required />
+            </label>
+            <label>Reorder level<br />
+                <input type="number" name="ReorderLevel" id="invEditReorder" required />
+            </label>
+            <div class="inv-modal-actions">
+                <button type="button" class="inv-btn-cancel" onclick="closeInvEditModal()">Cancel</button>
+                <button type="submit" class="inv-btn-save">Save</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -153,6 +275,42 @@
         function confirmAction(message) {
             return confirm(message);
         }
+
+        function openInvEditModal(btn) {
+            const modal = document.getElementById('invEditModal');
+            if (!modal) return;
+            document.getElementById('invEditId').value = btn.getAttribute('data-id') || '';
+            document.getElementById('invEditItem').value = btn.getAttribute('data-item') || '';
+            document.getElementById('invEditCategory').value = btn.getAttribute('data-category') || '';
+            document.getElementById('invEditStock').value = btn.getAttribute('data-stock') || '0';
+            document.getElementById('invEditUnit').value = btn.getAttribute('data-unit') || '';
+            document.getElementById('invEditReorder').value = btn.getAttribute('data-reorder') || '10';
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeInvEditModal() {
+            const modal = document.getElementById('invEditModal');
+            if (!modal) return;
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
+        document.addEventListener('click', function (e) {
+            const b = e.target.closest('.inv-edit-btn');
+            if (b) {
+                e.preventDefault();
+                openInvEditModal(b);
+            }
+        });
+
+        document.getElementById('invEditModal')?.addEventListener('click', function (e) {
+            if (e.target === this) closeInvEditModal();
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeInvEditModal();
+        });
 
         document.addEventListener("DOMContentLoaded", function () {
             const popup = document.getElementById("successPopup");

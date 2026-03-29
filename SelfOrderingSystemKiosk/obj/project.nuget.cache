@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "+lYnTUDN1/A=",
+  "dgSpecHash": "Gsn49rC0sgs=",
   "success": true,
-  "projectFilePath": "e:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\SelfOrderingSystemKiosk.csproj",
+  "projectFilePath": "E:\\KitchenDisplaySystem\\SelfOrderingSystemKiosk\\SelfOrderingSystemKiosk.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Nyak\\.nuget\\packages\\bcrypt.net-next\\4.0.3\\bcrypt.net-next.4.0.3.nupkg.sha512",
     "C:\\Users\\Nyak\\.nuget\\packages\\dnsclient\\1.6.1\\dnsclient.1.6.1.nupkg.sha512",

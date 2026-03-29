@@ -56,28 +56,12 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Delete(string id)
-        {
-            await _ingredients.DeleteAsync(id);
-            TempData["Message"] = "Ingredient deleted.";
-            return RedirectToAction("Index");
-        }
-
-        public async Task<IActionResult> Edit(string id)
-        {
-            var item = await _ingredients.GetByIdAsync(id);
-            if (item == null) return RedirectToAction("Index");
-            ViewBag.IngredientCategories = IngredientCategoryRegistry.All;
-            return View(item);
-        }
-
-        [HttpPost]
         public async Task<IActionResult> Edit(IngredientItem updatedItem)
         {
             if (!_ingredientCategories.IsValid(updatedItem.IngredientCategory))
             {
                 TempData["Message"] = "Invalid ingredient category.";
-                return RedirectToAction("Edit", new { id = updatedItem.Id });
+                return RedirectToAction("Index");
             }
 
             var previous = await _ingredients.GetByIdAsync(updatedItem.Id);

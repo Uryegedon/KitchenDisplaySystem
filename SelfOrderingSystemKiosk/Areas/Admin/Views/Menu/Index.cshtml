@@ -6,8 +6,8 @@
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     var menuCats = ViewBag.MenuCategories as IEnumerable<MenuCategoryOption>;
     var menuFormCats = ViewBag.MenuCategoryFormList as IEnumerable<MenuCategoryOption>;
-    var foodCats = ViewBag.FoodCategories as IEnumerable<string> ?? FoodCategoryRegistry.All;
     var catFilter = ViewBag.CategoryFilter as string ?? "all";
+    var ingredientsForRecipe = ViewBag.Ingredients as IEnumerable<IngredientItem> ?? Array.Empty<IngredientItem>();
 }
 
 <div class="content">
@@ -15,7 +15,7 @@
         <div>
             <p style="margin-top: 0;">Sellable dishes shown on the kiosk (stored in <strong>MenuItems</strong>). Ingredients are under <a asp-area="Admin" asp-controller="Inventory" asp-action="Index">Ingredients</a>.</p>
             <p style="color: #666; font-size: 0.9em; margin-top: 5px;">
-                <i class="bi bi-info-circle"></i> Kiosk tab = Wings / Appetizer / Add-Ons. Food type = chicken, shrimp, etc. Unavailable rows sort to the bottom.
+                <i class="bi bi-info-circle"></i> Kiosk tab = Wings / Appetizer / Add-Ons. <strong>Recipe</strong> links each dish to ingredients: when the kitchen marks an order completed, those ingredient amounts are deducted (qty per <em>one</em> sold × line quantity in the order).
             </p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
@@ -71,6 +71,7 @@
                         <th>Stock</th>
                         <th>Status</th>
                         <th>Availability</th>
+                        <th>Recipe</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -115,6 +116,7 @@
                                     </span>
                                 </label>
                             </td>
+                            <td style="font-size:0.9em;">@(i.Recipe?.Count ?? 0) ingredient(s)</td>
                             <td>
                                 <div class="action-buttons">
                                     <button type="button"
@@ -123,12 +125,6 @@
                                             data-name="@i.Item"
                                             data-category="@i.Category"
                                             data-price="@i.Price"
-                                            data-stock="@i.CurrentStock"
-                                            data-unit="@i.Unit"
-                                            data-reorder="@i.ReorderLevel"
-                                            data-menuorder="@i.MenuOrder"
-                                            data-foodcategory="@i.FoodCategory"
-                                            data-availability="@i.Availability"
                                             data-image="@i.Image">
                                         Edit
                                     </button>
@@ -147,6 +143,12 @@
 </div>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+
+<script>
+    const RECIPE_JSON_URL = '@Url.Action("RecipeJson", "Menu", new { area = "Admin" })';
+    const INGREDIENT_OPTIONS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        ingredientsForRecipe.Select(x => new { id = x.Id, name = x.Item })));
+</script>
 
 <style>
     /* Availability Toggle Switch */
@@ -376,16 +378,85 @@
         });
     }
 
+    function clearRecipeContainer(containerId) {
+        const el = document.getElementById(containerId);
+        if (el) el.innerHTML = '';
+    }
+
+    function addRecipeRow(containerId, ingredientId = '', qty = '') {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const row = document.createElement('div');
+        row.className = 'recipe-row';
+        row.style.cssText = 'display:flex; gap:8px; margin-bottom:8px; align-items:center; flex-wrap:wrap;';
+
+        const sel = document.createElement('select');
+        sel.name = 'recipeIngredientId';
+        sel.style.cssText = 'flex:2; min-width:140px; padding:10px; border:2px solid #ddd; border-radius:5px;';
+        const opt0 = document.createElement('option');
+        opt0.value = '';
+        opt0.textContent = '— Ingredient —';
+        sel.appendChild(opt0);
+        (INGREDIENT_OPTIONS || []).forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = o.id;
+            opt.textContent = o.name;
+            if (o.id === ingredientId) opt.selected = true;
+            sel.appendChild(opt);
+        });
+
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.name = 'recipeQtyPerUnit';
+        inp.min = '0';
+        inp.value = (qty === '' || qty === null || qty === undefined) ? '0' : String(qty);
+        inp.placeholder = 'Qty / 1 sold';
+        inp.title = 'Amount in ingredient unit (g, ml, pcs) per one menu item';
+        inp.style.cssText = 'width:120px; padding:10px; border:2px solid #ddd; border-radius:5px;';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = '×';
+        btn.style.cssText = 'padding:8px 12px; background:#dc3545; color:white; border:none; border-radius:5px; cursor:pointer;';
+        btn.addEventListener('click', () => row.remove());
+
+        row.appendChild(sel);
+        row.appendChild(inp);
+        row.appendChild(btn);
+        container.appendChild(row);
+    }
+
+    async function loadRecipeForEdit(menuItemId) {
+        const container = document.getElementById('recipeLinesEdit');
+        if (!container || !menuItemId) return;
+        container.innerHTML = '';
+        try {
+            const r = await fetch(RECIPE_JSON_URL + '?id=' + encodeURIComponent(menuItemId));
+            const recipe = await r.json();
+            if (recipe && recipe.length > 0) {
+                recipe.forEach(line => addRecipeRow('recipeLinesEdit', line.ingredientId, line.quantityPerUnit));
+            } else {
+                addRecipeRow('recipeLinesEdit');
+            }
+        } catch (e) {
+            console.error(e);
+            addRecipeRow('recipeLinesEdit');
+        }
+    }
+
     // Modal Functions
     function openAddModal() {
         document.getElementById('addItemModal').classList.add('active');
         document.getElementById('addItemForm').reset();
+        clearRecipeContainer('recipeLinesAdd');
+        addRecipeRow('recipeLinesAdd');
     }
 
     function closeAddModal() {
         document.getElementById('addItemModal').classList.remove('active');
         document.getElementById('addItemForm').reset();
         clearImagePreview('addImageFile', 'addImagePreview');
+        clearRecipeContainer('recipeLinesAdd');
     }
 
     // Close modal when clicking outside
@@ -431,7 +502,7 @@
     }
 
     // Edit Modal Functions
-    function openEditModal(id, name, category, foodCategory, price, stock, unit, reorderLevel, menuOrder, availability, image) {
+    function openEditModal(id, name, category, price, image) {
         try {
             const modal = document.getElementById('editItemModal');
             if (!modal) {
@@ -441,31 +512,17 @@
             
             modal.classList.add('active');
             
-            // Populate form fields
             const idField = document.getElementById('editItemId');
             const nameField = document.getElementById('editItemName');
             const categoryField = document.getElementById('editCategory');
             const priceField = document.getElementById('editPrice');
-            const stockField = document.getElementById('editCurrentStock');
-            const unitField = document.getElementById('editUnit');
-            const reorderField = document.getElementById('editReorderLevel');
-            const availabilityField = document.getElementById('editAvailability');
             const imageField = document.getElementById('editItemImage');
             const currentImageImg = document.getElementById('editCurrentImageImg');
-            const currentImageDiv = document.getElementById('editCurrentImage');
             
             if (idField) idField.value = id || '';
             if (nameField) nameField.value = name || '';
             if (categoryField) categoryField.value = category || 'Wings';
             if (priceField) priceField.value = price || '0';
-            if (stockField) stockField.value = stock || '0';
-            if (unitField) unitField.value = unit || 'pcs';
-            if (reorderField) reorderField.value = reorderLevel || '10';
-            const menuOrderField = document.getElementById('editMenuOrder');
-            if (menuOrderField) menuOrderField.value = menuOrder !== undefined && menuOrder !== null && menuOrder !== '' ? menuOrder : '0';
-            const foodCatField = document.getElementById('editFoodCategory');
-            if (foodCatField) foodCatField.value = foodCategory || '';
-            if (availabilityField) availabilityField.value = availability || 'Available';
             if (imageField) imageField.value = image || '';
             
             // Show current image if exists
@@ -478,6 +535,9 @@
             
             // Clear any preview
             clearImagePreview('editImageFile', 'editImagePreview');
+
+            if (idField && idField.value)
+                loadRecipeForEdit(idField.value);
         } catch (error) {
             console.error('Error opening edit modal:', error);
             alert('Error opening edit form. Please refresh the page and try again.');
@@ -499,13 +559,7 @@
                 id,
                 name,
                 button.getAttribute('data-category'),
-                button.getAttribute('data-foodcategory'),
                 button.getAttribute('data-price'),
-                button.getAttribute('data-stock'),
-                button.getAttribute('data-unit'),
-                button.getAttribute('data-reorder'),
-                button.getAttribute('data-menuorder'),
-                button.getAttribute('data-availability'),
                 button.getAttribute('data-image')
             );
         }
@@ -520,6 +574,7 @@
                 form.reset();
             }
             clearImagePreview('editImageFile', 'editImagePreview');
+            clearRecipeContainer('recipeLinesEdit');
         }
     }
 
@@ -607,53 +662,12 @@
                     <input type="number" step="0.01" name="price" placeholder="0.00" required min="0" />
                 </div>
             </div>
-            <div class="form-group">
-                <label>Food type</label>
-                <select name="foodCategory">
-                    <option value="">— Optional —</option>
-                    @foreach (var fc in foodCats)
-                    {
-                        <option value="@fc">@fc</option>
-                    }
-                </select>
-            </div>
 
-            <div class="form-group">
-                <label>Menu order</label>
-                <input type="number" name="menuOrder" value="0" min="0" title="Higher numbers appear first on the kiosk" />
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Current Stock *</label>
-                    <input type="number" name="currentStock" placeholder="0" value="0" min="0" required />
-                </div>
-                <div class="form-group">
-                    <label>Unit *</label>
-                    <select name="unit" required>
-                        <option value="pcs" selected>pcs (pieces)</option>
-                        <option value="kg">kg (kilograms)</option>
-                        <option value="lbs">lbs (pounds)</option>
-                        <option value="oz">oz (ounces)</option>
-                        <option value="g">g (grams)</option>
-                        <option value="L">L (liters)</option>
-                        <option value="ml">ml (milliliters)</option>
-                    </select>
-                </div>
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Reorder Level *</label>
-                    <input type="number" name="reorderLevel" placeholder="10" value="10" min="0" required />
-                </div>
-                <div class="form-group">
-                    <label>Availability *</label>
-                    <select name="availability" required>
-                        <option value="Available" selected>Available</option>
-                        <option value="Unavailable">Unavailable</option>
-                    </select>
-                </div>
+            <div class="form-group" style="border-top:1px solid #eee; padding-top:16px; margin-top:8px;">
+                <label style="font-weight:700; color:#d35400;">Recipe (ingredients per 1 sold)</label>
+                <p style="font-size:0.85em; color:#666; margin:4px 0 10px;">When the kitchen completes an order: <code>quantityPerUnit × order qty</code> per ingredient. New items start at 0 stock; use the table availability toggle to show on the kiosk after restocking.</p>
+                <div id="recipeLinesAdd"></div>
+                <button type="button" class="btn-cancel" style="margin-top:6px;" onclick="addRecipeRow('recipeLinesAdd')">+ Add ingredient line</button>
             </div>
             
             <div class="modal-actions">
@@ -674,7 +688,7 @@
         </div>
         <form method="post" asp-action="Edit" id="editItemForm" class="modal-form" enctype="multipart/form-data">
             <input type="hidden" name="Id" id="editItemId" />
-            <input type="hidden" name="Image" id="editItemImage" />
+            <input type="hidden" name="Image" id="editItemImage" value="" />
             
             <div class="form-group">
                 <label>Menu Item Name *</label>
@@ -718,53 +732,12 @@
                     <input type="number" step="0.01" name="Price" id="editPrice" placeholder="0.00" required min="0" />
                 </div>
             </div>
-            <div class="form-group">
-                <label>Food type</label>
-                <select name="FoodCategory" id="editFoodCategory">
-                    <option value="">— Optional —</option>
-                    @foreach (var fc in foodCats)
-                    {
-                        <option value="@fc">@fc</option>
-                    }
-                </select>
-            </div>
 
-            <div class="form-group">
-                <label>Menu order</label>
-                <input type="number" name="MenuOrder" id="editMenuOrder" value="0" min="0" title="Higher numbers appear first on the kiosk" />
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Current Stock *</label>
-                    <input type="number" name="CurrentStock" id="editCurrentStock" placeholder="0" min="0" required />
-                </div>
-                <div class="form-group">
-                    <label>Unit *</label>
-                    <select name="Unit" id="editUnit" required>
-                        <option value="pcs">pcs (pieces)</option>
-                        <option value="kg">kg (kilograms)</option>
-                        <option value="lbs">lbs (pounds)</option>
-                        <option value="oz">oz (ounces)</option>
-                        <option value="g">g (grams)</option>
-                        <option value="L">L (liters)</option>
-                        <option value="ml">ml (milliliters)</option>
-                    </select>
-                </div>
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Reorder Level *</label>
-                    <input type="number" name="ReorderLevel" id="editReorderLevel" placeholder="10" min="0" required />
-                </div>
-                <div class="form-group">
-                    <label>Availability *</label>
-                    <select name="Availability" id="editAvailability" required>
-                        <option value="Available">Available</option>
-                        <option value="Unavailable">Unavailable</option>
-                    </select>
-                </div>
+            <div class="form-group" style="border-top:1px solid #eee; padding-top:16px; margin-top:8px;">
+                <label style="font-weight:700; color:#d35400;">Recipe (ingredients per 1 sold)</label>
+                <p style="font-size:0.85em; color:#666; margin:4px 0 10px;">Stock, unit, reorder, and kiosk availability stay unchanged here; edit them from the dashboard restock or the table toggle.</p>
+                <div id="recipeLinesEdit"></div>
+                <button type="button" class="btn-cancel" style="margin-top:6px;" onclick="addRecipeRow('recipeLinesEdit')">+ Add ingredient line</button>
             </div>
             
             <div class="modal-actions">

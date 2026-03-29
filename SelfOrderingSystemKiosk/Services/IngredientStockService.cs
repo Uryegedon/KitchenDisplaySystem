@@ -9,12 +9,67 @@ namespace SelfOrderingSystemKiosk.Services
     {
         private readonly IMongoCollection<IngredientItem> _collection;
         private readonly StockMovementService _movements;
-        public IngredientStockService(IMongoClient mongoClient, IConfiguration config, StockMovementService movements)
+        private readonly ILogger<IngredientStockService> _logger;
+
+        public IngredientStockService(
+            IMongoClient mongoClient,
+            IConfiguration config,
+            StockMovementService movements,
+            ILogger<IngredientStockService> logger)
         {
             var dbName = config["KitchenDatabase:DatabaseName"] ?? "Kitchen";
             var collectionName = config["KitchenDatabase:IngredientsCollectionName"] ?? "Ingredients";
             _collection = mongoClient.GetDatabase(dbName).GetCollection<IngredientItem>(collectionName);
             _movements = movements;
+            _logger = logger;
+        }
+
+        /// <summary>Decreases ingredient stock when a menu item is sold (recipe consumption).</summary>
+        public async Task<bool> DecrementForSaleAsync(
+            string ingredientId,
+            int quantity,
+            string menuItemName,
+            string? referenceType,
+            string? referenceId)
+        {
+            if (quantity <= 0)
+                return true;
+
+            var item = await GetByIdAsync(ingredientId);
+            if (item == null)
+            {
+                _logger.LogWarning("Recipe: ingredient id {Id} not found (menu item {Menu}).", ingredientId, menuItemName);
+                return false;
+            }
+
+            var oldStock = item.CurrentStock;
+            var newStock = Math.Max(0, oldStock - quantity);
+            var status = newStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
+
+            await _collection.UpdateOneAsync(
+                x => x.Id == ingredientId,
+                Builders<IngredientItem>.Update
+                    .Set(x => x.CurrentStock, newStock)
+                    .Set(x => x.Status, status));
+
+            var delta = newStock - oldStock;
+            if (delta != 0)
+            {
+                await _movements.InsertAsync(new StockMovement
+                {
+                    InventoryItemId = item.Id,
+                    ItemName = item.Item ?? "",
+                    QuantityDelta = delta,
+                    StockBefore = oldStock,
+                    StockAfter = newStock,
+                    Reason = "Sale",
+                    ReferenceType = referenceType ?? "Order",
+                    ReferenceId = referenceId,
+                    Note = $"Recipe: {menuItemName}"
+                });
+            }
+
+            return true;
         }
 
         public async Task<List<IngredientItem>> GetAllAsync()
