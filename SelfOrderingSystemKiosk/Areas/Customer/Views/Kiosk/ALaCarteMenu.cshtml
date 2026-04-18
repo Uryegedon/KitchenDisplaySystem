@@ -1,4 +1,5 @@
 @model IEnumerable<SelfOrderingSystemKiosk.Models.MenuItem>
+@inject SelfOrderingSystemKiosk.Services.KpItemsImageResolver KpImages
 @{
     ViewData["Title"] = "Ala Carte Menu";
     Layout = "~/Areas/Customer/Views/Shared/_Layout.cshtml";
@@ -59,16 +60,17 @@
             <div class="menu-scroll">
                 @foreach (var item in Model)
                 {
+                    var (menuLabel, displayImage) = KpImages.ResolveForMenu(item.Item, item.Image);
                     <div class="menu-row" data-category="@item.Category">
-                        <img src="@Url.Content(item.Image ?? "/images/wings.png")" alt="@item.Item" />
+                        <img src="@Url.Content(displayImage)" alt="@menuLabel" />
                         <div class="menu-details">
-                            <h4>@item.Item.ToUpper()</h4>
+                            <h4>@menuLabel.ToUpper()</h4>
                             <p>₱@item.Price.ToString("0.00")</p>
                         </div>
                         <button class="add-to-cart"
-                                data-name="@item.Item"
+                                data-name="@menuLabel"
                                 data-price="@item.Price"
-                                data-image="@Url.Content(item.Image)">
+                                data-image="@Url.Content(displayImage)">
                             Add to cart
                         </button>
                     </div>
@@ -269,7 +271,7 @@
         // Check if session is expired (client-side check)
         const expiredContainer = document.getElementById('session-timer-expired');
         if (expiredContainer && expiredContainer.style.display !== 'none') {
-            alert('Your 1-hour session has expired. Please start a new order.');
+            alert('Your 2-hour ordering window has expired. Please start a new order.');
             return;
         }
 

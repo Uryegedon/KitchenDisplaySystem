@@ -6,10 +6,23 @@
     var lowStockItemsList = ViewBag.LowStockList as List<SelfOrderingSystemKiosk.Models.LowStockDashboardRow> ?? new List<SelfOrderingSystemKiosk.Models.LowStockDashboardRow>();
     var todayRevenueAlaCarte = ViewBag.TodaysRevenueAlaCarte != null ? (decimal)ViewBag.TodaysRevenueAlaCarte : 0m;
     var todayRevenueUnlimited = ViewBag.TodaysRevenueUnlimited != null ? (decimal)ViewBag.TodaysRevenueUnlimited : 0m;
+    var todaySubtotal = ViewBag.TodaysSubtotal != null ? (decimal)ViewBag.TodaysSubtotal : 0m;
+    var todayTax = ViewBag.TodaysTax != null ? (decimal)ViewBag.TodaysTax : 0m;
+    var todayBillable = ViewBag.TodaysBillableCount != null ? (int)ViewBag.TodaysBillableCount : 0;
+    var cAc = ViewBag.TodaysCountAlaCarte != null ? (int)ViewBag.TodaysCountAlaCarte : 0;
+    var cUn = ViewBag.TodaysCountUnlimited != null ? (int)ViewBag.TodaysCountUnlimited : 0;
+    var cDi = ViewBag.TodaysCountDineIn != null ? (int)ViewBag.TodaysCountDineIn : 0;
+    var cTo = ViewBag.TodaysCountTakeOut != null ? (int)ViewBag.TodaysCountTakeOut : 0;
+    var revAcDi = ViewBag.TodaysRevAlaCarteDineIn != null ? (decimal)ViewBag.TodaysRevAlaCarteDineIn : 0m;
+    var revAcTo = ViewBag.TodaysRevAlaCarteTakeOut != null ? (decimal)ViewBag.TodaysRevAlaCarteTakeOut : 0m;
+    var revUnDi = ViewBag.TodaysRevUnlimitedDineIn != null ? (decimal)ViewBag.TodaysRevUnlimitedDineIn : 0m;
+    var revUnTo = ViewBag.TodaysRevUnlimitedTakeOut != null ? (decimal)ViewBag.TodaysRevUnlimitedTakeOut : 0m;
+    var cKiosk = ViewBag.TodaysCountKiosk != null ? (int)ViewBag.TodaysCountKiosk : 0;
+    var cQr = ViewBag.TodaysCountQr != null ? (int)ViewBag.TodaysCountQr : 0;
 }
 
 <div class="dashboard-container">
-    <p style="margin-top: 0;">Today’s snapshot and quick actions. Charts and best sellers are on <a asp-area="Admin" asp-controller="Sales" asp-action="Index" style="color: #e67e22; font-weight: 600;">Sales &amp; reports</a>.</p>
+    <p style="margin-top: 0;">Today's snapshot and quick actions. Charts and best sellers are on <a asp-area="Admin" asp-controller="Sales" asp-action="Index" style="color: #e67e22; font-weight: 600;">Sales &amp; reports</a>.</p>
 
     <div class="dashboard-cards">
         <div class="stat-card">
@@ -24,25 +37,16 @@
             <h3>Low stock items</h3>
             <div class="stat-value">@ViewBag.LowStockItems</div>
         </div>
-        <div class="stat-card">
-            <h3>Today’s sales</h3>
-            <div class="stat-value">@ViewBag.TodaysSales</div>
-            <div class="stat-revenue" style="color: #27ae60; font-size: 0.9em; margin-top: 5px; font-weight: 600;">
-                Total revenue: ₱@todayRevenue.ToString("N2")
-            </div>
-            <div class="stat-revenue" style="color: #e67e22; font-size: 0.85em; margin-top: 2px; font-weight: 600;">
-                Ala Carte: ₱@todayRevenueAlaCarte.ToString("N2")
-            </div>
-            <div class="stat-revenue" style="color: #9b59b6; font-size: 0.85em; margin-top: 2px; font-weight: 600;">
-                Unlimited: ₱@todayRevenueUnlimited.ToString("N2")
-            </div>
-            <div class="stat-revenue" style="color: #3498db; font-size: 0.85em; margin-top: 2px; font-weight: 600;">
-                Dine In: ₱@todayRevenueDineIn.ToString("N2")
-            </div>
-            <div class="stat-revenue" style="color: #e74c3c; font-size: 0.85em; margin-top: 2px; font-weight: 600;">
-                Take Out: ₱@todayRevenueTakeOut.ToString("N2")
-            </div>
+
+       
+        <div class="stat-card highlight-card clickable-card" role="button" tabindex="0"
+             onclick="showSalesModal()" onkeypress="if(event.key === 'Enter' || event.key === ' ') { showSalesModal(); }">
+            <h3>Today's sales</h3>
+            <div class="stat-value">@ViewBag.TodaysSales <span style="font-size: 0.45em; color: #888; font-weight: 600;">orders</span></div>
+            <div style="color: #27ae60; font-weight: 700; font-size: 0.95em; margin-top: 6px;">₱@todayRevenue.ToString("N2")</div>
+            <div style="color: #aaa; font-size: 0.75em; margin-top: 4px;">Tap for breakdown</div>
         </div>
+
         <a asp-area="Admin" asp-controller="Sales" asp-action="Index" class="stat-card highlight-card" style="text-decoration: none; color: inherit; display: block;">
             <h3><i class="bi bi-graph-up-arrow"></i> Sales &amp; reports</h3>
             <div class="stat-value" style="font-size: 1.1em;">Open</div>
@@ -50,6 +54,7 @@
         </a>
     </div>
 
+   
     <div id="lowStockModal" class="lowstock-modal" aria-hidden="true">
         <div class="lowstock-modal-content">
             <div class="lowstock-modal-header">
@@ -86,10 +91,136 @@
             </div>
         </div>
     </div>
+
+    
+    <div id="salesModal" class="lowstock-modal" aria-hidden="true">
+        <div class="lowstock-modal-content">
+            <div class="lowstock-modal-header">
+                <h3>Today's sales breakdown</h3>
+                <button type="button" class="lowstock-close" aria-label="Close sales breakdown" onclick="hideSalesModal()">&times;</button>
+            </div>
+            <div class="lowstock-modal-body">
+                <p style="font-size:0.8em; color:#888; margin: 0 0 14px;">Revenue uses orders with total &gt; 0 (@todayBillable billable orders).</p>
+
+                
+                <div class="sales-section">
+                    <div class="sales-section-title">Totals</div>
+                    <div class="sales-row">
+                        <span>Subtotal</span>
+                        <span>₱@todaySubtotal.ToString("N2")</span>
+                    </div>
+                    <div class="sales-row">
+                        <span>Tax (12% on stored orders)</span>
+                        <span>₱@todayTax.ToString("N2")</span>
+                    </div>
+                    <div class="sales-row sales-row-total">
+                        <span>Grand total</span>
+                        <span>₱@todayRevenue.ToString("N2")</span>
+                    </div>
+                </div>
+
+               
+                <div class="sales-section">
+                    <div class="sales-section-title">By experience <span style="font-weight:400;color:#aaa;">count · revenue</span></div>
+                    <div class="sales-row">
+                        <span>Ala Carte</span>
+                        <span>@cAc orders · ₱@todayRevenueAlaCarte.ToString("N2")</span>
+                    </div>
+                    <div class="sales-row">
+                        <span>Unlimited</span>
+                        <span>@cUn orders · ₱@todayRevenueUnlimited.ToString("N2")</span>
+                    </div>
+                </div>
+
+                
+                <div class="sales-section">
+                    <div class="sales-section-title">By dining</div>
+                    <div class="sales-row">
+                        <span>Dine in</span>
+                        <span>@cDi orders · ₱@todayRevenueDineIn.ToString("N2")</span>
+                    </div>
+                    <div class="sales-row">
+                        <span>Take out</span>
+                        <span>@cTo orders · ₱@todayRevenueTakeOut.ToString("N2")</span>
+                    </div>
+                </div>
+
+                
+                <div class="sales-section">
+                    <div class="sales-section-title">Experience × dining</div>
+                    <div class="sales-row">
+                        <span>Ala Carte + Dine in</span>
+                        <span>₱@revAcDi.ToString("N2")</span>
+                    </div>
+                    <div class="sales-row">
+                        <span>Ala Carte + Take out</span>
+                        <span>₱@revAcTo.ToString("N2")</span>
+                    </div>
+                    <div class="sales-row">
+                        <span>Unlimited + Dine in</span>
+                        <span>₱@revUnDi.ToString("N2")</span>
+                    </div>
+                    <div class="sales-row">
+                        <span>Unlimited + Take out</span>
+                        <span>₱@revUnTo.ToString("N2")</span>
+                    </div>
+                </div>
+
+              
+                <div class="sales-section">
+                    <div class="sales-section-title">Channel <span style="font-weight:400;color:#aaa;">orders placed</span></div>
+                    <div class="sales-row">
+                        <span>Kiosk</span>
+                        <span>@cKiosk</span>
+                    </div>
+                    <div class="sales-row">
+                        <span>QR / table</span>
+                        <span>@cQr</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 @section Scripts {
+    <style>
+        /* Sales modal row styles — add to your shared CSS if preferred */
+        .sales-section {
+            margin-bottom: 16px;
+            border-top: 1px solid #f0d7bf;
+            padding-top: 10px;
+        }
+        .sales-section:first-child {
+            border-top: none;
+            padding-top: 0;
+        }
+        .sales-section-title {
+            font-size: 0.78em;
+            font-weight: 700;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 6px;
+        }
+        .sales-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+            color: #333;
+            padding: 3px 0;
+        }
+        .sales-row-total {
+            font-weight: 700;
+            color: #27ae60;
+            font-size: 0.95em;
+            margin-top: 4px;
+            border-top: 1px solid #f0d7bf;
+            padding-top: 6px;
+        }
+    </style>
     <script>
+        /* ── Low stock modal ── */
         const lowStockModal = document.getElementById('lowStockModal');
 
         function showLowStockModal() {
@@ -105,14 +236,36 @@
         }
 
         if (lowStockModal) {
-            lowStockModal.addEventListener('click', (event) => {
-                if (event.target === lowStockModal) hideLowStockModal();
-            });
-            document.addEventListener('keydown', (event) => {
-                if (event.key === 'Escape' && lowStockModal.classList.contains('open')) hideLowStockModal();
-            });
+            lowStockModal.addEventListener('click', (e) => { if (e.target === lowStockModal) hideLowStockModal(); });
         }
 
+        /* ── Sales modal ── */
+        const salesModal = document.getElementById('salesModal');
+
+        function showSalesModal() {
+            if (!salesModal) return;
+            salesModal.classList.add('open');
+            salesModal.setAttribute('aria-hidden', 'false');
+        }
+
+        function hideSalesModal() {
+            if (!salesModal) return;
+            salesModal.classList.remove('open');
+            salesModal.setAttribute('aria-hidden', 'true');
+        }
+
+        if (salesModal) {
+            salesModal.addEventListener('click', (e) => { if (e.target === salesModal) hideSalesModal(); });
+        }
+
+        /* ── Shared escape key handler ── */
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            if (lowStockModal?.classList.contains('open')) hideLowStockModal();
+            if (salesModal?.classList.contains('open')) hideSalesModal();
+        });
+
+        /* ── Restock ── */
         async function restockItem(itemId, itemName) {
             const quantityInput = document.getElementById('restock-qty-' + itemId);
             const quantity = parseInt(quantityInput.value);

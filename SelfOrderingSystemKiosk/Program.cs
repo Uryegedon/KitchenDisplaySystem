@@ -71,6 +71,7 @@ builder.Services.AddSingleton<MenuCategoryRegistry>();
 builder.Services.AddSingleton<FoodCategoryRegistry>();
 builder.Services.AddSingleton<IngredientCategoryRegistry>();
 builder.Services.AddSingleton<MenuItemService>();
+builder.Services.AddSingleton<KpItemsImageResolver>();
 builder.Services.AddSingleton<IngredientStockService>();
 builder.Services.AddSingleton<UserService>();
 builder.Services.AddSingleton<AuthService>();

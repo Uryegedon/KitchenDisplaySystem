@@ -1,6 +1,7 @@
 @model IEnumerable<SelfOrderingSystemKiosk.Models.MenuItem>
 @using SelfOrderingSystemKiosk.Models
 @using SelfOrderingSystemKiosk.Services
+@inject KpItemsImageResolver KpImages
 @{
     ViewData["Title"] = "Menu (foods)";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
@@ -78,14 +79,15 @@
                 <tbody>
                     @foreach (var i in Model)
                     {
+                        var (menuLabel, thumbSrc) = KpImages.ResolveForMenu(i.Item, i.Image);
                         <tr>
                             <td>
                                 <div style="display: flex; align-items: center; gap: 10px;">
-                                    @if (!string.IsNullOrEmpty(i.Image))
+                                    @if (!string.IsNullOrEmpty(thumbSrc))
                                     {
-                                        <img src="@i.Image" alt="@i.Item" style="width: 40px; height: 40px; object-fit: cover; border-radius: 5px;" />
+                                        <img src="@Url.Content(thumbSrc)" alt="@menuLabel" style="width: 40px; height: 40px; object-fit: cover; border-radius: 5px;" />
                                     }
-                                    <strong>@i.Item</strong>
+                                    <strong>@menuLabel</strong>
                                 </div>
                             </td>
                             <td>@i.Category</td>
@@ -122,10 +124,10 @@
                                     <button type="button"
                                             class="btn btn-edit edit-item-btn"
                                             data-id="@i.Id"
-                                            data-name="@i.Item"
+                                            data-name="@menuLabel"
                                             data-category="@i.Category"
                                             data-price="@i.Price"
-                                            data-image="@i.Image">
+                                            data-image="@thumbSrc">
                                         Edit
                                     </button>
                                 </div>

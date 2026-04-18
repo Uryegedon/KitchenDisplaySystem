@@ -89,19 +89,17 @@
     }
 </style>
 
-<div class="content fade-in">
-    <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+<div>
+    <div class="inv-page-toolbar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
         <div>
-            <p style="margin-top: 0;">Kitchen ingredients. <strong>Ingredients</strong>.</p>
+           
             @if (ViewBag.ItemCount != null)
             {
                 <p style="color: #666; font-size: 0.9em;">Showing <strong>@ViewBag.ItemCount</strong> row(s) for this filter.</p>
             }
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <a asp-area="Admin" asp-controller="Menu" asp-action="Index" class="btn btn-add" style="text-decoration: none; display: inline-block; padding: 12px 25px; font-size: 1rem;">
-                <i class="bi bi-arrow-left"></i> Menu (foods)
-            </a>
+           
         </div>
     </div>
 

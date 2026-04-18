@@ -254,7 +254,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     floor = HttpContext.Session.GetString(SessionServiceFloor);
                 }
 
-                // Check 1-hour time limit using session
+                // Check 2-hour time limit after first confirmed order (session)
+                const int orderingSessionHours = 2;
                 string sessionKey = "FirstOrderTime";
                 DateTime? firstOrderTime = HttpContext.Session.GetString(sessionKey) != null 
                     ? DateTime.Parse(HttpContext.Session.GetString(sessionKey)) 
@@ -262,15 +263,14 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
                 if (firstOrderTime.HasValue)
                 {
-                    // Not the first order - check if 1 hour has passed
                     var timeSinceFirstOrder = DateTime.UtcNow - firstOrderTime.Value;
-                    var oneHour = TimeSpan.FromHours(1);
+                    var sessionLimit = TimeSpan.FromHours(orderingSessionHours);
                     
-                    if (timeSinceFirstOrder > oneHour)
+                    if (timeSinceFirstOrder > sessionLimit)
                     {
                         return Json(new { 
                             success = false, 
-                            message = $"Time limit exceeded. Your 1-hour session started at {firstOrderTime.Value.ToLocalTime():hh:mm tt} and has expired. Please start a new session." 
+                            message = $"Time limit exceeded. Your {orderingSessionHours}-hour ordering window started at {firstOrderTime.Value.ToLocalTime():hh:mm tt} and has expired. Please start a new session." 
                         });
                     }
                 }
@@ -367,17 +367,17 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return Json(new { hasSession = false });
             }
 
+            const int orderingSessionHours = 2;
+            var sessionLimit = TimeSpan.FromHours(orderingSessionHours);
             var timeSinceFirstOrder = DateTime.UtcNow - firstOrderTime;
-            var oneHour = TimeSpan.FromHours(1);
-            var timeRemaining = oneHour - timeSinceFirstOrder;
+            var timeRemaining = sessionLimit - timeSinceFirstOrder;
             var isExpired = timeRemaining <= TimeSpan.Zero;
 
-            // Ensure timeRemainingSeconds is never negative and never exceeds 1 hour
+            var maxSeconds = (int)sessionLimit.TotalSeconds;
             int timeRemainingSeconds = 0;
             if (!isExpired && timeRemaining.TotalSeconds > 0)
             {
-                // Cap at 1 hour (3600 seconds) to prevent display issues
-                timeRemainingSeconds = Math.Max(0, Math.Min(3600, (int)timeRemaining.TotalSeconds));
+                timeRemainingSeconds = Math.Max(0, Math.Min(maxSeconds, (int)timeRemaining.TotalSeconds));
             }
 
             // Calculate minutes and seconds for display

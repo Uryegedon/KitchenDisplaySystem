@@ -147,7 +147,7 @@ namespace SelfOrderingSystemKiosk.Services
             await _orders.UpdateOneAsync(o => o.OrderNumber == orderNumber, update);
         }
 
-        // Get first order for a table (to track when 1-hour timer starts)
+        // Get first order for a table (ordering session timer is enforced in kiosk session)
         public async Task<Order> GetFirstOrderByTableAsync(string tableNumber)
         {
             if (string.IsNullOrEmpty(tableNumber))

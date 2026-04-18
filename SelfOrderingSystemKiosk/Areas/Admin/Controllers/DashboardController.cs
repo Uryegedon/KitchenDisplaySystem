@@ -68,19 +68,44 @@ namespace SelfOrderingSystemKiosk.Controllers
             var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd);
 
             ViewBag.TodaysSales = todayOrders.Count;
-            ViewBag.TodaysRevenue = todayOrders.Where(o => o.Total > 0).Sum(o => o.Total);
-            ViewBag.TodaysRevenueAlaCarte = todayOrders
-                .Where(o => (o.OrderType ?? "AlaCarte") == "AlaCarte" && o.Total > 0)
+            var billable = todayOrders.Where(o => o.Total > 0).ToList();
+            ViewBag.TodaysBillableCount = billable.Count;
+            ViewBag.TodaysSubtotal = billable.Sum(o => o.Subtotal);
+            ViewBag.TodaysTax = billable.Sum(o => o.Tax);
+            ViewBag.TodaysRevenue = billable.Sum(o => o.Total);
+            ViewBag.TodaysRevenueAlaCarte = billable
+                .Where(o => (o.OrderType ?? "AlaCarte") == "AlaCarte")
                 .Sum(o => o.Total);
-            ViewBag.TodaysRevenueUnlimited = todayOrders
-                .Where(o => o.OrderType == "Unlimited" && o.Total > 0)
+            ViewBag.TodaysRevenueUnlimited = billable
+                .Where(o => o.OrderType == "Unlimited")
                 .Sum(o => o.Total);
-            ViewBag.TodaysRevenueDineIn = todayOrders
-                .Where(o => (o.DiningType ?? "DineIn") == "DineIn" && o.Total > 0)
+            ViewBag.TodaysRevenueDineIn = billable
+                .Where(o => (o.DiningType ?? "DineIn") == "DineIn")
                 .Sum(o => o.Total);
-            ViewBag.TodaysRevenueTakeOut = todayOrders
-                .Where(o => o.DiningType == "TakeOut" && o.Total > 0)
+            ViewBag.TodaysRevenueTakeOut = billable
+                .Where(o => o.DiningType == "TakeOut")
                 .Sum(o => o.Total);
+
+            ViewBag.TodaysCountAlaCarte = billable.Count(o => (o.OrderType ?? "AlaCarte") == "AlaCarte");
+            ViewBag.TodaysCountUnlimited = billable.Count(o => o.OrderType == "Unlimited");
+            ViewBag.TodaysCountDineIn = billable.Count(o => (o.DiningType ?? "DineIn") == "DineIn");
+            ViewBag.TodaysCountTakeOut = billable.Count(o => o.DiningType == "TakeOut");
+
+            ViewBag.TodaysRevAlaCarteDineIn = billable
+                .Where(o => (o.OrderType ?? "AlaCarte") == "AlaCarte" && (o.DiningType ?? "DineIn") == "DineIn")
+                .Sum(o => o.Total);
+            ViewBag.TodaysRevAlaCarteTakeOut = billable
+                .Where(o => (o.OrderType ?? "AlaCarte") == "AlaCarte" && o.DiningType == "TakeOut")
+                .Sum(o => o.Total);
+            ViewBag.TodaysRevUnlimitedDineIn = billable
+                .Where(o => o.OrderType == "Unlimited" && (o.DiningType ?? "DineIn") == "DineIn")
+                .Sum(o => o.Total);
+            ViewBag.TodaysRevUnlimitedTakeOut = billable
+                .Where(o => o.OrderType == "Unlimited" && o.DiningType == "TakeOut")
+                .Sum(o => o.Total);
+
+            ViewBag.TodaysCountKiosk = todayOrders.Count(o => string.Equals(o.OrderChannel, "Kiosk", StringComparison.OrdinalIgnoreCase));
+            ViewBag.TodaysCountQr = todayOrders.Count(o => string.Equals(o.OrderChannel, "Qr", StringComparison.OrdinalIgnoreCase));
 
             return View();
         }
