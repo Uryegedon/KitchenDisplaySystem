@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SelfOrderingSystemKiosk")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1959f81e0d7837e26d8ad7fc697a4d74b8fd6ee4")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ad7c8676a099d0eb2d273838897ca4846f4956ca")]
 [assembly: System.Reflection.AssemblyProductAttribute("SelfOrderingSystemKiosk")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SelfOrderingSystemKiosk")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

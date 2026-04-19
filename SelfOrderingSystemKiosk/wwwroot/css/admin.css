@@ -1144,25 +1144,30 @@ table {
     width: 100%;
     border-collapse: collapse;
     border-radius: 12px;
-    overflow: hidden;
+    overflow: visible;
     background: #fff;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
     border: 1px solid #f0d7bf;
 }
 
+.table-container table {
+    overflow: visible;
+}
+
     table thead {
         background: linear-gradient(135deg, #fbeee6 0%, #fff3e6 100%);
         color: #d35400;
-        position: sticky;
-        top: 0;
-        z-index: 10;
     }
 
         table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 11;
             font-weight: 700;
             text-transform: uppercase;
             font-size: 0.85em;
             letter-spacing: 0.5px;
+            background: linear-gradient(135deg, #fbeee6 0%, #fff3e6 100%);
         }
 
         table thead th.sortable {

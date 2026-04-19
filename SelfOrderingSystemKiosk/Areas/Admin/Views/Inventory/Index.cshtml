@@ -62,6 +62,12 @@
         outline: none;
         border-color: #ff6b35;
     }
+    .table-container table thead th {
+        position: sticky;
+        top: 0;
+        background: white;
+        z-index: 1;
+    }
     .inv-modal-actions {
         display: flex;
         gap: 10px;
@@ -86,6 +92,19 @@
         border-radius: 5px;
         cursor: pointer;
         font-weight: 600;
+    }
+    .btn-restock {
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 0.9em;
+        margin-left: 5px;
+    }
+    .btn-restock:hover {
+        background: #218838;
     }
 </style>
 
@@ -130,20 +149,20 @@
 
     <div class="inventory-form" style="margin-bottom:1rem;">
         <h2>Add ingredient</h2>
-        <form method="post" asp-action="Add" onsubmit="return confirmAction('Add this ingredient?')">
+        <form method="post" asp-action="Add" id="addIngredientForm">
             <div class="form-row-horizontal" style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;">
-                <input type="text" name="item" placeholder="Name" required />
-                <select name="ingredientCategory" required style="padding: 8px; min-width: 200px;">
-                    <option value="">— Category —</option>
+                <input type="text" name="item" placeholder="Ingredient name (e.g., Chicken Breast)" required title="Enter the name of the ingredient" />
+                <select name="ingredientCategory" required style="padding: 8px; min-width: 200px;" title="Select the category this ingredient belongs to">
+                    <option value="">— Select Category —</option>
                     @foreach (var c in categories)
                     {
                         <option value="@c">@c</option>
                     }
                 </select>
-                <input type="number" name="stock" placeholder="Current stock" value="0" required />
-                <input type="text" name="unit" placeholder="Unit (g, ml, pcs)" value="g" required />
-                <input type="number" name="reorderLevel" placeholder="Reorder level" value="10" required />
-                <button type="submit" class="btn btn-add">Add</button>
+                <input type="number" name="stock" placeholder="Initial stock quantity" value="0" required title="Current stock level (numbers only)" min="0" />
+                <input type="text" name="unit" placeholder="Unit (e.g., g, ml, pcs)" value="g" required title="Unit of measurement (grams, milliliters, pieces, etc.)" />
+                <input type="number" name="reorderLevel" placeholder="Reorder threshold" value="10" required title="Stock level that triggers reorder alert" min="0" />
+                <button type="button" class="btn btn-add" id="addIngredientBtn">Add</button>
             </div>
         </form>
     </div>
@@ -209,6 +228,10 @@
                                         data-reorder="@i.ReorderLevel">
                                     Edit
                                 </button>
+                                <form method="post" asp-action="Restock" style="display:inline;" onsubmit="return confirm('Restock this ingredient by @i.ReorderLevel units?')">
+                                    <input type="hidden" name="id" value="@i.Id" />
+                                    <button type="submit" class="btn btn-restock" title="Add @i.ReorderLevel units to stock">Restock</button>
+                                </form>
                             </td>
                         </tr>
                     }
@@ -229,26 +252,17 @@
             <button type="button" class="inv-close" onclick="closeInvEditModal()" aria-label="Close">&times;</button>
         </div>
         <form asp-area="Admin" asp-controller="Inventory" asp-action="Edit" method="post" class="inv-form-grid" id="invEditForm">
-            <input type="hidden" name="Id" id="invEditId" />
+            <input type="hidden" name="id" id="invEditId" />
             <label>Name<br />
-                <input type="text" name="Item" id="invEditItem" required />
+                <input type="text" name="item" id="invEditItem" required />
             </label>
             <label>Category<br />
-                <select name="IngredientCategory" id="invEditCategory" required>
+                <select name="ingredientCategory" id="invEditCategory" required>
                     @foreach (var c in categories)
                     {
                         <option value="@c">@c</option>
                     }
                 </select>
-            </label>
-            <label>Current stock<br />
-                <input type="number" name="CurrentStock" id="invEditStock" required />
-            </label>
-            <label>Unit<br />
-                <input type="text" name="Unit" id="invEditUnit" required />
-            </label>
-            <label>Reorder level<br />
-                <input type="number" name="ReorderLevel" id="invEditReorder" required />
             </label>
             <div class="inv-modal-actions">
                 <button type="button" class="inv-btn-cancel" onclick="closeInvEditModal()">Cancel</button>
@@ -271,8 +285,42 @@
 @section Scripts {
     <script>
         function confirmAction(message) {
-            return confirm(message);
+            const btn = document.getElementById('addIngredientBtn');
+            if (btn.disabled) return; // Prevent double submit
+            
+            const itemName = document.querySelector('input[name="item"]').value.trim();
+            if (!itemName) {
+                alert('Please enter an ingredient name.');
+                return;
+            }
+            
+            // Check for duplicate
+            fetch(`/Admin/Inventory/CheckDuplicate?itemName=${encodeURIComponent(itemName)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.exists) {
+                        alert(`An ingredient with the name '${itemName}' already exists.`);
+                        return;
+                    }
+                    // No duplicate, show confirm
+                    if (confirm(message)) {
+                        btn.disabled = true;
+                        btn.textContent = 'Adding...';
+                        document.getElementById('addIngredientForm').submit();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking duplicate:', error);
+                    alert('Error checking for duplicates. Please try again.');
+                });
         }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('addIngredientBtn').addEventListener('click', function(e) {
+                e.preventDefault();
+                confirmAction('Add this ingredient?');
+            });
+        });
 
         function openInvEditModal(btn) {
             const modal = document.getElementById('invEditModal');
@@ -280,9 +328,6 @@
             document.getElementById('invEditId').value = btn.getAttribute('data-id') || '';
             document.getElementById('invEditItem').value = btn.getAttribute('data-item') || '';
             document.getElementById('invEditCategory').value = btn.getAttribute('data-category') || '';
-            document.getElementById('invEditStock').value = btn.getAttribute('data-stock') || '0';
-            document.getElementById('invEditUnit').value = btn.getAttribute('data-unit') || '';
-            document.getElementById('invEditReorder').value = btn.getAttribute('data-reorder') || '10';
             modal.classList.add('active');
             modal.setAttribute('aria-hidden', 'false');
         }
@@ -310,12 +355,24 @@
             if (e.key === 'Escape') closeInvEditModal();
         });
 
-        document.addEventListener("DOMContentLoaded", function () {
-            const popup = document.getElementById("successPopup");
-            const closeBtn = document.getElementById("closePopup");
-            if (popup && closeBtn) {
-                closeBtn.addEventListener("click", () => popup.style.display = "none");
-                setTimeout(() => popup.style.display = "none", 2500);
+        document.addEventListener('DOMContentLoaded', function () {
+            const itemInput = document.getElementById('invEditItem');
+            const categorySelect = document.getElementById('invEditCategory');
+            
+            if (itemInput && categorySelect) {
+                itemInput.addEventListener('input', function() {
+                    const itemName = this.value.trim();
+                    if (itemName.length > 0) {
+                        fetch(`/Admin/Inventory/GetCategory?itemName=${encodeURIComponent(itemName)}`)
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.category) {
+                                    categorySelect.value = data.category;
+                                }
+                            })
+                            .catch(error => console.error('Error fetching category:', error));
+                    }
+                });
             }
         });
 

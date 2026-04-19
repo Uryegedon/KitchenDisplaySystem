@@ -11,8 +11,7 @@
     var ingredientsForRecipe = ViewBag.Ingredients as IEnumerable<IngredientItem> ?? Array.Empty<IngredientItem>();
 }
 
-<div class="content">
-    <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">
+<div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">
         <div>
             <p style="margin-top: 0;">Sellable dishes shown on the kiosk (stored in <strong>MenuItems</strong>). Ingredients are under <a asp-area="Admin" asp-controller="Inventory" asp-action="Index">Ingredients</a>.</p>
             <p style="color: #666; font-size: 0.9em; margin-top: 5px;">
@@ -142,7 +141,6 @@
             <p>No menu items found.</p>
         }
     </div>
-</div>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 

@@ -18,21 +18,30 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> Index(string? range = "7")
+        public async Task<IActionResult> Index(string? range = "week", string? startDate = null, string? endDate = null)
         {
             ViewData["Title"] = "Stock history";
-            var days = range switch
+            DateTime start, end;
+            if (range == "custom" && !string.IsNullOrEmpty(startDate) && !string.IsNullOrEmpty(endDate))
             {
-                "1" => 1,
-                "30" => 30,
-                "90" => 90,
-                _ => 7
-            };
-            var start = DateTime.UtcNow.AddDays(-days);
-            var end = DateTime.UtcNow.AddMinutes(1);
+                start = DateTime.Parse(startDate).Date;
+                end = DateTime.Parse(endDate).Date.AddDays(1);
+            }
+            else
+            {
+                var now = DateTime.UtcNow;
+                (start, end) = range switch
+                {
+                    "week" => (now.Date.AddDays(-(int)now.DayOfWeek + 1), now.Date.AddDays(8 - (int)now.DayOfWeek)),
+                    "month" => (new DateTime(now.Year, now.Month, 1), new DateTime(now.Year, now.Month, 1).AddMonths(1)),
+                    "year" => (new DateTime(now.Year, 1, 1), new DateTime(now.Year + 1, 1, 1)),
+                    _ => (now.Date.AddDays(-(int)now.DayOfWeek + 1), now.Date.AddDays(8 - (int)now.DayOfWeek))
+                };
+            }
             var movements = await _movementService.GetRecentAsync(start, end, 1000);
             ViewBag.Range = range;
-            ViewBag.Days = days;
+            ViewBag.StartDate = start.ToString("yyyy-MM-dd");
+            ViewBag.EndDate = end.AddDays(-1).ToString("yyyy-MM-dd");
             return View(movements);
         }
     }

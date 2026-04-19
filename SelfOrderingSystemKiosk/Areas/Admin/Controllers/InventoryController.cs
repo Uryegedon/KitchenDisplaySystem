@@ -35,6 +35,19 @@ namespace SelfOrderingSystemKiosk.Controllers
         [HttpPost]
         public async Task<IActionResult> Add(string item, string ingredientCategory, int stock, string unit, int reorderLevel)
         {
+            if (string.IsNullOrWhiteSpace(item))
+            {
+                TempData["Message"] = "Ingredient name is required.";
+                return RedirectToAction("Index");
+            }
+
+            var allItems = await _ingredients.GetAllAsync();
+            if (allItems.Any(i => string.Equals(i.Item, item, StringComparison.OrdinalIgnoreCase)))
+            {
+                TempData["Message"] = $"An ingredient with the name '{item}' already exists.";
+                return RedirectToAction("Index");
+            }
+
             if (!_ingredientCategories.IsValid(ingredientCategory))
             {
                 TempData["Message"] = "Invalid ingredient category.";
@@ -43,7 +56,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             var newItem = new IngredientItem
             {
-                Item = item,
+                Item = item.Trim(),
                 IngredientCategory = ingredientCategory,
                 CurrentStock = stock,
                 Unit = unit ?? "g",
@@ -56,29 +69,87 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Edit(IngredientItem updatedItem)
+        public async Task<IActionResult> Edit(string id, string item, string ingredientCategory)
         {
-            if (!_ingredientCategories.IsValid(updatedItem.IngredientCategory))
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(item))
+            {
+                TempData["Message"] = "Invalid data.";
+                return RedirectToAction("Index");
+            }
+
+            var existing = await _ingredients.GetByIdAsync(id);
+            if (existing == null)
+            {
+                TempData["Message"] = "Ingredient not found.";
+                return RedirectToAction("Index");
+            }
+
+            if (!_ingredientCategories.IsValid(ingredientCategory))
             {
                 TempData["Message"] = "Invalid ingredient category.";
                 return RedirectToAction("Index");
             }
 
-            var previous = await _ingredients.GetByIdAsync(updatedItem.Id);
-            updatedItem.Status = updatedItem.CurrentStock <= updatedItem.ReorderLevel ? "Low Stock" : "In Stock";
-            await _ingredients.UpdateAsync(updatedItem);
-            if (previous != null && previous.CurrentStock != updatedItem.CurrentStock)
+            // Check for duplicate name if name changed
+            if (!string.Equals(existing.Item, item.Trim(), StringComparison.OrdinalIgnoreCase))
             {
-                await _ingredients.RecordAdjustmentAsync(
-                    updatedItem.Id,
-                    updatedItem.Item ?? "",
-                    previous.CurrentStock,
-                    updatedItem.CurrentStock,
-                    "Manual inventory edit");
+                var allItems = await _ingredients.GetAllAsync();
+                if (allItems.Any(i => i.Id != id && string.Equals(i.Item, item.Trim(), StringComparison.OrdinalIgnoreCase)))
+                {
+                    TempData["Message"] = $"An ingredient with the name '{item.Trim()}' already exists.";
+                    return RedirectToAction("Index");
+                }
             }
 
-            TempData["Message"] = $"Ingredient '{updatedItem.Item}' updated.";
+            existing.Item = item.Trim();
+            existing.IngredientCategory = ingredientCategory;
+            // Keep other fields unchanged
+
+            await _ingredients.UpdateAsync(existing);
+            TempData["Message"] = $"Ingredient '{existing.Item}' updated.";
             return RedirectToAction("Index");
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Restock(string id)
+        {
+            var item = await _ingredients.GetByIdAsync(id);
+            if (item == null)
+            {
+                TempData["Message"] = "Ingredient not found.";
+                return RedirectToAction("Index");
+            }
+
+            var previousStock = item.CurrentStock;
+            item.CurrentStock += item.ReorderLevel;
+            item.Status = item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
+
+            await _ingredients.UpdateAsync(item);
+            await _ingredients.RecordAdjustmentAsync(
+                item.Id,
+                item.Item ?? "",
+                previousStock,
+                item.CurrentStock,
+                "Restock to reorder level");
+
+            TempData["Message"] = $"Restocked '{item.Item}' by {item.ReorderLevel} units.";
+            return RedirectToAction("Index");
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetCategory(string itemName)
+        {
+            if (string.IsNullOrWhiteSpace(itemName)) return Json(new { category = "" });
+            var item = (await _ingredients.GetAllAsync()).FirstOrDefault(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
+            return Json(new { category = item?.IngredientCategory ?? "" });
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> CheckDuplicate(string itemName)
+        {
+            if (string.IsNullOrWhiteSpace(itemName)) return Json(new { exists = false });
+            var exists = (await _ingredients.GetAllAsync()).Any(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
+            return Json(new { exists });
         }
     }
 }

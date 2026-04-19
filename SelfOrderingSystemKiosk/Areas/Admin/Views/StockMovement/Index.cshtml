@@ -3,20 +3,48 @@
 @{
     ViewData["Title"] = "Stock history";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
-    var r = ViewBag.Range as string ?? "7";
+    var r = ViewBag.Range as string ?? "week";
+    var startDate = ViewBag.StartDate as string;
+    var endDate = ViewBag.EndDate as string;
 }
 
-<div class="content">
-    <div class="header" style="margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;">
+<div class="header" style="margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;">
         <div>
             <p style="margin: 0; color: #666;">Sales (when kitchen marks order done), restocks (dashboard), new items, and manual inventory edits.</p>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <span style="font-size: 0.9rem;">Range:</span>
-            <a asp-action="Index" asp-route-range="1" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "1" ? "#ff6b35" : "#eee"); color: @(r == "1" ? "#fff" : "#333"); font-weight: @(r == "1" ? "600" : "400");">24h</a>
-            <a asp-action="Index" asp-route-range="7" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "7" ? "#ff6b35" : "#eee"); color: @(r == "7" ? "#fff" : "#333"); font-weight: @(r == "7" ? "600" : "400");">7d</a>
-            <a asp-action="Index" asp-route-range="30" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "30" ? "#ff6b35" : "#eee"); color: @(r == "30" ? "#fff" : "#333"); font-weight: @(r == "30" ? "600" : "400");">30d</a>
-            <a asp-action="Index" asp-route-range="90" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "90" ? "#ff6b35" : "#eee"); color: @(r == "90" ? "#fff" : "#333"); font-weight: @(r == "90" ? "600" : "400");">90d</a>
+            <a asp-action="Index" asp-route-range="week" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "week" ? "#ff6b35" : "#eee"); color: @(r == "week" ? "#fff" : "#333"); font-weight: @(r == "week" ? "600" : "400");">This week</a>
+            <a asp-action="Index" asp-route-range="month" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "month" ? "#ff6b35" : "#eee"); color: @(r == "month" ? "#fff" : "#333"); font-weight: @(r == "month" ? "600" : "400");">This month</a>
+            <a asp-action="Index" asp-route-range="year" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "year" ? "#ff6b35" : "#eee"); color: @(r == "year" ? "#fff" : "#333"); font-weight: @(r == "year" ? "600" : "400");">This year</a>
+            <button type="button" class="sales-filter-btn date-range-btn revenue-chart-filter @(r == "custom" ? "active" : "")" onclick="openDateRangePopup()" style="padding: 8px 14px; border: none; border-radius: 8px; background: @(r == "custom" ? "#ff6b35" : "#eee"); color: @(r == "custom" ? "#fff" : "#333"); font-weight: @(r == "custom" ? "600" : "400"); cursor: pointer;">
+                Custom range
+            </button>
+        </div>
+    </div>
+
+<div id="dateRangeModal" class="date-range-modal" aria-hidden="true">
+        <div class="date-range-modal-content">
+            <div class="date-range-modal-header">
+                <h3>Custom date range</h3>
+                <button type="button" class="date-range-close" aria-label="Close date range" onclick="closeDateRangePopup()">&times;</button>
+            </div>
+            <form method="get" asp-area="Admin" asp-controller="StockMovement" asp-action="Index" class="date-range-form" onsubmit="closeDateRangePopup()">
+                <div class="date-range-fields">
+                    <label>
+                        From
+                        <input type="date" name="startDate" value="@startDate" required />
+                    </label>
+                    <label>
+                        To
+                        <input type="date" name="endDate" value="@endDate" required />
+                    </label>
+                </div>
+                <div class="date-range-actions">
+                    <button type="button" class="btn-cancel" onclick="closeDateRangePopup()">Cancel</button>
+                    <button type="submit" class="range-filter-apply">Apply</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -70,4 +98,27 @@
             </tbody>
         </table>
     </div>
-</div>
+
+@section Scripts {
+    <script>
+        function openDateRangePopup() {
+            const modal = document.getElementById('dateRangeModal');
+            modal.classList.add('open');
+            modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeDateRangePopup() {
+            const modal = document.getElementById('dateRangeModal');
+            modal.classList.remove('open');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
+        document.getElementById('dateRangeModal')?.addEventListener('click', function (e) {
+            if (e.target === this) closeDateRangePopup();
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeDateRangePopup();
+        });
+    </script>
+}
