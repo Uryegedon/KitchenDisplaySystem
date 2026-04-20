@@ -68,8 +68,6 @@
                         <th>Kiosk tab</th>
                         <th>Food type</th>
                         <th>Price (₱)</th>
-                        <th>Stock</th>
-                        <th>Status</th>
                         <th>Availability</th>
                         <th>Recipe</th>
                         <th>Actions</th>
@@ -92,18 +90,6 @@
                             <td>@i.Category</td>
                             <td>@(i.FoodCategory ?? "—")</td>
                             <td>₱@i.Price.ToString("0.00")</td>
-                            <td>
-                                <span class="@(i.CurrentStock <= i.ReorderLevel ? "text-danger" : "text-success")">
-                                    @i.CurrentStock @i.Unit
-                                </span>
-                                @if (i.CurrentStock <= i.ReorderLevel)
-                                {
-                                    <br /><small style="color: #dc3545;">Reorder: @i.ReorderLevel</small>
-                                }
-                            </td>
-                            <td>
-                                <span class="status @(i.Status?.ToLower().Replace(" ", "-") ?? "in-stock")">@i.Status</span>
-                            </td>
                             <td>
                                 <label class="availability-toggle" style="cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
                                     <input type="checkbox" 

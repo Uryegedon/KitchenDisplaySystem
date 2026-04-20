@@ -111,7 +111,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Restock(string id)
+        public async Task<IActionResult> Restock(string id, int amount)
         {
             var item = await _ingredients.GetByIdAsync(id);
             if (item == null)
@@ -120,9 +120,28 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return RedirectToAction("Index");
             }
 
+            if (amount <= 0)
+            {
+                TempData["Message"] = "Invalid restock amount.";
+                return RedirectToAction("Index");
+            }
+
             var previousStock = item.CurrentStock;
-            item.CurrentStock += item.ReorderLevel;
-            item.Status = item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
+            item.CurrentStock += amount;
+            
+            // Update status based on new logic
+            if (item.CurrentStock == 0)
+            {
+                item.Status = "No Stock";
+            }
+            else if (item.CurrentStock <= item.ReorderLevel)
+            {
+                item.Status = "Low Stock";
+            }
+            else
+            {
+                item.Status = "In Stock";
+            }
 
             await _ingredients.UpdateAsync(item);
             await _ingredients.RecordAdjustmentAsync(
@@ -130,9 +149,9 @@ namespace SelfOrderingSystemKiosk.Controllers
                 item.Item ?? "",
                 previousStock,
                 item.CurrentStock,
-                "Restock to reorder level");
+                $"Restock by {amount} units");
 
-            TempData["Message"] = $"Restocked '{item.Item}' by {item.ReorderLevel} units.";
+            TempData["Message"] = $"Restocked '{item.Item}' by {amount} units.";
             return RedirectToAction("Index");
         }
 

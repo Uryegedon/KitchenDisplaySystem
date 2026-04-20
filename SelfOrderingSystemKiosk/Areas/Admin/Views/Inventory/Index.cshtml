@@ -203,10 +203,7 @@
                         <th class="sortable" data-column="unit" onclick="sortTable(3, 'unit'); return false;" style="cursor: pointer;">
                             Unit <span class="sort-icon" style="margin-left: 5px;">⇅</span>
                         </th>
-                        <th class="sortable" data-column="reorder" onclick="sortTable(4, 'reorder'); return false;" style="cursor: pointer;">
-                            Reorder <span class="sort-icon" style="margin-left: 5px;">⇅</span>
-                        </th>
-                        <th class="sortable" data-column="status" onclick="sortTable(5, 'status'); return false;" style="cursor: pointer;">
+                        <th class="sortable" data-column="status" onclick="sortTable(4, 'status'); return false;" style="cursor: pointer;">
                             Status <span class="sort-icon" style="margin-left: 5px;">⇅</span>
                         </th>
                         <th>Actions</th>
@@ -220,19 +217,18 @@
                             <td data-sort-value="@(i.IngredientCategory ?? "").ToLower()">@i.IngredientCategory</td>
                             <td data-sort-value="@i.CurrentStock">@i.CurrentStock</td>
                             <td data-sort-value="@(i.Unit ?? "").ToLower()">@i.Unit</td>
-                            <td data-sort-value="@i.ReorderLevel">@i.ReorderLevel</td>
                             <td data-sort-value="@i.Status.ToLower()">
-                                @if (i.Status == "Low Stock")
+                                @if (i.CurrentStock == 0)
                                 {
-                                    <span class="status-badge low">@i.Status</span>
+                                    <span class="status-badge out">No Stock</span>
                                 }
-                                else if (i.Status == "Out of Stock")
+                                else if (i.CurrentStock <= i.ReorderLevel)
                                 {
-                                    <span class="status-badge out">@i.Status</span>
+                                    <span class="status-badge low">Low Stock</span>
                                 }
                                 else
                                 {
-                                    <span class="status-badge in">@i.Status</span>
+                                    <span class="status-badge in">In Stock</span>
                                 }
                             </td>
                             <td>
@@ -246,10 +242,15 @@
                                         data-reorder="@i.ReorderLevel">
                                     Edit
                                 </button>
-                                <form method="post" asp-action="Restock" style="display:inline;" onsubmit="return confirm('Restock this ingredient by @i.ReorderLevel units?')">
-                                    <input type="hidden" name="id" value="@i.Id" />
-                                    <button type="submit" class="btn btn-restock" title="Add @i.ReorderLevel units to stock">Restock</button>
-                                </form>
+                                <div class="restock-container" style="display: inline-block; margin-left: 5px;">
+                                    <button type="button" class="btn btn-restock restock-btn" 
+                                            data-id="@i.Id" 
+                                            data-current="@i.CurrentStock"
+                                            data-reorder="@i.ReorderLevel"
+                                            data-unit="@i.Unit">
+                                        Restock
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     }
@@ -290,6 +291,34 @@
     </div>
 </div>
 
+<div class="inv-modal-overlay" id="restockModal" aria-hidden="true">
+    <div class="inv-modal-content" role="dialog" aria-labelledby="restockTitle">
+        <div class="inv-modal-header">
+            <h2 id="restockTitle">Restock Ingredient</h2>
+            <button type="button" class="inv-close" onclick="closeRestockModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="inv-form-grid">
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <label>Current Stock:</label>
+                <span id="currentStockDisplay" style="font-weight: bold;"></span>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <label>Restock Amount:</label>
+                <input type="number" id="restockAmount" min="1" value="10" style="width: 80px;" />
+                <span id="unitDisplay"></span>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <label>Total Stock:</label>
+                <span id="totalStockDisplay" style="font-weight: bold; color: #28a745;"></span>
+            </div>
+        </div>
+        <div class="inv-modal-actions">
+            <button type="button" class="inv-btn-cancel" onclick="closeRestockModal()">Cancel</button>
+            <button type="button" class="inv-btn-save" onclick="confirmRestock()">Restock</button>
+        </div>
+    </div>
+</div>
+
 
 
 @section Scripts {
@@ -323,7 +352,7 @@
                         if (!document.getElementById('noSearchResults')) {
                             const noResults = document.createElement('tr');
                             noResults.id = 'noSearchResults';
-                            noResults.innerHTML = '<td colspan="7" style="text-align: center; padding: 20px; color: #999;">No ingredients match your search.</td>';
+                            noResults.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #999;">No ingredients match your search.</td>';
                             tableBody.appendChild(noResults);
                         }
                     } else {
@@ -407,13 +436,105 @@
             }
         });
 
+        document.addEventListener('click', function (e) {
+            const b = e.target.closest('.restock-btn');
+            if (b) {
+                e.preventDefault();
+                openRestockModal(b);
+            }
+        });
+
         document.getElementById('invEditModal')?.addEventListener('click', function (e) {
             if (e.target === this) closeInvEditModal();
         });
 
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') closeInvEditModal();
+        document.getElementById('restockModal')?.addEventListener('click', function (e) {
+            if (e.target === this) closeRestockModal();
         });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                closeRestockModal();
+                closeInvEditModal();
+            }
+        });
+
+        // Update total stock when restock amount changes
+        document.addEventListener('input', function (e) {
+            if (e.target.id === 'restockAmount') {
+                updateTotalStock();
+            }
+        });
+
+        // Restock modal functions
+        function openRestockModal(btn) {
+            const modal = document.getElementById('restockModal');
+            if (!modal) return;
+            
+            const currentStock = parseInt(btn.getAttribute('data-current') || 0);
+            const reorderLevel = parseInt(btn.getAttribute('data-reorder') || 10);
+            const unit = btn.getAttribute('data-unit') || 'g';
+            const id = btn.getAttribute('data-id');
+            
+            document.getElementById('currentStockDisplay').textContent = `${currentStock} ${unit}`;
+            document.getElementById('unitDisplay').textContent = unit;
+            document.getElementById('restockAmount').value = reorderLevel;
+            updateTotalStock();
+            
+            // Store the item ID for later use
+            modal.setAttribute('data-item-id', id);
+            
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeRestockModal() {
+            const modal = document.getElementById('restockModal');
+            if (!modal) return;
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
+        function updateTotalStock() {
+            const currentStock = parseInt(document.getElementById('currentStockDisplay').textContent.split(' ')[0] || 0);
+            const restockAmount = parseInt(document.getElementById('restockAmount').value || 0);
+            const total = currentStock + restockAmount;
+            document.getElementById('totalStockDisplay').textContent = `${total} ${document.getElementById('unitDisplay').textContent}`;
+        }
+
+        function confirmRestock() {
+            const modal = document.getElementById('restockModal');
+            const itemId = modal.getAttribute('data-item-id');
+            const restockAmount = parseInt(document.getElementById('restockAmount').value || 0);
+            
+            if (restockAmount <= 0) {
+                alert('Please enter a valid restock amount.');
+                return;
+            }
+            
+            // Create and submit form
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = '/Admin/Inventory/Restock';
+            form.style.display = 'none';
+            
+            const idInput = document.createElement('input');
+            idInput.type = 'hidden';
+            idInput.name = 'id';
+            idInput.value = itemId;
+            
+            const amountInput = document.createElement('input');
+            amountInput.type = 'hidden';
+            amountInput.name = 'amount';
+            amountInput.value = restockAmount;
+            
+            form.appendChild(idInput);
+            form.appendChild(amountInput);
+            document.body.appendChild(form);
+            
+            closeRestockModal();
+            form.submit();
+        }
 
         document.addEventListener('DOMContentLoaded', function () {
             const itemInput = document.getElementById('invEditItem');
