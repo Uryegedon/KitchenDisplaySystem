@@ -106,9 +106,25 @@
     .btn-restock:hover {
         background: #218838;
     }
+    .alert {
+        padding: 12px 20px;
+        border-radius: 5px;
+        margin-bottom: 16px;
+        border: 1px solid transparent;
+    }
+    .alert-success {
+        background-color: #d4edda;
+        border-color: #c3e6cb;
+        color: #155724;
+    }
 </style>
 
 <div>
+    @if (TempData["Message"] != null)
+    {
+        <div class="alert alert-success">@TempData["Message"]</div>
+    }
+    
     <div class="inv-page-toolbar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
         <div>
            
@@ -145,6 +161,8 @@
                 }
             }
         </select>
+        
+        <input type="text" id="searchInput" placeholder="Search ingredients..." style="padding: 8px 12px; min-width: 220px; border: 2px solid #ddd; border-radius: 5px;" />
     </form>
 
     <div class="inventory-form" style="margin-bottom:1rem;">
@@ -272,18 +290,50 @@
     </div>
 </div>
 
-@if (TempData["Message"] != null)
-{
-    <div id="successPopup" class="confirm-popup active">
-        <h3>@TempData["Message"]</h3>
-        <div class="popup-buttons">
-            <button id="closePopup" class="popup-btn confirm">OK</button>
-        </div>
-    </div>
-}
+
 
 @section Scripts {
     <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Search functionality
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) {
+                searchInput.addEventListener('keyup', function() {
+                    const searchTerm = this.value.trim().toLowerCase();
+                    const tableBody = document.getElementById('inventoryTableBody');
+                    if (!tableBody) return;
+                    
+                    const rows = tableBody.querySelectorAll('tr');
+                    let visibleCount = 0;
+                    
+                    rows.forEach(row => {
+                        const itemCell = row.cells[0]; // Item name is in first column
+                        const itemName = itemCell ? itemCell.textContent.trim().toLowerCase() : '';
+                        
+                        if (searchTerm === '' || itemName.includes(searchTerm)) {
+                            row.style.display = '';
+                            visibleCount++;
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    });
+                    
+                    // Show "no results" message if needed
+                    if (visibleCount === 0 && searchTerm !== '') {
+                        if (!document.getElementById('noSearchResults')) {
+                            const noResults = document.createElement('tr');
+                            noResults.id = 'noSearchResults';
+                            noResults.innerHTML = '<td colspan="7" style="text-align: center; padding: 20px; color: #999;">No ingredients match your search.</td>';
+                            tableBody.appendChild(noResults);
+                        }
+                    } else {
+                        const noResults = document.getElementById('noSearchResults');
+                        if (noResults) noResults.remove();
+                    }
+                });
+            }
+        });
+
         function confirmAction(message) {
             const btn = document.getElementById('addIngredientBtn');
             if (btn.disabled) return; // Prevent double submit
@@ -320,6 +370,16 @@
                 e.preventDefault();
                 confirmAction('Add this ingredient?');
             });
+
+            // Close edit modal after form submission (like menu)
+            const editForm = document.getElementById('invEditForm');
+            if (editForm) {
+                editForm.addEventListener('submit', function() {
+                    setTimeout(function() {
+                        closeInvEditModal();
+                    }, 100);
+                });
+            }
         });
 
         function openInvEditModal(btn) {

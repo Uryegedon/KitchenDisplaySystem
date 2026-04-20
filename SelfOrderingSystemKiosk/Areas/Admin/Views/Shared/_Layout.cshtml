@@ -85,18 +85,8 @@
             });
         }
 
-        // ✅ Display success message from TempData
-        @if (TempData["Message"] != null)
-        {
-                <text>
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Success!',
-                        text: '@TempData["Message"]',
-                        confirmButtonColor: '#3085d6'
-                    });
-                </text>
-        }
+       
+       
     </script>
 </body>
 </html>
