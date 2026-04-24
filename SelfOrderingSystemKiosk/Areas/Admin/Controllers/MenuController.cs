@@ -113,38 +113,56 @@ namespace SelfOrderingSystemKiosk.Controllers
             string? Image,
             IFormFile imageFile)
         {
-            var existing = await _menuItems.GetByIdAsync(Id);
-            if (existing == null)
-                return RedirectToAction("Index", new { message = "Item not found." });
-
-            var categoryOk = _menuCategories.IsValidKey(Category)
-                || string.Equals(Category, existing.Category, StringComparison.Ordinal);
-            if (!categoryOk)
-                return RedirectToAction("Index", new { message = "Invalid kiosk category selected." });
-
-            if (imageFile != null && imageFile.Length > 0)
+            try
             {
-                var newImagePath = await SaveImageFile(imageFile);
-                if (!string.IsNullOrEmpty(newImagePath))
-                    existing.Image = newImagePath;
+                var existing = await _menuItems.GetByIdAsync(Id);
+                if (existing == null)
+                    return RedirectToAction("Index", new { message = "Item not found." });
+
+                var categoryOk = _menuCategories.IsValidKey(Category)
+                    || string.Equals(Category, existing.Category, StringComparison.Ordinal);
+                if (!categoryOk)
+                    return RedirectToAction("Index", new { message = "Invalid kiosk category selected." });
+
+                if (imageFile != null && imageFile.Length > 0)
+                {
+                    var newImagePath = await SaveImageFile(imageFile);
+                    if (!string.IsNullOrEmpty(newImagePath))
+                        existing.Image = newImagePath;
+                }
+                else if (!string.IsNullOrEmpty(Image))
+                    existing.Image = Image;
+                else if (string.IsNullOrEmpty(existing.Image))
+                    existing.Image = _menuCategories.GetDefaultImage(Category);
+
+                existing.Item = Item ?? existing.Item;
+                existing.Category = Category ?? existing.Category;
+                existing.Price = Price;
+                existing.Recipe = ParseRecipeLines(Request.Form);
+
+                if (string.Equals(existing.Category, "Unavailable", StringComparison.Ordinal))
+                    existing.Availability = "Unavailable";
+                // else: keep existing Avail/Stock/Unit/Reorder/MenuOrder/FoodCategory
+
+                existing.Status = existing.CurrentStock <= existing.ReorderLevel ? "Low Stock" : "In Stock";
+                await _menuItems.UpdateAsync(existing);
+                return RedirectToAction("Index", new { message = "Menu item updated successfully!" });
             }
-            else if (!string.IsNullOrEmpty(Image))
-                existing.Image = Image;
-            else if (string.IsNullOrEmpty(existing.Image))
-                existing.Image = _menuCategories.GetDefaultImage(Category);
+            catch (Exception ex)
+            {
+                return RedirectToAction("Index", new { message = $"Error updating item: {ex.Message}" });
+            }
+        }
 
-            existing.Item = Item ?? existing.Item;
-            existing.Category = Category ?? existing.Category;
-            existing.Price = Price;
-            existing.Recipe = ParseRecipeLines(Request.Form);
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Delete(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                return RedirectToAction("Index", new { message = "Menu item not found." });
 
-            if (string.Equals(existing.Category, "Unavailable", StringComparison.Ordinal))
-                existing.Availability = "Unavailable";
-            // else: keep existing Avail/Stock/Unit/Reorder/MenuOrder/FoodCategory
-
-            existing.Status = existing.CurrentStock <= existing.ReorderLevel ? "Low Stock" : "In Stock";
-            await _menuItems.UpdateAsync(existing);
-            return RedirectToAction("Index", new { message = "Menu item updated successfully!" });
+            await _menuItems.DeleteAsync(id);
+            return RedirectToAction("Index", new { message = "Menu item deleted successfully!" });
         }
 
         [HttpGet]

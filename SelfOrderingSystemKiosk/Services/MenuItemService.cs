@@ -34,7 +34,11 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task<List<MenuItem>> GetAllAsync()
         {
-            var list = await _collection.Find(_ => true).ToListAsync();
+            var validItemFilter = Builders<MenuItem>.Filter.And(
+                Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
+                Builders<MenuItem>.Filter.Ne(x => x.Item, ""));
+
+            var list = await _collection.Find(validItemFilter).ToListAsync();
             return list
                 .OrderBy(i => IsAvailableForCustomerMenu(i.Availability) ? 0 : 1)
                 .ThenByDescending(i => i.MenuOrder)
@@ -50,7 +54,12 @@ namespace SelfOrderingSystemKiosk.Services
                 Builders<MenuItem>.Filter.Eq(x => x.Availability, "Available"),
                 Builders<MenuItem>.Filter.Not(Builders<MenuItem>.Filter.Exists(x => x.Availability)));
 
-            var list = await _collection.Find(availableOrUnset).ToListAsync();
+            var validItemFilter = Builders<MenuItem>.Filter.And(
+                Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
+                Builders<MenuItem>.Filter.Ne(x => x.Item, ""));
+
+            var filter = Builders<MenuItem>.Filter.And(validItemFilter, availableOrUnset);
+            var list = await _collection.Find(filter).ToListAsync();
             return list
                 .OrderByDescending(i => i.MenuOrder)
                 .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)

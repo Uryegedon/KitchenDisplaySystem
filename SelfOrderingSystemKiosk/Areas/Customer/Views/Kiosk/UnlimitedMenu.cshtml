@@ -60,14 +60,15 @@
             <div class="menu-scroll">
                 @foreach (var item in Model)
                 {
-                    var (menuLabel, displayImage) = KpImages.ResolveForMenu(item.Item, item.Image);
+                    var menuLabel = item.Item ?? "";
+                    var displayImage = KpImages.ResolveDisplayPath(item.Item, item.Image);
                     <div class="menu-row" data-category="@item.Category">
                         <img src="@Url.Content(displayImage)" alt="@menuLabel" />
                         <div class="menu-details">
                             <h4>@menuLabel.ToUpper()</h4>
                         </div>
                         <button class="add-to-cart"
-                                data-name="@menuLabel"
+                                data-name="@item.Item"
                                 data-price="377"
                                 data-image="@Url.Content(displayImage)">
                             Add to cart
