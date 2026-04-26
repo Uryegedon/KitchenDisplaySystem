@@ -19,8 +19,13 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private const string SessionServiceTable = "ServiceTableNumber";
         private const string SessionServiceFloor = "ServiceFloor";
         private const string SessionDiningType = "DiningType";
+        private const string SessionPersonCount = "PersonCount";
+        private const string CookieServiceTable = "KdsOrderTable";
+        private const string CookieServiceFloor = "KdsOrderFloor";
+        private const string CookiePersonCount = "KdsOrderPersonCount";
         private const string OrderChannelKiosk = "Kiosk";
         private const string OrderChannelQr = "Qr";
+        private static readonly TimeSpan OrderingSessionLength = TimeSpan.FromHours(2);
 
         public KioskController(OrderService orderService, MenuItemService menuItems, MenuCategoryRegistry menuCategories, ILogger<KioskController> logger)
         {
@@ -39,9 +44,11 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
         private void ApplyOrderingSessionToViewBag()
         {
+            RestoreOrderingCookiesToSession();
             var channel = HttpContext.Session.GetString(SessionOrderChannel) ?? OrderChannelKiosk;
             ViewBag.OrderChannel = channel;
             ViewBag.IsQrFlow = channel == OrderChannelQr;
+            ViewBag.PersonCount = GetSessionInt(SessionPersonCount);
             if (channel == OrderChannelQr)
             {
                 var table = HttpContext.Session.GetString(SessionServiceTable);
@@ -58,6 +65,55 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (!string.IsNullOrEmpty(floor))
                 return $"Floor {floor} · Table {table}";
             return $"Table {table}";
+        }
+
+        private void SaveOrderingCookies(string table, string floor, int? personCount)
+        {
+            var options = new CookieOptions
+            {
+                HttpOnly = true,
+                IsEssential = true,
+                SameSite = SameSiteMode.Lax,
+                Expires = DateTimeOffset.UtcNow.Add(OrderingSessionLength)
+            };
+
+            if (!string.IsNullOrWhiteSpace(table))
+                Response.Cookies.Append(CookieServiceTable, table, options);
+            if (!string.IsNullOrWhiteSpace(floor))
+                Response.Cookies.Append(CookieServiceFloor, floor, options);
+            if (personCount.HasValue && personCount.Value > 0)
+                Response.Cookies.Append(CookiePersonCount, personCount.Value.ToString(), options);
+        }
+
+        private void RestoreOrderingCookiesToSession()
+        {
+            if (string.IsNullOrEmpty(HttpContext.Session.GetString(SessionServiceTable)) &&
+                Request.Cookies.TryGetValue(CookieServiceTable, out var table) &&
+                !string.IsNullOrWhiteSpace(table))
+            {
+                HttpContext.Session.SetString(SessionOrderChannel, OrderChannelQr);
+                HttpContext.Session.SetString(SessionServiceTable, table);
+            }
+
+            if (string.IsNullOrEmpty(HttpContext.Session.GetString(SessionServiceFloor)) &&
+                Request.Cookies.TryGetValue(CookieServiceFloor, out var floor) &&
+                !string.IsNullOrWhiteSpace(floor))
+            {
+                HttpContext.Session.SetString(SessionServiceFloor, floor);
+            }
+
+            if (!GetSessionInt(SessionPersonCount).HasValue &&
+                Request.Cookies.TryGetValue(CookiePersonCount, out var rawCount) &&
+                int.TryParse(rawCount, out var personCount) &&
+                personCount > 0)
+            {
+                HttpContext.Session.SetInt32(SessionPersonCount, personCount);
+            }
+        }
+
+        private int? GetSessionInt(string key)
+        {
+            return HttpContext.Session.GetInt32(key);
         }
 
         private void RestoreQrSessionFromOrder(Order order)
@@ -80,6 +136,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         {
             HttpContext.Session.Remove("FirstOrderTime");
             SetKioskChannelDefaults();
+            RestoreOrderingCookiesToSession();
             return View();
         }
 
@@ -109,6 +166,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 HttpContext.Session.Remove(SessionServiceFloor);
 
             HttpContext.Session.SetString(SessionDiningType, "DineIn");
+            SaveOrderingCookies(table, floor, GetSessionInt(SessionPersonCount));
             TempData["DiningType"] = "DineIn";
             return RedirectToAction("ChooseExperience");
         }
@@ -116,6 +174,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         [HttpPost]
         public IActionResult SelectDining(string diningType)
         {
+            RestoreOrderingCookiesToSession();
             TempData["DiningType"] = diningType;
             HttpContext.Session.SetString(SessionDiningType, diningType);
 
@@ -139,6 +198,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         [HttpPost]
         public IActionResult SelectExperience(string experienceType)
         {
+            RestoreOrderingCookiesToSession();
             TempData["ExperienceType"] = experienceType;
             if (experienceType == "Unlimited") return RedirectToAction("UnlimitedMenu");
             if (experienceType == "AlaCarte") return RedirectToAction("AlaCarteMenu");
@@ -155,6 +215,9 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             ViewBag.IsReorder = isReorder;
             // Only show available items from Stock collection
             var items = await _menuItems.GetAvailableAsync() ?? new List<MenuItem>();
+            items = items
+                .Where(i => !string.Equals(i.Category, "Unlimited Inclusions", StringComparison.Ordinal))
+                .ToList();
             ViewBag.MenuCategories = _menuCategories.KioskTabs;
             ApplyOrderingSessionToViewBag();
             return View(items);
@@ -176,20 +239,56 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 var previousOrder = await _orderService.GetByOrderNumberAsync(previousOrderNumber);
                 if (previousOrder != null && previousOrder.OrderType == "Unlimited")
                 {
-                    // Calculate personCount from total: total = (personCount * 377) * 1.12
-                    // So personCount = total / (377 * 1.12)
-                    const decimal pricePerHead = 377m;
+                    const decimal pricePerHead = 477m;
                     const decimal taxRate = 1.12m;
                     personCount = (int)Math.Round(previousOrder.Total / (pricePerHead * taxRate));
                     ViewBag.PersonCount = personCount;
+                    HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
                 }
             }
             
-            // Only show available items from Stock collection
+            // Unlimited orders include the items listed on the unlimited dine-in board.
             var items = await _menuItems.GetAvailableAsync() ?? new List<MenuItem>();
-            ViewBag.MenuCategories = _menuCategories.KioskTabs;
+            items = items
+                .Where(IsUnlimitedIncludedItem)
+                .OrderByDescending(i => i.MenuOrder)
+                .ThenBy(i => i.Item)
+                .ToList();
+            var unlimitedTabKeys = new HashSet<string>(items.Select(i => i.Category), StringComparer.Ordinal);
+            ViewBag.MenuCategories = _menuCategories.All
+                .Where(c => unlimitedTabKeys.Contains(c.Key))
+                .OrderBy(c => c.SortOrder)
+                .ToList();
             ApplyOrderingSessionToViewBag();
             return View(items);
+        }
+
+        private static bool IsUnlimitedIncludedItem(MenuItem item)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.Item))
+                return false;
+
+            var name = item.Item.Trim();
+            if (string.Equals(item.Category, "Wings", StringComparison.Ordinal))
+                return true;
+
+            if (string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal))
+                return true;
+
+            if (string.Equals(item.Category, "Add Ons", StringComparison.Ordinal))
+            {
+                return name.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("Extra Gravy", StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (string.Equals(item.Category, "Appetizer", StringComparison.Ordinal))
+            {
+                return name.Equals("Nachos", StringComparison.OrdinalIgnoreCase)
+                    || name.StartsWith("Potato Thins", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return false;
         }
 
         [HttpPost]
@@ -226,7 +325,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 // For Unlimited orders, calculate based on personCount * pricePerHead
                 if (experienceType == "Unlimited" && personCount.HasValue && personCount.Value > 0)
                 {
-                    const decimal pricePerHead = 377m;
+                    const decimal pricePerHead = 477m;
+                    HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
                     subtotal = personCount.Value * pricePerHead;
                     tax = subtotal * 0.12m;
                     total = subtotal + tax;
@@ -238,8 +338,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     tax = subtotal * 0.12m;
                     total = subtotal + tax;
                 }
-
-                var orderNumber = await _orderService.CreateUniqueOrderNumberAsync();
 
                 string diningType = TempData["DiningType"]?.ToString()
                     ?? HttpContext.Session.GetString(SessionDiningType)
@@ -253,6 +351,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     tableNumber = HttpContext.Session.GetString(SessionServiceTable);
                     floor = HttpContext.Session.GetString(SessionServiceFloor);
                 }
+
+                SaveOrderingCookies(tableNumber, floor, personCount);
+
+                var orderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber);
 
                 // Check 2-hour time limit after first confirmed order (session)
                 const int orderingSessionHours = 2;
@@ -307,6 +409,22 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 _logger.LogError(ex, "Error creating order");
                 return Json(new { success = false, message = $"Error creating order: {ex.Message}" });
             }
+        }
+
+        [HttpPost]
+        [IgnoreAntiforgeryToken]
+        public IActionResult SaveOrderingSession([FromQuery] int personCount)
+        {
+            if (personCount <= 0)
+                return Json(new { success = false, message = "Person count must be greater than zero." });
+
+            HttpContext.Session.SetInt32(SessionPersonCount, personCount);
+            SaveOrderingCookies(
+                HttpContext.Session.GetString(SessionServiceTable),
+                HttpContext.Session.GetString(SessionServiceFloor),
+                personCount);
+
+            return Json(new { success = true });
         }
 
         [HttpGet]

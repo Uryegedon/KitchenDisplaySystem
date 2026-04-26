@@ -2,13 +2,21 @@
 // 🧾 Booking & Cart Logic
 // =====================
 
-const pricePerHead = 377;
+const pricePerHead = 477;
 let personCount = 0;
 let cart = [];
 
+function readPositiveCount(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 // Initialize personCount from reorder if available (set early to avoid timing issues)
-if (typeof window !== 'undefined' && window.isReorder === true && window.reorderPersonCount != null && window.reorderPersonCount > 0) {
-    personCount = window.reorderPersonCount;
+if (typeof window !== 'undefined' && window.isReorder === true) {
+    personCount = readPositiveCount(window.reorderPersonCount);
+}
+if (personCount === 0 && typeof window !== 'undefined') {
+    personCount = readPositiveCount(window.orderingSessionPersonCount);
 }
 
 // 🌐 Modal control (global functions)
@@ -79,36 +87,37 @@ function getQuantityLimit() {
     return 12;
 }
 
-// 🪟 Show person modal on page load (skip if reorder)
-window.onload = function () {
-    // Initialize summary display after a short delay to ensure DOM is ready
-    setTimeout(() => {
-        updateOrderSummary();
-    }, 50);
-    
-    // Check if this is a reorder
-    const isReorder = window.isReorder === true;
-    
-    if (isReorder) {
-        // For reorders, skip the person modal
-        // personCount should already be set from the initialization above
-        const personCountDisplay = document.querySelector(".person-count");
-        if (personCountDisplay && personCount > 0) {
-            personCountDisplay.textContent = `${personCount} Person${personCount > 1 ? "s" : ""}`;
-        }
-        // Update order summary with the person count
-        setTimeout(() => {
-            updateOrderSummary();
-        }, 100);
-        // Skip showing the person modal and rules modal for reorders
-    } else {
-        // Normal flow - show person modal
-        openModal("personModal");
+function refreshRememberedPersonCount() {
+    if (typeof window === 'undefined') return;
+
+    if (window.isReorder === true) {
+        personCount = readPositiveCount(window.reorderPersonCount) || personCount;
     }
-};
+
+    personCount = personCount || readPositiveCount(window.orderingSessionPersonCount);
+}
+
+function displayPersonCount() {
+    const personCountDisplay = document.querySelector(".person-count");
+    if (personCountDisplay && personCount > 0) {
+        personCountDisplay.textContent = `${personCount} Person${personCount > 1 ? "s" : ""}`;
+    }
+
+    updateOrderSummary();
+}
 
 // ✅ Confirm persons
 document.addEventListener("DOMContentLoaded", () => {
+    refreshRememberedPersonCount();
+    displayPersonCount();
+
+    if (personCount > 0) {
+        closeModal("personModal");
+        closeModal("rulesModal");
+    } else {
+        openModal("personModal");
+    }
+
     const confirmBtn = document.getElementById("confirmPersons");
     if (confirmBtn) {
         confirmBtn.addEventListener("click", function () {
@@ -121,6 +130,10 @@ document.addEventListener("DOMContentLoaded", () => {
             personCount = parseInt(input);
             document.querySelector(".person-count").textContent =
                 `${personCount} Person${personCount > 1 ? "s" : ""}`;
+
+            fetch(`/Customer/Kiosk/SaveOrderingSession?personCount=${personCount}`, {
+                method: 'POST'
+            }).catch(err => console.error('Error saving ordering session:', err));
             
             // Update order summary with a small delay to ensure DOM is ready
             setTimeout(() => {
@@ -145,9 +158,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const name = this.getAttribute('data-name');
             const image = this.getAttribute('data-image');
+            const isWingFlavor = this.getAttribute('data-is-wing-flavor') !== 'false';
             const flavorLimit = getFlavorLimit();
 
-            if (cart.length >= flavorLimit && !cart.find(i => i.name === name)) {
+            const selectedWingFlavorCount = cart.filter(i => i.isWingFlavor !== false).length;
+            if (isWingFlavor && selectedWingFlavorCount >= flavorLimit && !cart.find(i => i.name === name)) {
                 showNotification(`You can only choose up to ${flavorLimit} flavors.`, 'error');
                 return;
             }
@@ -156,13 +171,13 @@ document.addEventListener("DOMContentLoaded", () => {
             const quantityLimit = getQuantityLimit();
 
             if (existingItem) {
-                if (existingItem.quantity >= quantityLimit) {
+                if (isWingFlavor && existingItem.quantity >= quantityLimit) {
                     showNotification(`You can only order up to ${quantityLimit} pcs per flavor.`, 'error');
                     return;
                 }
                 existingItem.quantity += 1;
             } else {
-                cart.push({ name, image, quantity: 1 });
+                cart.push({ name, image, quantity: 1, isWingFlavor });
             }
 
             updateCartDisplay();
@@ -187,19 +202,22 @@ function showRulesModal() {
         message = `
         <b>For 1–2 Customers:</b><br>
         • You can choose up to <b>4 flavors</b>.<br>
-        • Maximum of <b>4 pcs</b> per flavor.
+        • Maximum of <b>4 pcs</b> per flavor.<br>
+        • Rice, red iced tea, gravy, nachos, potato thins, regular pasta, coffee, and tea are included.
         `;
     } else if (personCount <= 6) {
         message = `
         <b>For 3–6 Customers:</b><br>
         • You can choose up to <b>8 flavors</b>.<br>
-        • Maximum of <b>8 pcs</b> per flavor.
+        • Maximum of <b>8 pcs</b> per flavor.<br>
+        • Rice, red iced tea, gravy, nachos, potato thins, regular pasta, coffee, and tea are included.
         `;
     } else {
         message = `
         <b>For 7+ Customers:</b><br>
         • You can choose <b>unlimited flavors</b>.<br>
-        • Up to <b>12 pcs</b> per flavor.
+        • Up to <b>12 pcs</b> per flavor.<br>
+        • Rice, red iced tea, gravy, nachos, potato thins, regular pasta, coffee, and tea are included.
         `;
     }
 
@@ -310,7 +328,7 @@ function addCartEventListeners() {
 
         if (target.classList.contains('plus')) {
             const quantityLimit = getQuantityLimit();
-            if (cart[index].quantity >= quantityLimit) {
+            if (cart[index].isWingFlavor !== false && cart[index].quantity >= quantityLimit) {
                 showNotification(`You can only order up to ${quantityLimit} pcs per flavor.`, 'error');
                 return;
             }

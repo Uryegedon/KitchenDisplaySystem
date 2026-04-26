@@ -43,7 +43,7 @@ namespace SelfOrderingSystemKiosk.Services
                 new MenuCategoryOption
                 {
                     Key = "Wings",
-                    DisplayName = "Wings",
+                    DisplayName = "Wing Flavors",
                     DefaultImage = "/images/wings.png",
                     ShowInKiosk = true,
                     SortOrder = 1,
@@ -51,11 +51,38 @@ namespace SelfOrderingSystemKiosk.Services
                 },
                 new MenuCategoryOption
                 {
-                    Key = "Appetizer",
-                    DisplayName = "Appetizer",
-                    DefaultImage = "/images/appetize.png",
+                    Key = "Wings Ala Carte",
+                    DisplayName = "Wings Sets",
+                    DefaultImage = "/images/wings.png",
                     ShowInKiosk = true,
                     SortOrder = 2,
+                    TabImageUrl = "/images/wings.png"
+                },
+                new MenuCategoryOption
+                {
+                    Key = "Sulit Kap Meals",
+                    DisplayName = "Sulit Kap Meals",
+                    DefaultImage = "/images/wings.png",
+                    ShowInKiosk = true,
+                    SortOrder = 3,
+                    TabIconClass = "egg-fried"
+                },
+                new MenuCategoryOption
+                {
+                    Key = "Pasta",
+                    DisplayName = "Pasta",
+                    DefaultImage = "/images/wings.png",
+                    ShowInKiosk = true,
+                    SortOrder = 4,
+                    TabIconClass = "fork-knife"
+                },
+                new MenuCategoryOption
+                {
+                    Key = "Appetizer",
+                    DisplayName = "Appetizers",
+                    DefaultImage = "/images/appetize.png",
+                    ShowInKiosk = true,
+                    SortOrder = 5,
                     TabImageUrl = "/images/appetize.png"
                 },
                 new MenuCategoryOption
@@ -64,8 +91,35 @@ namespace SelfOrderingSystemKiosk.Services
                     DisplayName = "Add-Ons",
                     DefaultImage = "/images/wings.png",
                     ShowInKiosk = true,
-                    SortOrder = 3,
+                    SortOrder = 6,
                     TabIconClass = "basket"
+                },
+                new MenuCategoryOption
+                {
+                    Key = "Kap's Burger",
+                    DisplayName = "Kap's Burger",
+                    DefaultImage = "/images/wings.png",
+                    ShowInKiosk = true,
+                    SortOrder = 7,
+                    TabIconClass = "bag"
+                },
+                new MenuCategoryOption
+                {
+                    Key = "Group Add-ons",
+                    DisplayName = "Group Add-ons",
+                    DefaultImage = "/images/wings.png",
+                    ShowInKiosk = true,
+                    SortOrder = 8,
+                    TabIconClass = "people"
+                },
+                new MenuCategoryOption
+                {
+                    Key = "Unlimited Inclusions",
+                    DisplayName = "Unlimited Inclusions",
+                    DefaultImage = "/images/wings.png",
+                    ShowInKiosk = false,
+                    SortOrder = 90,
+                    TabIconClass = "infinity"
                 },
                 new MenuCategoryOption
                 {

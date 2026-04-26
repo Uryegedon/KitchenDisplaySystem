@@ -3,6 +3,9 @@
 @{
     Layout = "~/Areas/Customer/Views/Shared/_Layout.cshtml";
     ViewData["Title"] = "Unlimited Menu";
+    var rememberedPersonCount = ViewBag.PersonCount is int count && count > 0
+        ? count.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        : "null";
 }
 
 <link rel="stylesheet" href="~/css/Kiosk.css" asp-append-version="true" />
@@ -29,9 +32,13 @@
                     </div>
                 }
                 <h1>CHICKEN WINGS MENU</h1>
-                <p>Endless Wings — ₱377 per head</p>
+                <p>Endless Wings — ₱477 per head</p>
                 <h2 style="margin-top:20px;">UNLIMITED MENU</h2>
-                <p>Choose from our delicious selection of flavorful chicken wings</p>
+                <p>Choose wings, rice, sides, regular pasta, and drinks</p>
+                <div style="background: rgba(255,255,255,0.95); border: 1px solid rgba(255,107,53,0.4); border-radius: 10px; padding: 12px 14px; margin: 14px auto; max-width: 520px; text-align: left; font-size: 0.92rem;">
+                    <strong style="color:#ff6b35; display:block; margin-bottom:6px;">Unli inclusions</strong>
+                    <span>Wings (regular and premium flavors), rice (garlic and plain), red iced tea, gravy, nachos, potato thins, regular pasta, coffee, and tea.</span>
+                </div>
                 <div id="session-timer" style="background: #e8f5e9; border: 2px solid #4caf50; border-radius: 10px; padding: 10px 15px; margin: 15px auto; display: none; max-width: 300px;">
                     <i class="bi bi-clock" style="color: #2e7d32; margin-right: 5px;"></i>
                     <strong style="color: #2e7d32;">Time Remaining: <span id="timer-display">--:--</span></strong>
@@ -62,15 +69,21 @@
                 {
                     var menuLabel = item.Item ?? "";
                     var displayImage = KpImages.ResolveDisplayPath(item.Item, item.Image);
+                    var isWingFlavor = string.Equals(item.Category, "Wings", StringComparison.Ordinal);
                     <div class="menu-row" data-category="@item.Category">
                         <img src="@Url.Content(displayImage)" alt="@menuLabel" />
                         <div class="menu-details">
                             <h4>@menuLabel.ToUpper()</h4>
+                            @if (!isWingFlavor)
+                            {
+                                <p style="color:#2e7d32;font-weight:700;margin:4px 0 0;">Included</p>
+                            }
                         </div>
                         <button class="add-to-cart"
                                 data-name="@item.Item"
-                                data-price="377"
-                                data-image="@Url.Content(displayImage)">
+                                data-price="477"
+                                data-image="@Url.Content(displayImage)"
+                                data-is-wing-flavor="@(isWingFlavor ? "true" : "false")">
                             Add to cart
                         </button>
                     </div>
@@ -96,7 +109,7 @@
             <div class="summary-footer">
                 <div class="order-breakdown">
                     <div class="breakdown-row">
-                        <span>Per Person (₱377 × <span id="person-count-display">0</span>):</span>
+                        <span>Per Person (₱477 × <span id="person-count-display">0</span>):</span>
                         <span id="per-person-subtotal">₱0.00</span>
                     </div>
                     <div class="breakdown-row subtotal-row">
@@ -134,7 +147,8 @@
 <script>
     // Pass reorder information to JavaScript
     window.isReorder = @(ViewBag.IsReorder != null && (bool)ViewBag.IsReorder ? "true" : "false");
-    window.reorderPersonCount = @(ViewBag.PersonCount != null ? ViewBag.PersonCount : "null");
+    window.reorderPersonCount = @rememberedPersonCount;
+    window.orderingSessionPersonCount = @rememberedPersonCount;
 </script>
 <script src="~/js/booking_cart.js"></script>
 

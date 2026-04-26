@@ -266,3 +266,35 @@ node_modules/
 # Docker
 .dockerignore
 
+# Project-specific generated/local files
+**/[Bb]in/
+**/[Oo]bj/
+**/[Rr]elease/
+**/[Dd]ebug/
+**/publish/
+**/publish-test/
+**/*.pubxml.user
+**/*.csproj.user
+
+# Local AI/editor tooling and history
+**/.continue/
+**/.history/
+.codex/
+**/.codex/
+
+# Local-only configuration/secrets
+appsettings.Local.json
+appsettings.*.local.json
+**/appsettings.Local.json
+**/appsettings.*.local.json
+secrets.json
+**/secrets.json
+
+# Runtime/temp artifacts
+*.pid
+*.seed
+*.stackdump
+*.bak
+*.orig
+*.rej
+

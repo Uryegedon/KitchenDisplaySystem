@@ -1,8 +1,73 @@
 @model IEnumerable<SelfOrderingSystemKiosk.Models.MenuItem>
+@using System.Text.Json
 @inject SelfOrderingSystemKiosk.Services.KpItemsImageResolver KpImages
 @{
     ViewData["Title"] = "Ala Carte Menu";
     Layout = "~/Areas/Customer/Views/Shared/_Layout.cshtml";
+    var allMenuItems = (Model ?? Enumerable.Empty<SelfOrderingSystemKiosk.Models.MenuItem>()).ToList();
+    var variantCategories = new HashSet<string>(StringComparer.Ordinal) { "Pasta", "Sulit Kap Meals" };
+    var variantGroups = allMenuItems
+        .Where(i => !string.IsNullOrWhiteSpace(i.Item)
+            && !string.IsNullOrWhiteSpace(i.Category)
+            && variantCategories.Contains(i.Category)
+            && i.Item.Contains(" - ", StringComparison.Ordinal))
+        .GroupBy(i => i.Item[..i.Item.IndexOf(" - ", StringComparison.Ordinal)].Trim())
+        .Where(g => g.Count() > 1)
+        .ToDictionary(g => g.Key, g => g.OrderByDescending(i => i.MenuOrder).ToList(), StringComparer.OrdinalIgnoreCase);
+    var variantMemberNames = variantGroups.Values.SelectMany(g => g).Select(i => i.Item).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var renderedVariantBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var wingFlavors = allMenuItems
+        .Where(i => string.Equals(i.Category, "Wings", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(i.Item))
+        .OrderByDescending(i => i.MenuOrder)
+        .ThenBy(i => i.Item)
+        .Select(i => i.Item)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+    if (wingFlavors.Count == 0)
+    {
+        wingFlavors = new List<string>
+        {
+            "Buffalo Cong",
+            "Chief Parm",
+            "Colonel Mustard",
+            "Konsi Honey Soy",
+            "Konsi Soy Garlic",
+            "Konsi Soy Spicy",
+            "Mayora Sriracha Honey",
+            "Mayora Sriracha Mayo",
+            "Mayora Sriracha Original",
+            "SK Salt and Pepper",
+            "Teriyaki Sen",
+            "Usec Salted Egg",
+            "Usec Salted Egg Spicy",
+            "Vice Thai"
+        };
+    }
+
+    static int ExtractFlavorLimit(string itemName)
+    {
+        var marker = "Flavors Only";
+        var markerIndex = itemName.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0) return 0;
+
+        var before = itemName[..markerIndex].TrimEnd(' ', ')', '(');
+        var start = before.LastIndexOf('(');
+        if (start >= 0)
+            before = before[(start + 1)..];
+
+        var digits = new string(before.Where(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var limit) ? limit : 0;
+    }
+
+    static string VariantBaseName(string itemName) =>
+        itemName.Contains(" - ", StringComparison.Ordinal)
+            ? itemName[..itemName.IndexOf(" - ", StringComparison.Ordinal)].Trim()
+            : itemName;
+
+    static string VariantLabel(string itemName) =>
+        itemName.Contains(" - ", StringComparison.Ordinal)
+            ? itemName[(itemName.IndexOf(" - ", StringComparison.Ordinal) + 3)..].Trim()
+            : itemName;
 }
 
 <link rel="stylesheet" href="~/css/Kiosk.css" asp-append-version="true" />
@@ -58,20 +123,80 @@
 
             <!-- Scrollable Menu Items -->
             <div class="menu-scroll">
-                @foreach (var item in Model)
+                @foreach (var item in allMenuItems)
                 {
                     var menuLabel = item.Item ?? "";
+                    var baseName = VariantBaseName(menuLabel);
+                    if (variantMemberNames.Contains(menuLabel))
+                    {
+                        if (!renderedVariantBases.Add(baseName))
+                        {
+                            continue;
+                        }
+
+                        var groupItems = variantGroups[baseName];
+                        var selected = groupItems.First();
+                        var groupImage = KpImages.ResolveDisplayPath(selected.Item, selected.Image);
+                        var variantsJson = JsonSerializer.Serialize(groupItems.Select(v => new
+                        {
+                            name = v.Item,
+                            label = VariantLabel(v.Item),
+                            price = v.Price
+                        }));
+                        <div class="menu-row" data-category="@selected.Category">
+                            <img src="@Url.Content(groupImage)" alt="@baseName" />
+                            <div class="menu-details">
+                                <h4>@baseName.ToUpper()</h4>
+                                <select class="menu-option-select variant-select" aria-label="Choose option">
+                                    @foreach (var variant in groupItems)
+                                    {
+                                        <option value="@variant.Item" data-price="@variant.Price">@VariantLabel(variant.Item) - ₱@variant.Price.ToString("0.00")</option>
+                                    }
+                                </select>
+                                <p class="menu-price">₱@selected.Price.ToString("0.00")</p>
+                            </div>
+                            <button class="add-to-cart"
+                                    data-name="@selected.Item"
+                                    data-price="@selected.Price"
+                                    data-image="@Url.Content(groupImage)"
+                                    data-variants='@variantsJson'>
+                                Add to cart
+                            </button>
+                        </div>
+                        continue;
+                    }
+
                     var displayImage = KpImages.ResolveDisplayPath(item.Item, item.Image);
+                    var isWingSet = string.Equals(item.Category, "Wings Ala Carte", StringComparison.Ordinal)
+                        || menuLabel.Contains("Chicken Wings", StringComparison.OrdinalIgnoreCase);
+                    var flavorLimit = isWingSet ? ExtractFlavorLimit(menuLabel) : 0;
                     <div class="menu-row" data-category="@item.Category">
                         <img src="@Url.Content(displayImage)" alt="@menuLabel" />
                         <div class="menu-details">
                             <h4>@menuLabel.ToUpper()</h4>
+                            @if (flavorLimit > 0 && wingFlavors.Count > 0)
+                            {
+                                <button type="button" class="flavor-toggle" aria-expanded="false">
+                                    <i class="bi bi-chevron-down"></i>
+                                    <span>Choose flavors</span>
+                                </button>
+                                <div class="flavor-chip-picker collapsed" data-flavor-limit="@flavorLimit">
+                                    <div class="flavor-chip-grid">
+                                    @foreach (var flavor in wingFlavors)
+                                    {
+                                        <button type="button" class="flavor-chip" data-flavor="@flavor">@flavor</button>
+                                    }
+                                    </div>
+                                    <small class="flavor-count" data-empty-text="Choose up to @flavorLimit flavor@(flavorLimit == 1 ? "" : "s")">Choose up to @flavorLimit flavor@(flavorLimit == 1 ? "" : "s")</small>
+                                </div>
+                            }
                             <p>₱@item.Price.ToString("0.00")</p>
                         </div>
                         <button class="add-to-cart"
                                 data-name="@item.Item"
                                 data-price="@item.Price"
-                                data-image="@Url.Content(displayImage)">
+                                data-image="@Url.Content(displayImage)"
+                                data-flavor-limit="@flavorLimit">
                             Add to cart
                         </button>
                     </div>
@@ -101,9 +226,207 @@
     </div>
 </div>
 
+<style>
+    .menu-option-select {
+        width: min(100%, 260px);
+        margin: 6px 0;
+        padding: 8px 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: white;
+        font-size: 0.9rem;
+    }
+
+    .flavor-chip-picker,
+    .cart-flavor-picker {
+        margin: 8px 0;
+    }
+
+    .flavor-chip-picker.collapsed,
+    .cart-flavor-picker.collapsed {
+        display: none;
+    }
+
+    .flavor-toggle,
+    .cart-flavor-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 38px;
+        padding: 8px 12px;
+        border: 1px solid #ff6b35;
+        border-radius: 8px;
+        background: rgba(255, 107, 53, 0.08);
+        color: #c94f1e;
+        font-size: 0.9rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .flavor-toggle i,
+    .cart-flavor-toggle i {
+        transition: transform 0.15s ease;
+    }
+
+    .flavor-toggle[aria-expanded="true"] i,
+    .cart-flavor-toggle[aria-expanded="true"] i {
+        transform: rotate(180deg);
+    }
+
+    .flavor-chip-grid,
+    .cart-flavor-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        max-width: 540px;
+    }
+
+    .flavor-chip {
+        min-height: 38px;
+        padding: 8px 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: white;
+        color: #333;
+        font-size: 0.84rem;
+        font-weight: 600;
+        line-height: 1.15;
+        text-align: center;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .flavor-chip.selected {
+        background: #ff6b35;
+        border-color: #ff6b35;
+        color: white;
+    }
+
+    .flavor-chip:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .flavor-count {
+        display: block;
+        color: #666;
+        margin-top: 6px;
+        font-size: 0.82rem;
+    }
+
+    .cart-edit-field {
+        width: 100%;
+        max-width: 230px;
+        margin-top: 6px;
+        padding: 6px 8px;
+        border: 1px solid #ddd;
+        border-radius: 7px;
+        font-size: 0.85rem;
+    }
+
+    @@media (max-width: 560px) {
+        .flavor-chip-grid,
+        .cart-flavor-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
 <script>
     // Cart array to store items
     let cart = [];
+    const wingFlavorOptions = @Html.Raw(JsonSerializer.Serialize(wingFlavors));
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+    }
+
+    function selectedOptions(select) {
+        return select ? Array.from(select.selectedOptions).map(option => option.value) : [];
+    }
+
+    function selectedFlavorChips(container) {
+        if (!container) return [];
+        return Array.from(container.querySelectorAll('.flavor-chip.selected'))
+            .map(button => button.getAttribute('data-flavor'))
+            .filter(value => value);
+    }
+
+    function updateFlavorPickerState(container) {
+        if (!container) return;
+        const limit = parseInt(container.getAttribute('data-flavor-limit') || '0');
+        const selected = selectedFlavorChips(container);
+        const atLimit = limit > 0 && selected.length >= limit;
+        container.querySelectorAll('.flavor-chip').forEach(button => {
+            button.disabled = atLimit && !button.classList.contains('selected');
+        });
+
+        const count = container.querySelector('.flavor-count');
+        if (count) {
+            const emptyText = count.getAttribute('data-empty-text') || `Choose up to ${limit} flavors`;
+            count.textContent = selected.length === 0
+                ? emptyText
+                : `${selected.length}/${limit} selected`;
+        }
+
+        const row = container.closest('.menu-row');
+        const toggleText = row?.querySelector('.flavor-toggle span');
+        if (toggleText) {
+            toggleText.textContent = selected.length === 0
+                ? 'Choose flavors'
+                : `${selected.length}/${limit} flavors selected`;
+        }
+    }
+
+    function flavorSlotGridHtml(item, index) {
+        const current = item.flavors || [];
+        const chips = wingFlavorOptions.map(flavor => `
+            <button type="button" class="flavor-chip cart-flavor-chip ${current.includes(flavor) ? 'selected' : ''}" data-index="${index}" data-flavor="${escapeHtml(flavor)}">
+                ${escapeHtml(flavor)}
+            </button>
+        `).join('');
+
+        return `<button type="button" class="cart-flavor-toggle" data-index="${index}" aria-expanded="false">
+                    <i class="bi bi-chevron-down"></i>
+                    <span>Edit flavors</span>
+                </button>
+                <div class="cart-flavor-picker collapsed" data-index="${index}" data-flavor-limit="${item.flavorLimit}">
+                    <div class="cart-flavor-grid">${chips}</div>
+                    <small class="flavor-count" data-empty-text="Choose up to ${item.flavorLimit} flavor${item.flavorLimit === 1 ? '' : 's'}">Choose up to ${item.flavorLimit} flavor${item.flavorLimit === 1 ? '' : 's'}</small>
+                </div>`;
+    }
+
+    function setPickerOpen(toggle, picker, isOpen) {
+        if (!toggle || !picker) return;
+        picker.classList.toggle('collapsed', !isOpen);
+        toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+
+    function cartKey(item) {
+        return [
+            item.name,
+            item.variantLabel || '',
+            (item.flavors || []).join('|')
+        ].join('::');
+    }
+
+    function refreshVariantRow(row) {
+        const select = row.querySelector('.variant-select');
+        const button = row.querySelector('.add-to-cart');
+        const priceEl = row.querySelector('.menu-price');
+        if (!select || !button) return;
+
+        const option = select.selectedOptions[0];
+        const price = parseFloat(option.getAttribute('data-price'));
+        button.setAttribute('data-name', option.value);
+        button.setAttribute('data-price', String(price));
+        if (priceEl) priceEl.textContent = `₱${price.toFixed(2)}`;
+    }
 
     // Category filter functionality
     document.querySelectorAll('.menu-tabs button').forEach(button => {
@@ -133,6 +456,31 @@
         });
     });
 
+    document.querySelectorAll('.variant-select').forEach(select => {
+        select.addEventListener('change', function() {
+            refreshVariantRow(this.closest('.menu-row'));
+        });
+    });
+
+    document.querySelectorAll('.flavor-chip-picker').forEach(picker => {
+        picker.addEventListener('click', function(e) {
+            const chip = e.target.closest('.flavor-chip');
+            if (!chip || chip.disabled) return;
+            chip.classList.toggle('selected');
+            updateFlavorPickerState(this);
+        });
+        updateFlavorPickerState(picker);
+    });
+
+    document.querySelectorAll('.flavor-toggle').forEach(toggle => {
+        toggle.addEventListener('click', function() {
+            const row = this.closest('.menu-row');
+            const picker = row?.querySelector('.flavor-chip-picker');
+            const isOpen = this.getAttribute('aria-expanded') !== 'true';
+            setPickerOpen(this, picker, isOpen);
+        });
+    });
+
     // Add to cart functionality
     document.querySelectorAll('.add-to-cart').forEach(button => {
         button.addEventListener('click', function (e) {
@@ -141,9 +489,36 @@
             const name = this.getAttribute('data-name');
             const price = parseFloat(this.getAttribute('data-price'));
             const image = this.getAttribute('data-image');
+            const row = this.closest('.menu-row');
+            const flavorLimit = parseInt(this.getAttribute('data-flavor-limit') || '0');
+            const variants = JSON.parse(this.getAttribute('data-variants') || '[]');
+            const selectedVariant = variants.find(v => v.name === name);
+            const flavors = selectedFlavorChips(row?.querySelector('.flavor-chip-picker'));
+
+            if (flavorLimit > 0) {
+                if (flavors.length === 0) {
+                    const picker = row?.querySelector('.flavor-chip-picker');
+                    const toggle = row?.querySelector('.flavor-toggle');
+                    setPickerOpen(toggle, picker, true);
+                    alert(`Please choose at least 1 wing flavor before adding this set.`);
+                    return;
+                }
+            }
+
+            const newItem = {
+                name: name,
+                price: price,
+                image: image,
+                quantity: 1,
+                flavorLimit: flavorLimit,
+                flavors: flavors,
+                variants: variants,
+                variantLabel: selectedVariant?.label || ''
+            };
 
             // Check if item already exists in cart
-            const existingItem = cart.find(item => item.name === name);
+            const newKey = cartKey(newItem);
+            const existingItem = cart.find(item => cartKey(item) === newKey);
 
             if (existingItem) {
                 // Limit quantity to 5 per item for ala carte
@@ -153,12 +528,7 @@
                 }
                 existingItem.quantity += 1;
             } else {
-                cart.push({
-                    name: name,
-                    price: price,
-                    image: image,
-                    quantity: 1
-                });
+                cart.push(newItem);
             }
 
             updateCartDisplay();
@@ -199,10 +569,24 @@
             const isMaxQuantity = item.quantity >= 5;
             const plusButtonDisabled = isMaxQuantity ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : '';
             const maxQuantityIndicator = isMaxQuantity ? '<small style="color:#e74c3c;font-size:0.75em;display:block;">Max: 5</small>' : '';
+            const variantEditor = item.variants && item.variants.length > 0
+                ? `<select class="cart-edit-field cart-variant" data-index="${index}">
+                    ${item.variants.map(v => `<option value="${escapeHtml(v.name)}" data-price="${v.price}" data-label="${escapeHtml(v.label)}" ${v.name === item.name ? 'selected' : ''}>${escapeHtml(v.label)} - ₱${Number(v.price).toFixed(2)}</option>`).join('')}
+                   </select>`
+                : '';
+            const flavorEditor = item.flavorLimit > 0
+                ? flavorSlotGridHtml(item, index)
+                : '';
+            const flavorSummary = item.flavors && item.flavors.length > 0
+                ? `<p style="margin:2px 0;color:#666;font-size:0.82rem;">Flavors: ${escapeHtml(item.flavors.join(', '))}</p>`
+                : '';
             itemDiv.innerHTML = `
                 <img src="${item.image}" alt="${item.name}" style="width:50px;height:50px;object-fit:cover;border-radius:8px;">
                 <div style="flex:1;margin-left:10px;">
-                    <h5 style="margin:0;font-size:14px;">${item.name}</h5>
+                    <h5 style="margin:0;font-size:14px;">${escapeHtml(item.name)}</h5>
+                    ${variantEditor}
+                    ${flavorEditor}
+                    ${flavorSummary}
                     <p style="margin:0;color:#666;">₱${item.price.toFixed(2)}</p>
                     ${maxQuantityIndicator}
                 </div>
@@ -265,6 +649,39 @@
                 updateCartDisplay();
             });
         });
+
+        document.querySelectorAll('.cart-variant').forEach(select => {
+            select.addEventListener('change', function() {
+                const index = parseInt(this.getAttribute('data-index'));
+                const option = this.selectedOptions[0];
+                cart[index].name = option.value;
+                cart[index].price = parseFloat(option.getAttribute('data-price'));
+                cart[index].variantLabel = option.getAttribute('data-label') || '';
+                updateCartDisplay();
+            });
+        });
+
+        document.querySelectorAll('.cart-flavor-picker').forEach(picker => {
+            updateFlavorPickerState(picker);
+            picker.addEventListener('click', function(e) {
+                const chip = e.target.closest('.cart-flavor-chip');
+                if (!chip || chip.disabled) return;
+
+                const index = parseInt(chip.getAttribute('data-index'));
+                chip.classList.toggle('selected');
+                cart[index].flavors = selectedFlavorChips(this);
+                updateCartDisplay();
+            });
+        });
+
+        document.querySelectorAll('.cart-flavor-toggle').forEach(toggle => {
+            toggle.addEventListener('click', function() {
+                const index = this.getAttribute('data-index');
+                const picker = document.querySelector(`.cart-flavor-picker[data-index="${index}"]`);
+                const isOpen = this.getAttribute('aria-expanded') !== 'true';
+                setPickerOpen(this, picker, isOpen);
+            });
+        });
     }
 
     // Confirm order button
@@ -288,8 +705,16 @@
             return;
         }
 
+        const missingFlavorItems = cart.filter(item => item.flavorLimit > 0 && (!item.flavors || item.flavors.length === 0));
+        if (missingFlavorItems.length > 0) {
+            alert('Please choose wing flavors for every wing set in your cart.');
+            return;
+        }
+
         const orderItems = cart.map(item => ({
-            itemName: item.name,
+            itemName: item.flavors && item.flavors.length > 0
+                ? `${item.name} (Flavors: ${item.flavors.join(', ')})`
+                : item.name,
             price: item.price,
             quantity: item.quantity
         }));

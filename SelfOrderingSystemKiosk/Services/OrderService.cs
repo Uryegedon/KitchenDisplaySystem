@@ -48,19 +48,28 @@ namespace SelfOrderingSystemKiosk.Services
             return orders;
         }
 
-        /// <summary>Numeric order id (10 digits): yyMMdd + 4 random digits, with collision retry.</summary>
-        public async Task<string> CreateUniqueOrderNumberAsync(CancellationToken cancellationToken = default)
+        /// <summary>Numeric order id (10 digits): yyMMdd + 4 random digits. Table orders replace the first digit with the table digit.</summary>
+        public async Task<string> CreateUniqueOrderNumberAsync(string? tableNumber = null, CancellationToken cancellationToken = default)
         {
             for (var attempt = 0; attempt < 16; attempt++)
             {
-                var candidate = $"{DateTime.UtcNow:yyMMdd}{Random.Shared.Next(1000, 10000)}";
+                var candidate = ApplyTablePrefix($"{DateTime.UtcNow:yyMMdd}{Random.Shared.Next(1000, 10000)}", tableNumber);
                 var count = await _orders.CountDocumentsAsync(o => o.OrderNumber == candidate, cancellationToken: cancellationToken);
                 if (count == 0)
                     return candidate;
                 await Task.Delay(50, cancellationToken);
             }
 
-            return $"{DateTime.UtcNow:yyMMdd}{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
+            return ApplyTablePrefix($"{DateTime.UtcNow:yyMMdd}{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}", tableNumber);
+        }
+
+        private static string ApplyTablePrefix(string candidate, string? tableNumber)
+        {
+            var tableDigit = tableNumber?.FirstOrDefault(char.IsDigit);
+            if (tableDigit is null or '\0' || string.IsNullOrEmpty(candidate))
+                return candidate;
+
+            return $"{tableDigit}{candidate[1..]}";
         }
 
         public async Task EnsureIndexesAsync(CancellationToken cancellationToken = default)
