@@ -25,6 +25,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private const string CookiePersonCount = "KdsOrderPersonCount";
         private const string OrderChannelKiosk = "Kiosk";
         private const string OrderChannelQr = "Qr";
+        private const string SessionFirstOrderTime = "FirstOrderTime";
         private static readonly TimeSpan OrderingSessionLength = TimeSpan.FromHours(2);
 
         public KioskController(OrderService orderService, MenuItemService menuItems, MenuCategoryRegistry menuCategories, ILogger<KioskController> logger)
@@ -49,6 +50,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             ViewBag.OrderChannel = channel;
             ViewBag.IsQrFlow = channel == OrderChannelQr;
             ViewBag.PersonCount = GetSessionInt(SessionPersonCount);
+            ApplyOrderingWindowToViewBag();
             if (channel == OrderChannelQr)
             {
                 var table = HttpContext.Session.GetString(SessionServiceTable);
@@ -116,6 +118,46 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             return HttpContext.Session.GetInt32(key);
         }
 
+        private DateTime? GetFirstOrderTimeUtc()
+        {
+            var firstOrderTimeStr = HttpContext.Session.GetString(SessionFirstOrderTime);
+            if (string.IsNullOrEmpty(firstOrderTimeStr))
+                return null;
+
+            try
+            {
+                var firstOrderTime = DateTime.Parse(firstOrderTimeStr, null, System.Globalization.DateTimeStyles.RoundtripKind);
+                if (firstOrderTime.Kind == DateTimeKind.Unspecified)
+                    return DateTime.SpecifyKind(firstOrderTime, DateTimeKind.Utc);
+
+                return firstOrderTime.ToUniversalTime();
+            }
+            catch
+            {
+                HttpContext.Session.Remove(SessionFirstOrderTime);
+                return null;
+            }
+        }
+
+        private void ApplyOrderingWindowToViewBag()
+        {
+            var firstOrderTime = GetFirstOrderTimeUtc();
+            ViewBag.OrderingSessionHours = (int)OrderingSessionLength.TotalHours;
+            ViewBag.HasOrderingSession = firstOrderTime.HasValue;
+
+            if (!firstOrderTime.HasValue)
+                return;
+
+            var remaining = OrderingSessionLength - (DateTime.UtcNow - firstOrderTime.Value);
+            if (remaining < TimeSpan.Zero)
+                remaining = TimeSpan.Zero;
+
+            ViewBag.FirstOrderTime = firstOrderTime.Value;
+            ViewBag.OrderingSessionEndsAt = firstOrderTime.Value.Add(OrderingSessionLength);
+            ViewBag.OrderingSessionRemaining = remaining;
+            ViewBag.OrderingSessionExpired = remaining == TimeSpan.Zero;
+        }
+
         private void RestoreQrSessionFromOrder(Order order)
         {
             if (order == null) return;
@@ -134,7 +176,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
         public IActionResult Index()
         {
-            HttpContext.Session.Remove("FirstOrderTime");
             SetKioskChannelDefaults();
             RestoreOrderingCookiesToSession();
             return View();
@@ -157,7 +198,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (floor != null && floor.Length > 32)
                 floor = floor[..32];
 
-            HttpContext.Session.Remove("FirstOrderTime");
             HttpContext.Session.SetString(SessionOrderChannel, OrderChannelQr);
             HttpContext.Session.SetString(SessionServiceTable, table);
             if (floor != null)
@@ -358,10 +398,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
                 // Check 2-hour time limit after first confirmed order (session)
                 const int orderingSessionHours = 2;
-                string sessionKey = "FirstOrderTime";
-                DateTime? firstOrderTime = HttpContext.Session.GetString(sessionKey) != null 
-                    ? DateTime.Parse(HttpContext.Session.GetString(sessionKey)) 
-                    : null;
+                DateTime? firstOrderTime = GetFirstOrderTimeUtc();
 
                 if (firstOrderTime.HasValue)
                 {
@@ -379,7 +416,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 else
                 {
                     // First order - store the timestamp in session
-                    HttpContext.Session.SetString(sessionKey, DateTime.UtcNow.ToString("O"));
+                    HttpContext.Session.SetString(SessionFirstOrderTime, DateTime.UtcNow.ToString("O"));
                 }
 
                 var order = new Order
@@ -449,6 +486,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 TempData["DiningType"] = order.DiningType;
             }
 
+            ApplyOrderingWindowToViewBag();
+
             return View(order);
         }
 
@@ -456,38 +495,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         [IgnoreAntiforgeryToken]
         public IActionResult GetSessionInfo()
         {
-            string sessionKey = "FirstOrderTime";
-            string firstOrderTimeStr = HttpContext.Session.GetString(sessionKey);
-            
-            if (string.IsNullOrEmpty(firstOrderTimeStr))
-            {
-                return Json(new { hasSession = false });
-            }
+            var firstOrderTime = GetFirstOrderTimeUtc();
+            if (!firstOrderTime.HasValue)
+                return Json(new { hasSession = false, sessionHours = (int)OrderingSessionLength.TotalHours });
 
-            DateTime firstOrderTime;
-            try
-            {
-                // Parse as UTC to ensure consistent timezone handling
-                firstOrderTime = DateTime.Parse(firstOrderTimeStr, null, System.Globalization.DateTimeStyles.RoundtripKind);
-                if (firstOrderTime.Kind == DateTimeKind.Unspecified)
-                {
-                    firstOrderTime = DateTime.SpecifyKind(firstOrderTime, DateTimeKind.Utc);
-                }
-                else if (firstOrderTime.Kind == DateTimeKind.Local)
-                {
-                    firstOrderTime = firstOrderTime.ToUniversalTime();
-                }
-            }
-            catch
-            {
-                // If parsing fails, clear the session and return no session
-                HttpContext.Session.Remove(sessionKey);
-                return Json(new { hasSession = false });
-            }
-
-            const int orderingSessionHours = 2;
-            var sessionLimit = TimeSpan.FromHours(orderingSessionHours);
-            var timeSinceFirstOrder = DateTime.UtcNow - firstOrderTime;
+            var sessionLimit = OrderingSessionLength;
+            var timeSinceFirstOrder = DateTime.UtcNow - firstOrderTime.Value;
             var timeRemaining = sessionLimit - timeSinceFirstOrder;
             var isExpired = timeRemaining <= TimeSpan.Zero;
 
@@ -506,6 +519,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             {
                 hasSession = true,
                 firstOrderTime = firstOrderTime,
+                sessionHours = (int)OrderingSessionLength.TotalHours,
+                sessionEndsAt = firstOrderTime.Value.Add(sessionLimit),
                 timeRemainingSeconds = timeRemainingSeconds,
                 timeRemainingMinutes = minutes,
                 isExpired = isExpired,

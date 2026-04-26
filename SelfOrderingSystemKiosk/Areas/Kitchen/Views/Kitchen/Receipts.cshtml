@@ -1,0 +1,282 @@
+@model IEnumerable<SelfOrderingSystemKiosk.Areas.Kitchen.Models.SessionReceiptViewModel>
+@{
+    ViewData["Title"] = "Receipts / Bills";
+    var currentReturnUrl = Context.Request.Path + Context.Request.QueryString;
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>@ViewData["Title"]</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            padding: 24px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #FFB347 0%, #FFA07A 100%);
+            color: #333;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        h1 {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 2rem;
+            color: #333;
+        }
+
+        .btn {
+            border: 0;
+            border-radius: 30px;
+            padding: 11px 18px;
+            color: #333;
+            background: rgba(255, 255, 255, 0.92);
+            text-decoration: none;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+            transition: all 0.25s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+        }
+
+        .filters {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .filter {
+            border: 0;
+            background: rgba(255, 255, 255, 0.9);
+            color: #555;
+            padding: 10px 20px;
+            border-radius: 999px;
+            text-decoration: none;
+            font-weight: 800;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: all 0.25s;
+        }
+
+        .filter:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .filter.active {
+            background: white;
+            color: #FF5722;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+        }
+
+        .bill-card {
+            background: rgba(255, 255, 255, 0.96);
+            border-radius: 20px;
+            padding: 18px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+            border-left: 6px solid #FF5722;
+            transition: transform 0.25s, box-shadow 0.25s;
+        }
+
+        .bill-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        }
+
+        .bill-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .receipt-number {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: #333;
+        }
+
+        .meta {
+            color: #6b7280;
+            font-size: 0.92rem;
+            line-height: 1.45;
+        }
+
+        .total {
+            font-size: 1.4rem;
+            font-weight: 900;
+            color: #FF5722;
+            text-align: right;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            background: #FFF3CD;
+            color: #856404;
+            padding: 4px 9px;
+            font-size: 0.82rem;
+            font-weight: 800;
+            margin-top: 4px;
+        }
+
+        .pill.paid {
+            background: #D4EDDA;
+            color: #155724;
+        }
+
+        .pill.pending {
+            background: #FFF3CD;
+            color: #856404;
+        }
+
+        .pill.expired {
+            background: #F8D7DA;
+            color: #721C24;
+        }
+
+        .card-actions {
+            margin-top: 14px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .empty {
+            background: rgba(255, 255, 255, 0.96);
+            padding: 28px;
+            border-radius: 20px;
+            text-align: center;
+            color: #6b7280;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+        }
+
+        @@media (max-width: 640px) {
+            body { padding: 14px; }
+            .header { flex-direction: column; align-items: stretch; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><i class="bi bi-receipt"></i> Receipts / Bills</h1>
+        <a class="btn" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Index">
+            <i class="bi bi-arrow-left"></i> Kitchen
+        </a>
+    </div>
+
+    <div class="filters">
+        <a class="filter @(ViewBag.DateFilter == "day" ? "active" : "")" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-dateFilter="day">Today</a>
+        <a class="filter @(ViewBag.DateFilter == "week" ? "active" : "")" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-dateFilter="week">This Week</a>
+        <a class="filter @(ViewBag.DateFilter == "month" ? "active" : "")" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-dateFilter="month">This Month</a>
+        <a class="filter @(ViewBag.DateFilter == "all" ? "active" : "")" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-dateFilter="all">All Time</a>
+    </div>
+
+    @if (Model.Any())
+    {
+        <div class="grid">
+            @foreach (var receipt in Model)
+            {
+                <div class="bill-card">
+                    @{
+                        var isPaid = receipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+                        var endIso = receipt.SessionEndUtc.ToUniversalTime().ToString("O");
+                    }
+                    <div class="bill-head">
+                        <div>
+                            <div class="receipt-number">@receipt.ReceiptNumber</div>
+                            <div class="meta">@receipt.LocationLabel</div>
+                            <span class="pill">
+                                <i class="bi @(receipt.IsTableSession ? "bi-table" : "bi-receipt")"></i>
+                                @(receipt.IsTableSession ? "Table session" : "Single order")
+                            </span>
+                            <span class="pill @(isPaid ? "paid" : "pending")">
+                                <i class="bi bi-cash-coin"></i> @(isPaid ? "Paid" : "Pending")
+                            </span>
+                            <span class="pill session-timer" data-session-end="@endIso">
+                                <i class="bi bi-hourglass-split"></i> <span>Checking</span>
+                            </span>
+                        </div>
+                        <div class="total">₱@receipt.Total.ToString("N2")</div>
+                    </div>
+                    <div class="meta">
+                        @receipt.Orders.Count order@(receipt.Orders.Count == 1 ? "" : "s") ·
+                        @receipt.TotalItems item@(receipt.TotalItems == 1 ? "" : "s")<br>
+                        @receipt.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt")
+                        @if (receipt.IsTableSession)
+                        {
+                            <span> - @receipt.SessionEndUtc.ToLocalTime().ToString("h:mm tt")</span>
+                        }
+                    </div>
+                    <div class="card-actions">
+                        <a class="btn" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipt" asp-route-id="@receipt.AnchorOrder?.Id" asp-route-returnUrl="@currentReturnUrl">
+                            <i class="bi bi-box-arrow-up-right"></i> Open Bill
+                        </a>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty">
+            <i class="bi bi-receipt" style="font-size: 2rem;"></i>
+            <p>No receipts found for this filter.</p>
+        </div>
+    }
+    <script>
+        (function () {
+            function updateTimers() {
+                document.querySelectorAll('.session-timer').forEach(timer => {
+                    const label = timer.querySelector('span');
+                    const end = new Date(timer.dataset.sessionEnd);
+                    const remainingMs = end.getTime() - Date.now();
+
+                    if (remainingMs <= 0) {
+                        timer.classList.add('expired');
+                        if (label) label.textContent = 'Expired';
+                        return;
+                    }
+
+                    timer.classList.remove('expired');
+                    const totalSeconds = Math.floor(remainingMs / 1000);
+                    const minutes = Math.floor(totalSeconds / 60);
+                    const seconds = totalSeconds % 60;
+                    if (label) label.textContent = `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+                });
+            }
+
+            updateTimers();
+            setInterval(updateTimers, 1000);
+        })();
+    </script>
+</body>
+</html>

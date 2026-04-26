@@ -267,6 +267,31 @@
             color: white;
         }
 
+        .btn-receipt {
+            background: #111827;
+            color: white;
+            text-decoration: none;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-action {
+            background: #111827;
+            color: white;
+            padding: 12px 18px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+
         .status-badge {
             display: inline-block;
             padding: 5px 15px;
@@ -371,7 +396,11 @@
             <i class="bi bi-egg-fried" style="font-size: 2.5rem; color: #FF5722;"></i>
             Kitchen Dashboard
         </h1>
-        
+        <div class="header-actions">
+            <a class="header-action" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts">
+                <i class="bi bi-receipt"></i> Receipts / Bills
+            </a>
+        </div>
     </div>
 
     <div class="refresh-indicator" id="refreshIndicator">

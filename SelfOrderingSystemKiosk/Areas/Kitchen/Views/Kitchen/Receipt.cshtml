@@ -1,0 +1,436 @@
+@model SelfOrderingSystemKiosk.Areas.Kitchen.Models.SessionReceiptViewModel
+@{
+    ViewData["Title"] = "Session Receipt";
+    var firstOrder = Model.Orders.FirstOrDefault();
+    var sessionLabel = Model.IsTableSession ? "Table Session" : "Single Order";
+    var returnUrl = ViewBag.ReturnUrl as string ?? Url.Action("Receipts", "Kitchen", new { area = "Kitchen" });
+    var canManagePayment = ViewBag.CanManagePayment is bool canPay && canPay;
+    var isPaid = Model.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+    var paymentStatusLabel = isPaid ? "Paid" : "Pending";
+    var sessionEndIso = Model.SessionEndUtc.ToUniversalTime().ToString("O");
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>@ViewData["Title"]</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: linear-gradient(135deg, #FFB347 0%, #FFA07A 100%);
+            color: #111827;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 24px;
+            min-height: 100vh;
+        }
+
+        .page {
+            max-width: 980px;
+            margin: 0 auto;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .toolbar a,
+        .toolbar button {
+            border: 0;
+            border-radius: 30px;
+            padding: 12px 22px;
+            color: #333;
+            background: rgba(255, 255, 255, 0.92);
+            text-decoration: none;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+            transition: all 0.25s;
+        }
+
+        .toolbar a:hover,
+        .toolbar button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+        }
+
+        .receipt {
+            background: rgba(255, 255, 255, 0.96);
+            border-radius: 20px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.16);
+            padding: 32px;
+            border-left: 6px solid #FF5722;
+        }
+
+        .receipt-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 24px;
+            border-bottom: 2px solid rgba(255, 87, 34, 0.25);
+            padding-bottom: 18px;
+            margin-bottom: 22px;
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 1.9rem;
+            color: #333;
+            letter-spacing: 0;
+        }
+
+        .brand p,
+        .receipt-meta p {
+            margin: 4px 0;
+            color: #4b5563;
+        }
+
+        .receipt-meta {
+            text-align: right;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            background: #FFF3CD;
+            color: #856404;
+            padding: 5px 10px;
+            font-weight: 800;
+            margin-top: 6px;
+        }
+
+        .pill.paid {
+            background: #D4EDDA;
+            color: #155724;
+        }
+
+        .pill.pending {
+            background: #FFF3CD;
+            color: #856404;
+        }
+
+        .pill.expired {
+            background: #F8D7DA;
+            color: #721C24;
+        }
+
+        .payment-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 12px 0 20px;
+        }
+
+        .payment-actions form {
+            margin: 0;
+        }
+
+        .payment-btn {
+            border: 0;
+            border-radius: 999px;
+            padding: 10px 16px;
+            color: white;
+            font-weight: 800;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+        }
+
+        .payment-btn.paid {
+            background: #4CAF50;
+        }
+
+        .payment-btn.pending {
+            background: #FFC107;
+            color: #333;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 22px;
+        }
+
+        .info-box {
+            background: rgba(255, 249, 230, 0.75);
+            border: 1px solid rgba(255, 193, 7, 0.45);
+            border-radius: 10px;
+            padding: 12px;
+            min-height: 76px;
+        }
+
+        .info-box span {
+            display: block;
+            color: #6b7280;
+            font-size: 0.82rem;
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+
+        .info-box strong {
+            font-size: 1rem;
+            color: #333;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 18px;
+        }
+
+        th {
+            text-align: left;
+            color: #555;
+            background: #FFF9E6;
+            border-bottom: 1px solid #FFE0A3;
+            padding: 11px 10px;
+            font-size: 0.9rem;
+        }
+
+        td {
+            border-bottom: 1px solid #f1f1f1;
+            padding: 10px;
+            vertical-align: top;
+        }
+
+        .num {
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        .section-title {
+            margin: 24px 0 8px;
+            font-size: 1.05rem;
+            color: #FF5722;
+        }
+
+        .totals {
+            margin-left: auto;
+            width: min(360px, 100%);
+            border: 1px solid #FFE0A3;
+            border-radius: 10px;
+            overflow: hidden;
+            background: white;
+        }
+
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 11px 14px;
+            border-bottom: 1px solid #FFE0A3;
+        }
+
+        .total-row:last-child {
+            border-bottom: 0;
+            background: #FF5722;
+            color: white;
+            font-size: 1.15rem;
+            font-weight: 800;
+        }
+
+        .muted {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        @@media (max-width: 760px) {
+            body { padding: 12px; }
+            .receipt { padding: 18px; }
+            .receipt-header,
+            .toolbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .receipt-meta { text-align: left; }
+            .info-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @@media print {
+            body { background: white; padding: 0; }
+            .toolbar { display: none; }
+            .receipt { box-shadow: none; border-radius: 0; border-left: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="toolbar">
+            <a href="@returnUrl">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+            <button type="button" onclick="window.print()">
+                <i class="bi bi-printer"></i> Print
+            </button>
+        </div>
+
+        <main class="receipt">
+            <div class="receipt-header">
+                <div class="brand">
+                    <h1>Kapitak PakPak</h1>
+                    <p>Unified receipt and bill</p>
+                    <span class="pill"><i class="bi bi-receipt"></i> @sessionLabel</span>
+                    <span class="pill @(isPaid ? "paid" : "pending")"><i class="bi bi-cash-coin"></i> @paymentStatusLabel</span>
+                    <span class="pill" id="sessionTimerPill" data-session-end="@sessionEndIso"><i class="bi bi-hourglass-split"></i> <span id="sessionTimerText">Checking session</span></span>
+                </div>
+                <div class="receipt-meta">
+                    <p><strong>Receipt:</strong> @Model.ReceiptNumber</p>
+                    <p><strong>Generated:</strong> @DateTime.Now.ToString("MMM dd, yyyy h:mm tt")</p>
+                    <p><strong>Orders:</strong> @Model.Orders.Count</p>
+                </div>
+            </div>
+
+            @if (canManagePayment)
+            {
+                <div class="payment-actions">
+                    @if (!isPaid)
+                    {
+                        <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="UpdatePaymentStatus">
+                            <input type="hidden" name="id" value="@Model.AnchorOrder?.Id" />
+                            <input type="hidden" name="paymentStatus" value="Paid" />
+                            <input type="hidden" name="returnUrl" value="@returnUrl" />
+                            <button class="payment-btn paid" type="submit"><i class="bi bi-check-circle"></i> Mark Paid</button>
+                        </form>
+                    }
+                    else
+                    {
+                        <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="UpdatePaymentStatus">
+                            <input type="hidden" name="id" value="@Model.AnchorOrder?.Id" />
+                            <input type="hidden" name="paymentStatus" value="Pending" />
+                            <input type="hidden" name="returnUrl" value="@returnUrl" />
+                            <button class="payment-btn pending" type="submit"><i class="bi bi-arrow-counterclockwise"></i> Mark Pending</button>
+                        </form>
+                    }
+                </div>
+            }
+
+            <section class="info-grid">
+                <div class="info-box">
+                    <span>Location</span>
+                    <strong>@Model.LocationLabel</strong>
+                </div>
+                <div class="info-box">
+                    <span>Session Start</span>
+                    <strong>@Model.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</strong>
+                </div>
+                <div class="info-box">
+                    <span>Session Ends</span>
+                    <strong>@Model.SessionEndUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</strong>
+                </div>
+                <div class="info-box">
+                    <span>Payment</span>
+                    <strong>@(firstOrder?.PaymentMethod ?? "Cash") / @paymentStatusLabel</strong>
+                </div>
+            </section>
+
+            <h2 class="section-title">Bill Items</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th class="num">Qty</th>
+                        <th class="num">Price</th>
+                        <th class="num">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Model.LineItems)
+                    {
+                        <tr>
+                            <td>@item.ItemName</td>
+                            <td class="num">@item.Quantity</td>
+                            <td class="num">@(item.Price == 0 ? "Included" : $"₱{item.Price:N2}")</td>
+                            <td class="num">@(item.LineTotal == 0 ? "Included" : $"₱{item.LineTotal:N2}")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            <div class="totals">
+                <div class="total-row">
+                    <span>Subtotal</span>
+                    <strong>₱@Model.Subtotal.ToString("N2")</strong>
+                </div>
+                <div class="total-row">
+                    <span>Tax (12%)</span>
+                    <strong>₱@Model.Tax.ToString("N2")</strong>
+                </div>
+                <div class="total-row">
+                    <span>Total Due</span>
+                    <strong>₱@Model.Total.ToString("N2")</strong>
+                </div>
+            </div>
+
+            <h2 class="section-title">Orders Included</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Order</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th class="num">Time</th>
+                        <th class="num">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var order in Model.Orders)
+                    {
+                        <tr>
+                            <td><strong>#@order.OrderNumber</strong></td>
+                            <td>@order.OrderType</td>
+                            <td>@order.Status</td>
+                            <td class="num">@order.OrderDate.ToLocalTime().ToString("h:mm tt")</td>
+                            <td class="num">₱@order.Total.ToString("N2")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            <p class="muted">
+                This receipt groups table orders inside the same two-hour ordering window. Canceled orders are excluded from the bill.
+            </p>
+        </main>
+    </div>
+    <script>
+        (function () {
+            const pill = document.getElementById('sessionTimerPill');
+            const text = document.getElementById('sessionTimerText');
+            if (!pill || !text) return;
+
+            const end = new Date(pill.dataset.sessionEnd);
+            function updateTimer() {
+                const remainingMs = end.getTime() - Date.now();
+                if (remainingMs <= 0) {
+                    pill.classList.add('expired');
+                    text.textContent = 'Session expired';
+                    return;
+                }
+
+                pill.classList.remove('expired');
+                const totalSeconds = Math.floor(remainingMs / 1000);
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+                text.textContent = `${minutes}m ${seconds.toString().padStart(2, '0')}s left`;
+            }
+
+            updateTimer();
+            setInterval(updateTimer, 1000);
+        })();
+    </script>
+</body>
+</html>

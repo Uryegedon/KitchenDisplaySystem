@@ -48,19 +48,19 @@ namespace SelfOrderingSystemKiosk.Services
             return orders;
         }
 
-        /// <summary>Numeric order id (10 digits): yyMMdd + 4 random digits. Table orders replace the first digit with the table digit.</summary>
+        /// <summary>Numeric order id (6 digits). Table orders replace the first digit with the table digit.</summary>
         public async Task<string> CreateUniqueOrderNumberAsync(string? tableNumber = null, CancellationToken cancellationToken = default)
         {
             for (var attempt = 0; attempt < 16; attempt++)
             {
-                var candidate = ApplyTablePrefix($"{DateTime.UtcNow:yyMMdd}{Random.Shared.Next(1000, 10000)}", tableNumber);
+                var candidate = ApplyTablePrefix(Random.Shared.Next(100000, 1000000).ToString(), tableNumber);
                 var count = await _orders.CountDocumentsAsync(o => o.OrderNumber == candidate, cancellationToken: cancellationToken);
                 if (count == 0)
                     return candidate;
                 await Task.Delay(50, cancellationToken);
             }
 
-            return ApplyTablePrefix($"{DateTime.UtcNow:yyMMdd}{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}", tableNumber);
+            return ApplyTablePrefix(Random.Shared.Next(1000000, 10000000).ToString(), tableNumber);
         }
 
         private static string ApplyTablePrefix(string candidate, string? tableNumber)
@@ -122,6 +122,20 @@ namespace SelfOrderingSystemKiosk.Services
         {
             var update = Builders<Order>.Update.Set(o => o.Status, status);
             await _orders.UpdateOneAsync(o => o.Id == id, update);
+        }
+
+        public async Task UpdatePaymentStatusAsync(IEnumerable<string> ids, string paymentStatus)
+        {
+            var validIds = ids
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct()
+                .ToList();
+
+            if (!validIds.Any())
+                return;
+
+            var update = Builders<Order>.Update.Set(o => o.PaymentStatus, paymentStatus);
+            await _orders.UpdateManyAsync(o => validIds.Contains(o.Id), update);
         }
 
         // Delete order

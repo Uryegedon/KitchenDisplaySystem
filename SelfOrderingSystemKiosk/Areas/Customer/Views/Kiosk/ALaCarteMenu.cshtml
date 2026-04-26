@@ -97,9 +97,13 @@
                 <p>Order your favorite dishes with ease</p>
                 <h2 style="margin-top:20px;">ALA CARTE MENU</h2>
                 <p>Pick and enjoy our flavorful chicken wings and special sides</p>
+                <div style="background: rgba(255,255,255,0.95); border: 1px solid rgba(255,107,53,0.35); border-radius: 10px; padding: 9px 13px; margin: 12px auto; max-width: 360px; font-size: 0.92rem;">
+                    <i class="bi bi-hourglass-split" style="color:#ff6b35;"></i>
+                    Ordering session: @ViewBag.OrderingSessionHours hours after the first confirmed order.
+                </div>
                 <div id="session-timer" style="background: #e8f5e9; border: 2px solid #4caf50; border-radius: 10px; padding: 10px 15px; margin: 15px auto; display: none; max-width: 300px;">
                     <i class="bi bi-clock" style="color: #2e7d32; margin-right: 5px;"></i>
-                    <strong style="color: #2e7d32;">Time Remaining: <span id="timer-display">--:--</span></strong>
+                    <strong style="color: #2e7d32;">Session Time: <span id="timer-display">--:--</span></strong>
                 </div>
                 <div id="session-timer-expired" style="background: #ffebee; border: 2px solid #f44336; border-radius: 10px; padding: 10px 15px; margin: 15px auto; display: none; max-width: 300px;">
                     <i class="bi bi-exclamation-triangle" style="color: #c62828; margin-right: 5px;"></i>
