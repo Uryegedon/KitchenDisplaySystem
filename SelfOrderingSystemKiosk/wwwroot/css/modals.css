@@ -87,3 +87,53 @@
     from { transform: translateY(40px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
+
+@media (max-width: 768px) {
+    .modal-overlay {
+        align-items: flex-end;
+        padding: 12px;
+    }
+
+    .modal-content {
+        width: 100%;
+        max-width: none;
+        max-height: 86vh;
+        overflow-y: auto;
+        border-radius: 18px;
+        padding: 1.25rem;
+        transform: none;
+        text-align: left;
+    }
+
+    .modal-content h3 {
+        font-size: 1.15rem;
+        margin-right: 34px;
+    }
+
+    .modal-content p,
+    .modal-content li {
+        font-size: 0.92rem;
+        line-height: 1.45;
+    }
+
+    .modal-content input {
+        min-height: 46px;
+        font-size: 1rem;
+    }
+
+    .modal-content button:not(.modal-close) {
+        width: 100%;
+        min-height: 44px;
+        font-size: 0.95rem;
+    }
+
+    .modal-close {
+        top: 10px;
+        right: 10px;
+        width: 36px;
+        height: 36px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
