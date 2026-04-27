@@ -1,69 +1,57 @@
 (function () {
-    function isMobile() {
-        return window.matchMedia('(max-width: 768px)').matches;
-    }
-
     function setupSheet() {
         const summary = document.querySelector('.order-summary');
         if (!summary || summary.dataset.mobileSheetReady === 'true') return;
 
         summary.dataset.mobileSheetReady = 'true';
-        summary.classList.add('mobile-sheet');
+        summary.classList.add('cart-drawer', 'collapsed');
 
-        const handle = document.createElement('button');
-        handle.type = 'button';
-        handle.className = 'order-sheet-handle';
-        handle.setAttribute('aria-label', 'Open order summary');
-        summary.prepend(handle);
+        const fab = document.createElement('button');
+        fab.type = 'button';
+        fab.className = 'cart-fab';
+        fab.setAttribute('aria-label', 'Open cart');
+        fab.innerHTML = '<i class="bi bi-cart-fill"></i><span class="cart-fab-count">0</span>';
+        summary.insertAdjacentElement('afterend', fab);
 
-        let startY = 0;
-        let moved = false;
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'cart-drawer-close';
+        close.setAttribute('aria-label', 'Close cart');
+        close.innerHTML = '<i class="bi bi-x-lg"></i>';
+        summary.prepend(close);
+
+        const backdrop = document.createElement('button');
+        backdrop.type = 'button';
+        backdrop.className = 'cart-drawer-backdrop';
+        backdrop.setAttribute('aria-label', 'Close cart');
+        summary.insertAdjacentElement('afterend', backdrop);
 
         function setExpanded(expanded) {
             summary.classList.toggle('collapsed', !expanded);
-            handle.setAttribute('aria-label', expanded ? 'Collapse order summary' : 'Open order summary');
+            backdrop.classList.toggle('active', expanded);
+            fab.setAttribute('aria-label', expanded ? 'Close cart' : 'Open cart');
         }
 
-        function syncMode() {
-            if (isMobile()) {
-                summary.classList.add('mobile-sheet');
-                if (!summary.classList.contains('collapsed') && !summary.classList.contains('expanded-once')) {
-                    setExpanded(false);
-                }
-            } else {
-                summary.classList.remove('mobile-sheet', 'collapsed', 'expanded-once');
-            }
+        function syncCount() {
+            const label = summary.querySelector('.item-count');
+            const count = fab.querySelector('.cart-fab-count');
+            const match = (label?.textContent || '').match(/\d+/);
+            count.textContent = match ? match[0] : '0';
         }
 
-        handle.addEventListener('pointerdown', event => {
-            startY = event.clientY;
-            moved = false;
-            handle.setPointerCapture(event.pointerId);
+        fab.addEventListener('click', () => setExpanded(summary.classList.contains('collapsed')));
+        close.addEventListener('click', () => setExpanded(false));
+        backdrop.addEventListener('click', () => setExpanded(false));
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape') setExpanded(false);
         });
 
-        handle.addEventListener('pointermove', event => {
-            if (!startY) return;
-            if (Math.abs(event.clientY - startY) > 10) moved = true;
+        new MutationObserver(syncCount).observe(summary, {
+            childList: true,
+            subtree: true,
+            characterData: true
         });
-
-        handle.addEventListener('pointerup', event => {
-            const delta = event.clientY - startY;
-            startY = 0;
-
-            if (!moved) {
-                const expanded = summary.classList.contains('collapsed');
-                summary.classList.add('expanded-once');
-                setExpanded(expanded);
-                return;
-            }
-
-            summary.classList.add('expanded-once');
-            if (delta < -24) setExpanded(true);
-            if (delta > 24) setExpanded(false);
-        });
-
-        window.addEventListener('resize', syncMode);
-        syncMode();
+        syncCount();
     }
 
     if (document.readyState === 'loading') {

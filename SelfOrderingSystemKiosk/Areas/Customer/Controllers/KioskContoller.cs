@@ -166,7 +166,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
             var latestSession = GetLatestTableSession(tableOrders);
             if (!latestSession.Any())
+            {
+                HttpContext.Session.Remove(SessionFirstOrderTime);
                 return TableOrderingGateResult.Allowed();
+            }
 
             var sessionStart = latestSession.Min(o => o.OrderDate);
             var sessionEnd = sessionStart.Add(OrderingSessionLength);
@@ -198,6 +201,13 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (order == null)
                 return;
 
+            if (!IsUnlimitedOrder(order))
+            {
+                ViewBag.HasOrderingSession = false;
+                ViewBag.OrderingSessionExpired = false;
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(order.TableNumber) ||
                 !string.Equals(order.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase))
             {
@@ -219,7 +229,9 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private static List<Order> GetLatestTableSession(List<Order> tableOrders)
         {
             var ordered = tableOrders
-                .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
+                .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase)
+                    && !o.BillArchived
+                    && IsUnlimitedOrder(o))
                 .OrderBy(o => o.OrderDate)
                 .ToList();
 
@@ -244,8 +256,11 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
         private static List<Order> GetOrdersInSameSession(List<Order> tableOrders, Order anchorOrder)
         {
+            var includeArchived = anchorOrder.BillArchived;
             var ordered = tableOrders
-                .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
+                .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase)
+                    && (includeArchived || !o.BillArchived)
+                    && IsUnlimitedOrder(o))
                 .OrderBy(o => o.OrderDate)
                 .ToList();
 
@@ -266,6 +281,11 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             return ordered
                 .Where(o => o.OrderDate >= sessionStart && o.OrderDate < sessionEnd)
                 .ToList();
+        }
+
+        private static bool IsUnlimitedOrder(Order order)
+        {
+            return string.Equals(order.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase);
         }
 
         private void RestoreQrSessionFromOrder(Order order)
@@ -369,7 +389,18 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 .Where(i => !string.Equals(i.Category, "Unlimited Inclusions", StringComparison.Ordinal))
                 .ToList();
             ViewBag.MenuCategories = _menuCategories.KioskTabs;
-            ApplyOrderingSessionToViewBag();
+            RestoreOrderingCookiesToSession();
+            var channel = HttpContext.Session.GetString(SessionOrderChannel) ?? OrderChannelKiosk;
+            ViewBag.OrderChannel = channel;
+            ViewBag.IsQrFlow = channel == OrderChannelQr;
+            if (channel == OrderChannelQr)
+            {
+                var table = HttpContext.Session.GetString(SessionServiceTable);
+                var floor = HttpContext.Session.GetString(SessionServiceFloor);
+                ViewBag.ServiceTable = table;
+                ViewBag.ServiceFloor = floor;
+                ViewBag.LocationLabel = BuildLocationLabel(floor, table);
+            }
             return View(items);
         }
 
@@ -390,8 +421,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 if (previousOrder != null && previousOrder.OrderType == "Unlimited")
                 {
                     const decimal pricePerHead = 477m;
-                    const decimal taxRate = 1.12m;
-                    personCount = (int)Math.Round(previousOrder.Total / (pricePerHead * taxRate));
+                    personCount = (int)Math.Round(previousOrder.Subtotal / pricePerHead);
                     ViewBag.PersonCount = personCount;
                     HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
                 }
@@ -478,15 +508,15 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     const decimal pricePerHead = 477m;
                     HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
                     subtotal = personCount.Value * pricePerHead;
-                    tax = subtotal * 0.12m;
-                    total = subtotal + tax;
+                    tax = 0m;
+                    total = subtotal;
                 }
                 else
                 {
                     // For Ala Carte orders, calculate based on item prices
                     subtotal = Items.Sum(i => i.Price * i.Quantity);
-                    tax = subtotal * 0.12m;
-                    total = subtotal + tax;
+                    tax = 0m;
+                    total = subtotal;
                 }
 
                 string diningType = TempData["DiningType"]?.ToString()
@@ -513,7 +543,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     && !string.Equals(tableNumber, "0", StringComparison.OrdinalIgnoreCase);
                 SaveOrderingCookies(isRealQrTableOrder ? tableNumber : null, isRealQrTableOrder ? floor : null, personCount);
 
-                var tableGate = isRealQrTableOrder
+                var isUnlimitedOrder = string.Equals(experienceType, "Unlimited", StringComparison.OrdinalIgnoreCase);
+                var tableGate = isRealQrTableOrder && isUnlimitedOrder
                     ? await CheckTableOrderingGateAsync(tableNumber)
                     : TableOrderingGateResult.Allowed();
                 if (!tableGate.CanOrder)
@@ -527,27 +558,30 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
                 var orderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber);
 
-                // Check 2-hour time limit after first confirmed order (session)
-                const int orderingSessionHours = 2;
-                DateTime? firstOrderTime = GetFirstOrderTimeUtc();
+                if (isUnlimitedOrder)
+                {
+                    // Check 2-hour time limit after the first Unlimited order in the session.
+                    const int orderingSessionHours = 2;
+                    DateTime? firstOrderTime = GetFirstOrderTimeUtc();
 
-                if (firstOrderTime.HasValue)
-                {
-                    var timeSinceFirstOrder = DateTime.UtcNow - firstOrderTime.Value;
-                    var sessionLimit = TimeSpan.FromHours(orderingSessionHours);
-                    
-                    if (timeSinceFirstOrder > sessionLimit)
+                    if (firstOrderTime.HasValue)
                     {
-                        return Json(new { 
-                            success = false, 
-                            message = $"Time limit exceeded. Your {orderingSessionHours}-hour ordering window started at {firstOrderTime.Value.ToLocalTime():hh:mm tt} and has expired. Please start a new session." 
-                        });
+                        var timeSinceFirstOrder = DateTime.UtcNow - firstOrderTime.Value;
+                        var sessionLimit = TimeSpan.FromHours(orderingSessionHours);
+
+                        if (timeSinceFirstOrder > sessionLimit)
+                        {
+                            return Json(new
+                            {
+                                success = false,
+                                message = $"Time limit exceeded. Your {orderingSessionHours}-hour ordering window started at {firstOrderTime.Value.ToLocalTime():hh:mm tt} and has expired. Please start a new session."
+                            });
+                        }
                     }
-                }
-                else
-                {
-                    // First order - store the timestamp in session
-                    HttpContext.Session.SetString(SessionFirstOrderTime, DateTime.UtcNow.ToString("O"));
+                    else
+                    {
+                        HttpContext.Session.SetString(SessionFirstOrderTime, DateTime.UtcNow.ToString("O"));
+                    }
                 }
 
                 var order = new Order
@@ -618,7 +652,17 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 TempData["DiningType"] = order.DiningType;
             }
 
-            ApplyOrderingWindowToViewBag();
+            if (IsUnlimitedOrder(order))
+            {
+                ApplyOrderingWindowToViewBag();
+            }
+            else
+            {
+                ViewBag.OrderingSessionHours = (int)OrderingSessionLength.TotalHours;
+                ViewBag.HasOrderingSession = false;
+                ViewBag.OrderingSessionRemaining = TimeSpan.Zero;
+                ViewBag.OrderingSessionExpired = false;
+            }
 
             return View(order);
         }

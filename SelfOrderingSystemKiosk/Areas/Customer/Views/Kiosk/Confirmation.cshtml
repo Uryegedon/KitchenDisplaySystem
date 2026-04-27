@@ -460,20 +460,23 @@
         <p class="text-muted">
             <i class="bi bi-clock"></i> Order placed on @Model.OrderDate.ToLocalTime().ToString("MMMM dd, yyyy h:mm tt")
         </p>
-        <div id="confirmation-session-timer" class="session-window @(hasOrderingSession && orderingSessionRemaining == TimeSpan.Zero ? "expired" : "")">
-            @if (hasOrderingSession)
-            {
-                <i class="bi bi-hourglass-split"></i>
-                <strong>Ordering session:</strong>
-                <span id="confirmation-session-label">@sessionRemainingLabel remaining</span>
-            }
-            else
-            {
-                <i class="bi bi-hourglass-split"></i>
-                <strong>Ordering session:</strong>
-                <span id="confirmation-session-label">@sessionHours-hour window starts from your first confirmed order.</span>
-            }
-        </div>
+        @if (Model.OrderType == "Unlimited")
+        {
+            <div id="confirmation-session-timer" class="session-window @(hasOrderingSession && orderingSessionRemaining == TimeSpan.Zero ? "expired" : "")">
+                @if (hasOrderingSession)
+                {
+                    <i class="bi bi-hourglass-split"></i>
+                    <strong>Ordering session:</strong>
+                    <span id="confirmation-session-label">@sessionRemainingLabel remaining</span>
+                }
+                else
+                {
+                    <i class="bi bi-hourglass-split"></i>
+                    <strong>Ordering session:</strong>
+                    <span id="confirmation-session-label">@sessionHours-hour window starts from your first confirmed Unlimited order.</span>
+                }
+            </div>
+        }
         @if (orderingSessionExpired)
         {
             <div class="session-alert" id="session-ended-alert">
@@ -561,10 +564,6 @@
                     <div class="d-flex justify-content-between mb-2">
                         <span style="font-weight: 500;">Subtotal:</span>
                         <span style="font-weight: 500;">₱@Model.Subtotal.ToString("N2")</span>
-                    </div>
-                    <div class="d-flex justify-content-between mb-2">
-                        <span style="font-weight: 500;">Tax (12%):</span>
-                        <span style="font-weight: 500;">₱@Model.Tax.ToString("N2")</span>
                     </div>
                 </div>
                 <div class="order-total-row">

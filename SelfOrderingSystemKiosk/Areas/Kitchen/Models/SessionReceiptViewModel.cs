@@ -15,7 +15,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
 
         public decimal Subtotal => Orders.Sum(o => o.Subtotal);
         public decimal Tax => Orders.Sum(o => o.Tax);
-        public decimal Total => Orders.Sum(o => o.Total);
+        public decimal Total => Subtotal;
         public int TotalItems => Orders.SelectMany(o => o.Items ?? new List<OrderItem>()).Sum(i => i.Quantity);
         public string ReceiptNumber => IsTableSession ? $"T{TableNumber}-{SessionStartUtc:MMddHHmm}" : AnchorOrder?.OrderNumber ?? string.Empty;
 

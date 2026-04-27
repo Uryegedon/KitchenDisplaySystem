@@ -290,3 +290,15 @@ E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSys
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.pdb
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.genruntimeconfig.cache
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\ref\SelfOrderingSystemKiosk.dll
+E:\KitchenDisplaySystem\build-check\publish-test\web.config
+E:\KitchenDisplaySystem\build-check\appsettings.json
+E:\KitchenDisplaySystem\build-check\publish-test\appsettings.json
+E:\KitchenDisplaySystem\build-check\publish-test\SelfOrderingSystemKiosk.deps.json
+E:\KitchenDisplaySystem\build-check\publish-test\SelfOrderingSystemKiosk.runtimeconfig.json
+E:\KitchenDisplaySystem\build-check\publish-test\SelfOrderingSystemKiosk.staticwebassets.endpoints.json
+E:\KitchenDisplaySystem\build-check\SelfOrderingSystemKiosk.staticwebassets.runtime.json
+E:\KitchenDisplaySystem\build-check\SelfOrderingSystemKiosk.staticwebassets.endpoints.json
+E:\KitchenDisplaySystem\build-check\SelfOrderingSystemKiosk.deps.json
+E:\KitchenDisplaySystem\build-check\SelfOrderingSystemKiosk.runtimeconfig.json
+E:\KitchenDisplaySystem\build-check\SelfOrderingSystemKiosk.dll
+E:\KitchenDisplaySystem\build-check\SelfOrderingSystemKiosk.pdb

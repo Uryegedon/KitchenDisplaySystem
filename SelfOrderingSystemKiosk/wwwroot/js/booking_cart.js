@@ -203,6 +203,7 @@ function showRulesModal() {
         <b>For 1–2 Customers:</b><br>
         • You can choose up to <b>4 flavors</b>.<br>
         • Maximum of <b>4 pcs</b> per flavor.<br>
+        • Serving time is approximately <b>8 - 12 minutes</b>.<br>
         • Rice, red iced tea, gravy, nachos, potato thins, regular pasta, coffee, and tea are included.
         `;
     } else if (personCount <= 6) {
@@ -210,6 +211,7 @@ function showRulesModal() {
         <b>For 3–6 Customers:</b><br>
         • You can choose up to <b>8 flavors</b>.<br>
         • Maximum of <b>8 pcs</b> per flavor.<br>
+        • Serving time is approximately <b>8 - 12 minutes</b>.<br>
         • Rice, red iced tea, gravy, nachos, potato thins, regular pasta, coffee, and tea are included.
         `;
     } else {
@@ -217,6 +219,7 @@ function showRulesModal() {
         <b>For 7+ Customers:</b><br>
         • You can choose <b>unlimited flavors</b>.<br>
         • Up to <b>12 pcs</b> per flavor.<br>
+        • Serving time is approximately <b>8 - 12 minutes</b>.<br>
         • Rice, red iced tea, gravy, nachos, potato thins, regular pasta, coffee, and tea are included.
         `;
     }
@@ -234,7 +237,7 @@ function updateOrderSummary() {
     const orderTotalEl = document.querySelector('.order-total');
     
     // Check if elements exist (for Unlimited menu only)
-    if (!personCountDisplay || !perPersonSubtotalEl || !subtotalAmountEl || !taxAmountEl || !orderTotalEl) {
+    if (!personCountDisplay || !perPersonSubtotalEl || !subtotalAmountEl || !orderTotalEl) {
         return; // Not on Unlimited menu page
     }
     
@@ -245,20 +248,19 @@ function updateOrderSummary() {
         personCountDisplay.textContent = '0';
         perPersonSubtotalEl.textContent = '₱0.00';
         subtotalAmountEl.innerHTML = '<strong>₱0.00</strong>';
-        taxAmountEl.textContent = '₱0.00';
+        if (taxAmountEl) taxAmountEl.textContent = '₱0.00';
         orderTotalEl.innerHTML = '<strong>₱0.00</strong>';
         return;
     }
 
     const perPersonSubtotal = currentPersonCount * pricePerHead;
-    const tax = perPersonSubtotal * 0.12;
-    const total = perPersonSubtotal + tax;
+    const total = perPersonSubtotal;
 
     // Update all elements - ensure we're setting the text content correctly
     if (personCountDisplay) personCountDisplay.textContent = String(currentPersonCount);
     if (perPersonSubtotalEl) perPersonSubtotalEl.textContent = `₱${perPersonSubtotal.toFixed(2)}`;
     if (subtotalAmountEl) subtotalAmountEl.innerHTML = `<strong>₱${perPersonSubtotal.toFixed(2)}</strong>`;
-    if (taxAmountEl) taxAmountEl.textContent = `₱${tax.toFixed(2)}`;
+    if (taxAmountEl) taxAmountEl.textContent = '₱0.00';
     if (orderTotalEl) {
         // Only update the amount, not the "TOTAL:" text
         orderTotalEl.innerHTML = `<strong>₱${total.toFixed(2)}</strong>`;

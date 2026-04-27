@@ -9,6 +9,8 @@
     var paymentStatusLabel = isPaid ? "Paid" : "Pending";
     var sessionEndIso = Model.SessionEndUtc.ToUniversalTime().ToString("O");
     var showStaffDetails = canManagePayment;
+    var isSessionEnded = Model.Orders.Any() && Model.Orders.All(o => o.BillArchived);
+    var hasUnlimitedOrder = Model.Orders.Any(o => string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase));
 }
 
 <!DOCTYPE html>
@@ -161,6 +163,16 @@
             color: #333;
         }
 
+        .payment-btn.end-session {
+            background: #111827;
+        }
+
+        .payment-btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
         .info-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -245,6 +257,31 @@
             font-weight: 800;
         }
 
+        .discount-control {
+            margin: 0 0 14px auto;
+            width: min(360px, 100%);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 14px;
+            border: 1px solid #bbf7d0;
+            border-radius: 10px;
+            background: #f0fdf4;
+            color: #14532d;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .discount-control input {
+            width: 18px;
+            height: 18px;
+            accent-color: #16a34a;
+        }
+
+        .discount-row {
+            color: #15803d;
+        }
+
         .muted {
             color: #6b7280;
             font-size: 0.9rem;
@@ -286,6 +323,7 @@
             }
             th, td { padding: 8px 7px; }
             .totals { width: 100%; }
+            .discount-control { width: 100%; }
             .total-row { padding: 9px 11px; }
             .payment-actions { justify-content: stretch; }
             .payment-actions form,
@@ -314,7 +352,11 @@
                     <p>Unified receipt and bill</p>
                     <span class="pill"><i class="bi bi-receipt"></i> @sessionLabel</span>
                     <span class="pill @(isPaid ? "paid" : "pending")"><i class="bi bi-cash-coin"></i> @paymentStatusLabel</span>
-                    @if (showStaffDetails)
+                    @if (isSessionEnded)
+                    {
+                        <span class="pill paid"><i class="bi bi-check2-circle"></i> Session Ended</span>
+                    }
+                    @if (showStaffDetails && hasUnlimitedOrder)
                     {
                         <span class="pill" id="sessionTimerPill" data-session-end="@sessionEndIso"><i class="bi bi-hourglass-split"></i> <span id="sessionTimerText">Checking session</span></span>
                     }
@@ -336,6 +378,16 @@
                             <input type="hidden" name="paymentStatus" value="Paid" />
                             <input type="hidden" name="returnUrl" value="@returnUrl" />
                             <button class="payment-btn paid" type="submit"><i class="bi bi-check-circle"></i> Mark Paid</button>
+                        </form>
+                    }
+                    @if (Model.IsTableSession && !isSessionEnded)
+                    {
+                        <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="EndSession">
+                            <input type="hidden" name="id" value="@Model.AnchorOrder?.Id" />
+                            <input type="hidden" name="returnUrl" value="@returnUrl" />
+                            <button class="payment-btn end-session" type="submit" @(isPaid ? "" : "disabled") title="@(isPaid ? "End this table session" : "Mark the bill as paid before ending the session")">
+                                <i class="bi bi-box-arrow-right"></i> End Session
+                            </button>
                         </form>
                     }
                 </div>
@@ -395,18 +447,29 @@
                 </tbody>
             </table>
 
-            <div class="totals">
+            @if (canManagePayment)
+            {
+                <label class="discount-control">
+                    <input type="checkbox" id="seniorDiscountToggle" />
+                    <span>Apply 20% senior discount</span>
+                </label>
+            }
+
+            <div class="totals" data-subtotal="@Model.Subtotal">
                 <div class="total-row">
                     <span>Subtotal</span>
                     <strong>₱@Model.Subtotal.ToString("N2")</strong>
                 </div>
-                <div class="total-row">
-                    <span>Tax (12%)</span>
-                    <strong>₱@Model.Tax.ToString("N2")</strong>
-                </div>
+                @if (canManagePayment)
+                {
+                    <div class="total-row discount-row" id="seniorDiscountRow" style="display:none;">
+                        <span>Senior Discount (20%)</span>
+                        <strong id="seniorDiscountAmount">-₱0.00</strong>
+                    </div>
+                }
                 <div class="total-row">
                     <span>Total Due</span>
-                    <strong>₱@Model.Total.ToString("N2")</strong>
+                    <strong id="receiptTotalDue">₱@Model.Total.ToString("N2")</strong>
                 </div>
             </div>
 
@@ -431,7 +494,7 @@
                                 <td>@order.OrderType</td>
                                 <td>@order.Status</td>
                                 <td class="num">@order.OrderDate.ToLocalTime().ToString("h:mm tt")</td>
-                                <td class="num">₱@order.Total.ToString("N2")</td>
+                                <td class="num">₱@order.Subtotal.ToString("N2")</td>
                             </tr>
                         }
                     </tbody>
@@ -467,6 +530,31 @@
 
             updateTimer();
             setInterval(updateTimer, 1000);
+        })();
+
+        (function () {
+            const toggle = document.getElementById('seniorDiscountToggle');
+            const totals = document.querySelector('.totals');
+            const row = document.getElementById('seniorDiscountRow');
+            const discountAmount = document.getElementById('seniorDiscountAmount');
+            const totalDue = document.getElementById('receiptTotalDue');
+            if (!toggle || !totals || !row || !discountAmount || !totalDue) return;
+
+            const subtotal = Number(totals.dataset.subtotal || 0);
+            const formatter = new Intl.NumberFormat('en-PH', {
+                style: 'currency',
+                currency: 'PHP'
+            });
+
+            function updateDiscount() {
+                const discount = toggle.checked ? subtotal * 0.20 : 0;
+                row.style.display = toggle.checked ? 'flex' : 'none';
+                discountAmount.textContent = `-${formatter.format(discount)}`;
+                totalDue.textContent = formatter.format(Math.max(0, subtotal - discount));
+            }
+
+            toggle.addEventListener('change', updateDiscount);
+            updateDiscount();
         })();
     </script>
 </body>

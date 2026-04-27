@@ -126,6 +126,31 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             return RedirectToAction("Receipt", new { id, returnUrl = GetSafeReturnUrl(returnUrl, anchorOrder, true) });
         }
 
+        [HttpPost]
+        public async Task<IActionResult> EndSession(string id, string? returnUrl = null)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                return RedirectToAction("Receipts");
+
+            var anchorOrder = await _orderService.GetByIdAsync(id);
+            if (anchorOrder == null)
+                return RedirectToAction("Receipts");
+
+            var receipt = await BuildReceiptViewModelAsync(anchorOrder);
+            if (!receipt.IsTableSession)
+                return RedirectToAction("Receipt", new { id, returnUrl = GetSafeReturnUrl(returnUrl, anchorOrder, true) });
+
+            var isPaid = receipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+            if (!isPaid)
+            {
+                TempData["ErrorMessage"] = "This table session can only be ended after the bill is marked as paid.";
+                return RedirectToAction("Receipt", new { id, returnUrl = GetSafeReturnUrl(returnUrl, anchorOrder, true) });
+            }
+
+            await _orderService.ArchiveBillsAsync(receipt.Orders.Select(o => o.Id));
+            return RedirectToAction("Receipts");
+        }
+
         private async Task<SessionReceiptViewModel> BuildReceiptViewModelAsync(Order anchorOrder)
         {
             var orders = new List<Order> { anchorOrder };
@@ -138,7 +163,10 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 orders = GetOrdersInSameSession(tableOrders, anchorOrder);
             }
 
-            var sessionStart = orders.Min(o => o.OrderDate);
+            var sessionStart = orders
+                .Where(o => string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase))
+                .Select(o => (DateTime?)o.OrderDate)
+                .Min() ?? orders.Min(o => o.OrderDate);
             var locationLabel = BuildLocationLabel(anchorOrder.Floor, anchorOrder.TableNumber);
 
             return new SessionReceiptViewModel
@@ -156,8 +184,10 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
         private static List<Order> GetOrdersInSameSession(List<Order> tableOrders, Order anchorOrder)
         {
+            var includeArchived = anchorOrder.BillArchived;
             var ordered = tableOrders
-                .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
+                .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase)
+                    && (includeArchived || !o.BillArchived))
                 .OrderBy(o => o.OrderDate)
                 .ToList();
 
@@ -182,9 +212,10 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
         private static bool ShouldHideClosedReceipt(SessionReceiptViewModel receipt)
         {
-            return receipt.SessionEndUtc <= DateTime.UtcNow
-                && receipt.Orders.Any()
-                && receipt.Orders.All(o => o.BillArchived || string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+            return receipt.Orders.Any()
+                && (receipt.Orders.All(o => o.BillArchived)
+                    || (receipt.SessionEndUtc <= DateTime.UtcNow
+                        && receipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase))));
         }
 
         private static string BuildLocationLabel(string floor, string table)
