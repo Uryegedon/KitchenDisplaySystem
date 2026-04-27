@@ -16,7 +16,7 @@ body {
     align-items: center;
     justify-content: center;
     height: 100vh;
-    position: relative; /* allows for back button positioning */
+    position: relative;
     padding: 20px;
 }
 
@@ -43,22 +43,42 @@ p {
     margin-bottom: 20px;
 }
 
-/* 🔙 Back Button */
+/* Back navigation */
+.kiosk-page-actions {
+    width: 100%;
+    max-width: 1100px;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    margin: 0 auto 18px;
+    flex-shrink: 0;
+}
+
+.kiosk-back-form {
+    margin: 0;
+}
+
 .back-btn {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    background-color: transparent;
+    position: static;
+    width: 48px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(255, 255, 255, 0.94);
     border: none;
+    border-radius: 999px;
     color: #d35400;
-    font-size: 1.8em;
+    font-size: 1.35rem;
     cursor: pointer;
-    transition: 0.3s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    transition: transform 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
     .back-btn:hover {
         color: #e67e22;
-        transform: scale(1.1);
+        transform: translateY(-1px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.16);
     }
 
 /* Choices container */
@@ -122,6 +142,16 @@ p {
         min-height: calc(100vh - 76px);
         height: auto;
         padding: 18px 12px 8px;
+    }
+
+    .kiosk-page-actions {
+        margin-bottom: 10px;
+    }
+
+    .back-btn {
+        width: 42px;
+        height: 42px;
+        font-size: 1.15rem;
     }
 
     h1 {

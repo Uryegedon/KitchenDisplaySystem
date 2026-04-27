@@ -9,9 +9,11 @@
     var variantGroups = allMenuItems
         .Where(i => !string.IsNullOrWhiteSpace(i.Item)
             && !string.IsNullOrWhiteSpace(i.Category)
-            && variantCategories.Contains(i.Category)
-            && i.Item.Contains(" - ", StringComparison.Ordinal))
-        .GroupBy(i => i.Item[..i.Item.IndexOf(" - ", StringComparison.Ordinal)].Trim())
+            && ((variantCategories.Contains(i.Category) && i.Item.Contains(" - ", StringComparison.Ordinal))
+                || i.Item.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)))
+        .GroupBy(i => i.Item.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
+            ? "Potato Thins"
+            : i.Item[..i.Item.IndexOf(" - ", StringComparison.Ordinal)].Trim())
         .Where(g => g.Count() > 1)
         .ToDictionary(g => g.Key, g => g.OrderByDescending(i => i.MenuOrder).ToList(), StringComparer.OrdinalIgnoreCase);
     var variantMemberNames = variantGroups.Values.SelectMany(g => g).Select(i => i.Item).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -60,12 +62,16 @@
     }
 
     static string VariantBaseName(string itemName) =>
-        itemName.Contains(" - ", StringComparison.Ordinal)
+        itemName.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
+            ? "Potato Thins"
+            : itemName.Contains(" - ", StringComparison.Ordinal)
             ? itemName[..itemName.IndexOf(" - ", StringComparison.Ordinal)].Trim()
             : itemName;
 
     static string VariantLabel(string itemName) =>
-        itemName.Contains(" - ", StringComparison.Ordinal)
+        itemName.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
+            ? itemName["Potato Thins ".Length..].Trim()
+            : itemName.Contains(" - ", StringComparison.Ordinal)
             ? itemName[(itemName.IndexOf(" - ", StringComparison.Ordinal) + 3)..].Trim()
             : itemName;
 }
@@ -76,12 +82,13 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 
 <div class="container">
-    <!-- 🔙 Back Button -->
-    <form asp-action="ChooseExperience" method="get" style="position:absolute;top:30px;left:40px;">
-        <button type="submit" class="back-btn" title="Back to Experience Selection">
-            <i class="bi bi-arrow-left-circle-fill" style="font-size: 2rem;"></i>
-        </button>
-    </form>
+    <div class="kiosk-page-actions">
+        <form asp-action="ChooseExperience" method="get" class="kiosk-back-form">
+            <button type="submit" class="back-btn" title="Back to Experience Selection">
+                <i class="bi bi-arrow-left-circle-fill" style="font-size: 2rem;"></i>
+            </button>
+        </form>
+    </div>
 
     <div class="menu-container">
         <!-- LEFT: MENU LIST -->
@@ -133,7 +140,8 @@
                         {
                             name = v.Item,
                             label = VariantLabel(v.Item),
-                            price = v.Price
+                            price = v.Price,
+                            image = Url.Content(KpImages.ResolveDisplayPath(v.Item, v.Image))
                         }));
                         <div class="menu-row" data-category="@selected.Category">
                             <img src="@Url.Content(groupImage)" alt="@baseName" />
@@ -142,7 +150,8 @@
                                 <select class="menu-option-select variant-select" aria-label="Choose option">
                                     @foreach (var variant in groupItems)
                                     {
-                                        <option value="@variant.Item" data-price="@variant.Price">@VariantLabel(variant.Item) - ₱@variant.Price.ToString("0.00")</option>
+                                        var variantImage = KpImages.ResolveDisplayPath(variant.Item, variant.Image);
+                                        <option value="@variant.Item" data-price="@variant.Price" data-image="@Url.Content(variantImage)">@VariantLabel(variant.Item) - ₱@variant.Price.ToString("0.00")</option>
                                     }
                                 </select>
                                 <p class="menu-price">₱@selected.Price.ToString("0.00")</p>
@@ -447,12 +456,18 @@
         const select = row.querySelector('.variant-select');
         const button = row.querySelector('.add-to-cart');
         const priceEl = row.querySelector('.menu-price');
+        const imageEl = row.querySelector('img');
         if (!select || !button) return;
 
         const option = select.selectedOptions[0];
         const price = parseFloat(option.getAttribute('data-price'));
+        const image = option.getAttribute('data-image');
         button.setAttribute('data-name', option.value);
         button.setAttribute('data-price', String(price));
+        if (image) {
+            button.setAttribute('data-image', image);
+            if (imageEl) imageEl.src = image;
+        }
         if (priceEl) priceEl.textContent = `₱${price.toFixed(2)}`;
     }
 
@@ -593,7 +608,7 @@
             const maxQuantityIndicator = isMaxQuantity ? '<small style="color:#e74c3c;font-size:0.75em;display:block;">Max: 5</small>' : '';
             const variantEditor = item.variants && item.variants.length > 0
                 ? `<select class="cart-edit-field cart-variant" data-index="${index}">
-                    ${item.variants.map(v => `<option value="${escapeHtml(v.name)}" data-price="${v.price}" data-label="${escapeHtml(v.label)}" ${v.name === item.name ? 'selected' : ''}>${escapeHtml(v.label)} - ₱${Number(v.price).toFixed(2)}</option>`).join('')}
+                    ${item.variants.map(v => `<option value="${escapeHtml(v.name)}" data-price="${v.price}" data-label="${escapeHtml(v.label)}" data-image="${escapeHtml(v.image || '')}" ${v.name === item.name ? 'selected' : ''}>${escapeHtml(v.label)} - ₱${Number(v.price).toFixed(2)}</option>`).join('')}
                    </select>`
                 : '';
             const flavorEditor = item.flavorLimit > 0
@@ -679,6 +694,7 @@
                 cart[index].name = option.value;
                 cart[index].price = parseFloat(option.getAttribute('data-price'));
                 cart[index].variantLabel = option.getAttribute('data-label') || '';
+                cart[index].image = option.getAttribute('data-image') || cart[index].image;
                 updateCartDisplay();
             });
         });

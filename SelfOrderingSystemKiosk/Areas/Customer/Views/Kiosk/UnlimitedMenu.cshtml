@@ -14,12 +14,13 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 
 <div class="container">
-    <!-- Back Button -->
-    <form asp-action="ChooseExperience" method="get" style="position:absolute;top:30px;left:40px;">
-        <button type="submit" class="back-btn" title="Back to Experience Selection">
-            <i class="bi bi-arrow-left-circle-fill" style="font-size: 2rem;"></i>
-        </button>
-    </form>
+    <div class="kiosk-page-actions">
+        <form asp-action="ChooseExperience" method="get" class="kiosk-back-form">
+            <button type="submit" class="back-btn" title="Back to Experience Selection">
+                <i class="bi bi-arrow-left-circle-fill" style="font-size: 2rem;"></i>
+            </button>
+        </form>
+    </div>
 
     <div class="menu-container">
         <!-- LEFT: MENU LIST -->

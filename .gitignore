@@ -196,6 +196,8 @@ $RECYCLE.BIN/
 .DS_Store
 
 # App settings (may contain sensitive data)
+appsettings.json
+**/appsettings.json
 appsettings.Development.json
 appsettings.Production.json
 

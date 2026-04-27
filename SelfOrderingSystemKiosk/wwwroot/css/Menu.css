@@ -13,8 +13,32 @@
     padding: 20px;
 }
 
-.container > form:first-child {
-    z-index: 20;
+.kiosk-page-actions {
+    width: 100%;
+    max-width: none;
+    margin: 0 0 8px;
+    padding: 0 20px;
+    display: flex;
+    justify-content: flex-start;
+}
+
+.kiosk-back-form {
+    margin: 0;
+}
+
+.kiosk-back-form .back-btn {
+    position: static;
+    width: 48px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    color: #d35400;
+    border: 0;
+    cursor: pointer;
 }
 
 /* === MENU LIST SECTION === */
@@ -521,22 +545,14 @@
         padding: 12px;
     }
 
-    .container > form:first-child {
-        position: fixed !important;
-        top: 8px !important;
-        left: 8px !important;
+    .kiosk-page-actions {
+        padding: 0 0 4px;
+        margin-bottom: 6px;
     }
 
-    .back-btn {
-        position: static;
+    .kiosk-back-form .back-btn {
         width: 42px;
         height: 42px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.94);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
         font-size: 1.25rem;
     }
 
@@ -555,7 +571,7 @@
 
     .menu-header {
         margin: 0 0 12px;
-        padding: 48px 4px 0;
+        padding: 0 4px;
         text-align: center;
     }
 

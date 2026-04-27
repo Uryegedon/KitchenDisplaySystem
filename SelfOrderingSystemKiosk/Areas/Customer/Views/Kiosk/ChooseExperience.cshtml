@@ -6,12 +6,13 @@
 @await Html.PartialAsync("_Loader")
 
 <div class="container">
-    <!-- 🔙 Return Button -->
-    <form asp-action="Index" method="get" style="position:absolute;top:30px;left:40px;">
-        <button type="submit" class="back-btn" title="Back to Dining Options">
-            <i class="bi bi-arrow-left-circle-fill"></i>
-        </button>
-    </form>
+    <div class="kiosk-page-actions">
+        <form asp-action="Index" method="get" class="kiosk-back-form">
+            <button type="submit" class="back-btn" title="Back to Dining Options">
+                <i class="bi bi-arrow-left-circle-fill"></i>
+            </button>
+        </form>
+    </div>
 
     <h1>Choose Your Wing Experience</h1>
     @if (ViewBag.IsQrFlow == true && ViewBag.LocationLabel != null)
