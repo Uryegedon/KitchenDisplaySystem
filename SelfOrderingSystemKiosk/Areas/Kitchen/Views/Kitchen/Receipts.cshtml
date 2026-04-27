@@ -81,6 +81,35 @@
             margin-bottom: 20px;
         }
 
+        .search-bar {
+            position: relative;
+            margin-bottom: 18px;
+        }
+
+        .search-bar i {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #6b7280;
+        }
+
+        .search-bar input {
+            width: 100%;
+            border: 0;
+            border-radius: 18px;
+            padding: 14px 18px 14px 44px;
+            font-size: 1rem;
+            background: rgba(255, 255, 255, 0.94);
+            color: #333;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+            outline: none;
+        }
+
+        .search-bar input:focus {
+            box-shadow: 0 0 0 3px rgba(255, 87, 34, 0.22), 0 4px 15px rgba(0,0,0,0.12);
+        }
+
         .filter {
             border: 0;
             background: rgba(255, 255, 255, 0.9);
@@ -219,18 +248,36 @@
         <a class="filter @(dateFilter == "all" ? "active" : "")" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-dateFilter="all" asp-route-showArchived="@showArchived">All Time</a>
     </div>
 
+    <div class="search-bar">
+        <i class="bi bi-search"></i>
+        <input id="receiptSearch" type="search" placeholder="Search order, receipt, table, status, or item..." autocomplete="off" />
+    </div>
+
     @if (Model.Any())
     {
+        <div class="empty" id="receiptSearchEmpty" style="display:none;">
+            <i class="bi bi-search" style="font-size: 2rem;"></i>
+            <p>No bills match your search.</p>
+        </div>
         <div class="grid">
             @foreach (var receipt in Model)
             {
-                <div class="bill-card">
-                    @{
-                        var isPaid = receipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
-                        var isExpired = receipt.SessionEndUtc <= DateTime.UtcNow;
-                        var isClosed = isPaid && isExpired;
-                        var endIso = receipt.SessionEndUtc.ToUniversalTime().ToString("O");
-                    }
+                var isPaid = receipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+                var isExpired = receipt.SessionEndUtc <= DateTime.UtcNow;
+                var isClosed = isPaid && isExpired;
+                var endIso = receipt.SessionEndUtc.ToUniversalTime().ToString("O");
+                var searchText = string.Join(" ", new[]
+                {
+                    receipt.ReceiptNumber,
+                    receipt.LocationLabel,
+                    receipt.TableNumber,
+                    receipt.Floor,
+                    isPaid ? "Paid" : "Pending",
+                    isClosed ? "Closed" : "Open",
+                    string.Join(" ", receipt.Orders.Select(o => $"{o.OrderNumber} {o.OrderType} {o.Status}")),
+                    string.Join(" ", receipt.LineItems.Select(i => i.ItemName))
+                });
+                <div class="bill-card" data-search="@searchText.ToLowerInvariant()">
                     <div class="bill-head">
                         <div>
                             <div class="receipt-number">@receipt.ReceiptNumber</div>
@@ -311,6 +358,25 @@
 
             updateTimers();
             setInterval(updateTimers, 1000);
+
+            const search = document.getElementById('receiptSearch');
+            const empty = document.getElementById('receiptSearchEmpty');
+            const cards = Array.from(document.querySelectorAll('.bill-card'));
+
+            function applySearch() {
+                const query = (search?.value || '').trim().toLowerCase();
+                let visible = 0;
+
+                cards.forEach(card => {
+                    const matches = !query || (card.dataset.search || '').includes(query);
+                    card.style.display = matches ? '' : 'none';
+                    if (matches) visible += 1;
+                });
+
+                if (empty) empty.style.display = visible === 0 ? 'block' : 'none';
+            }
+
+            if (search) search.addEventListener('input', applySearch);
         })();
     </script>
 </body>

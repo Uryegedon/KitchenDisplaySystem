@@ -75,26 +75,27 @@ namespace SelfOrderingSystemKiosk.Services
             var coll = db.GetCollection<MenuItem>(menuCollection);
             var boardItems = BuildMenuBoardSeed();
 
-            foreach (var item in boardItems)
-            {
-                var filter = Builders<MenuItem>.Filter.Eq(x => x.Item, item.Item);
-                var update = Builders<MenuItem>.Update
-                    .SetOnInsert(x => x.Id, MongoDB.Bson.ObjectId.GenerateNewId().ToString())
-                    .Set(x => x.Category, item.Category)
-                    .Set(x => x.FoodCategory, item.FoodCategory)
-                    .Set(x => x.MenuOrder, item.MenuOrder)
-                    .Set(x => x.Unit, item.Unit)
-                    .Set(x => x.Price, item.Price)
-                    .Set(x => x.Image, item.Image)
-                    .SetOnInsert(x => x.CurrentStock, item.CurrentStock)
-                    .SetOnInsert(x => x.ReorderLevel, item.ReorderLevel)
-                    .SetOnInsert(x => x.Status, item.Status)
-                    .SetOnInsert(x => x.Availability, item.Availability);
+            if (boardItems.Count == 0)
+                return;
 
-                await coll.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }, ct);
+            var seedNames = boardItems.Select(x => x.Item).ToList();
+            var existingNames = await coll.Find(Builders<MenuItem>.Filter.In(x => x.Item, seedNames))
+                .Project(x => x.Item)
+                .ToListAsync(ct);
+            var existing = existingNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var missing = boardItems.Where(x => !existing.Contains(x.Item)).ToList();
+
+            if (missing.Count == 0)
+            {
+                _logger.LogDebug("Menu board seed skipped; all {Count} default items already exist in {Coll}.", boardItems.Count, menuCollection);
+                return;
             }
 
-            _logger.LogInformation("Seeded or updated {Count} menu board items into {Coll}.", boardItems.Count, menuCollection);
+            foreach (var item in missing)
+                item.Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+
+            await coll.InsertManyAsync(missing, cancellationToken: ct);
+            _logger.LogInformation("Seeded {Count} missing menu board items into {Coll}.", missing.Count, menuCollection);
         }
 
         private static List<MenuItem> BuildMenuBoardSeed() =>
