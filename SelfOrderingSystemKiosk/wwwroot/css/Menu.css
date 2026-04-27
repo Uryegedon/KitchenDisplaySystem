@@ -575,8 +575,8 @@
         min-width: 0;
         margin: 14px -12px -12px;
         border-radius: 18px 18px 0 0;
-        padding: 12px;
-        max-height: 56vh;
+        padding: 9px 10px;
+        max-height: 42vh;
         box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.16);
     }
 
@@ -590,29 +590,45 @@
 
     .summary-header h3 {
         margin: 0;
-        font-size: 1.05rem;
+        font-size: 0.98rem;
     }
 
     .summary-header p {
         margin: 0;
-        font-size: 0.88rem;
+        font-size: 0.8rem;
     }
 
     .summary-list {
-        max-height: 24vh;
-        margin-top: 10px;
+        max-height: 13vh;
+        margin-top: 7px;
+        gap: 6px;
+    }
+
+    .empty-cart {
+        padding: 4px 0;
+        text-align: center;
+    }
+
+    .empty-cart i {
+        display: none;
+    }
+
+    .empty-cart p {
+        margin: 0;
+        font-size: 0.82rem;
+        line-height: 1.25;
     }
 
     .cart-item {
         align-items: flex-start;
         flex-wrap: wrap;
-        padding: 9px;
+        padding: 7px;
     }
 
     .cart-img,
     .cart-item > img {
-        width: 46px !important;
-        height: 46px !important;
+        width: 38px !important;
+        height: 38px !important;
     }
 
     .cart-info h4,
@@ -630,24 +646,30 @@
     }
 
     .qty-btn {
-        width: 32px;
-        height: 32px;
+        width: 30px;
+        height: 30px;
     }
 
     .order-breakdown {
-        padding: 10px;
-        margin-bottom: 10px;
+        padding: 7px;
+        margin-bottom: 7px;
     }
 
     .breakdown-row {
-        font-size: 0.86rem;
-        padding: 5px 0;
+        font-size: 0.78rem;
+        padding: 3px 0;
         gap: 10px;
     }
 
+    .order-total {
+        margin-bottom: 7px;
+        font-size: 1rem;
+    }
+
     .confirm-btn {
-        padding: 10px;
-        font-size: 0.92rem;
+        min-height: 42px;
+        padding: 8px;
+        font-size: 0.88rem;
     }
 }
 

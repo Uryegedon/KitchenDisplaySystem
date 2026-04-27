@@ -332,6 +332,120 @@
         text-decoration: none;
     }
 
+    @@media (max-width: 768px) {
+        .confirmation-container {
+            margin: 10px;
+            padding: 16px;
+            border-radius: 14px;
+        }
+
+        .success-icon {
+            width: 58px;
+            height: 58px;
+            margin-bottom: 12px;
+        }
+
+        .success-icon i {
+            font-size: 1.8rem !important;
+        }
+
+        .confirmation-container h1 {
+            font-size: 1.45rem;
+            margin-bottom: 4px;
+        }
+
+        .order-number {
+            font-size: 1.9rem;
+            margin: 6px 0 14px;
+            overflow-wrap: anywhere;
+        }
+
+        .session-window,
+        .session-alert {
+            max-width: 100%;
+            margin-top: 10px;
+            padding: 10px 12px;
+            font-size: 0.88rem;
+        }
+
+        .row {
+            gap: 14px;
+        }
+
+        .order-details {
+            padding: 14px;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            margin-bottom: 12px;
+        }
+
+        .order-item {
+            gap: 10px;
+            font-size: 0.9rem;
+        }
+
+        .order-total-row {
+            font-size: 1.05rem;
+            margin-top: 12px;
+            padding-top: 12px;
+        }
+
+        .tracking-horizontal {
+            margin-top: 18px;
+        }
+
+        .tracking-icon-horizontal {
+            width: 34px;
+            height: 34px;
+            font-size: 1rem;
+        }
+
+        .tracking-step-horizontal p {
+            font-size: 0.78rem;
+        }
+
+        .status-badge-large {
+            width: 100%;
+            padding: 10px 12px;
+            font-size: 0.92rem;
+        }
+
+        .action-buttons {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .action-buttons .btn-primary,
+        .action-buttons .btn-secondary,
+        .action-buttons .btn-danger {
+            width: 100%;
+            min-height: 44px;
+            padding: 10px 12px;
+            border-radius: 9px;
+            font-size: 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            text-align: center;
+        }
+    }
+
+    @@media (max-width: 420px) {
+        .confirmation-container {
+            margin: 6px;
+            padding: 12px;
+        }
+
+        .action-buttons {
+            grid-template-columns: 1fr;
+        }
+    }
+
 </style>
 
 <div class="confirmation-container">
@@ -528,12 +642,6 @@
         {
             <a asp-action="UnlimitedMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="btn-primary @(orderingSessionExpired ? "btn-disabled" : "")" aria-disabled="@(orderingSessionExpired ? "true" : "false")" style="text-decoration: none; background: #F39C12;">
                 <i class="bi bi-arrow-repeat"></i> Reorder (Unlimited)
-            </a>
-        }
-        else
-        {
-            <a asp-action="AlaCarteMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="btn-primary @(orderingSessionExpired ? "btn-disabled" : "")" aria-disabled="@(orderingSessionExpired ? "true" : "false")" style="text-decoration: none; background: #F39C12;">
-                <i class="bi bi-arrow-repeat"></i> Reorder (Ala Carte)
             </a>
         }
         <a asp-action="Receipt" asp-controller="Kitchen" asp-area="Kitchen" asp-route-orderNumber="@Model.OrderNumber" asp-route-returnUrl="@currentUrl" class="btn-primary" style="text-decoration: none; background: #111827;">
