@@ -146,9 +146,23 @@ p {
         align-items: stretch;
     }
 
+    .container:not(.kiosk-home) .choices {
+        flex-direction: column;
+        align-items: center;
+    }
+
     .choices form {
         flex: 1 1 145px;
         min-width: 0;
+    }
+
+    .container:not(.kiosk-home) .choices form {
+        flex: 0 0 auto;
+        width: min(100%, 300px);
+    }
+
+    .container:not(.kiosk-home) .card {
+        width: 100%;
     }
 
     .kiosk-home .card {
@@ -185,7 +199,7 @@ p {
         padding-top: 12px;
     }
 
-    .choices {
+    .kiosk-home .choices {
         flex-direction: row;
     }
 

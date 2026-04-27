@@ -501,10 +501,21 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     tableNumber = HttpContext.Session.GetString(SessionServiceTable);
                     floor = HttpContext.Session.GetString(SessionServiceFloor);
                 }
+                if (!string.Equals(channel, OrderChannelQr, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(diningType, "TakeOut", StringComparison.OrdinalIgnoreCase) ||
+                    string.IsNullOrWhiteSpace(tableNumber))
+                {
+                    tableNumber = "0";
+                }
 
-                SaveOrderingCookies(tableNumber, floor, personCount);
+                var isRealQrTableOrder = string.Equals(channel, OrderChannelQr, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(diningType, "DineIn", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(tableNumber, "0", StringComparison.OrdinalIgnoreCase);
+                SaveOrderingCookies(isRealQrTableOrder ? tableNumber : null, isRealQrTableOrder ? floor : null, personCount);
 
-                var tableGate = await CheckTableOrderingGateAsync(tableNumber);
+                var tableGate = isRealQrTableOrder
+                    ? await CheckTableOrderingGateAsync(tableNumber)
+                    : TableOrderingGateResult.Allowed();
                 if (!tableGate.CanOrder)
                 {
                     return Json(new
