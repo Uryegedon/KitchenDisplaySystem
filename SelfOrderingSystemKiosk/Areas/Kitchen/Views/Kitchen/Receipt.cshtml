@@ -274,9 +274,6 @@
             <a href="@returnUrl">
                 <i class="bi bi-arrow-left"></i> Back
             </a>
-            <button type="button" onclick="window.print()">
-                <i class="bi bi-printer"></i> Print
-            </button>
         </div>
 
         <main class="receipt">
@@ -305,15 +302,6 @@
                             <input type="hidden" name="paymentStatus" value="Paid" />
                             <input type="hidden" name="returnUrl" value="@returnUrl" />
                             <button class="payment-btn paid" type="submit"><i class="bi bi-check-circle"></i> Mark Paid</button>
-                        </form>
-                    }
-                    else
-                    {
-                        <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="UpdatePaymentStatus">
-                            <input type="hidden" name="id" value="@Model.AnchorOrder?.Id" />
-                            <input type="hidden" name="paymentStatus" value="Pending" />
-                            <input type="hidden" name="returnUrl" value="@returnUrl" />
-                            <button class="payment-btn pending" type="submit"><i class="bi bi-arrow-counterclockwise"></i> Mark Pending</button>
                         </form>
                     }
                 </div>

@@ -138,6 +138,20 @@ namespace SelfOrderingSystemKiosk.Services
             await _orders.UpdateManyAsync(o => validIds.Contains(o.Id), update);
         }
 
+        public async Task ArchiveBillsAsync(IEnumerable<string> ids)
+        {
+            var validIds = ids
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct()
+                .ToList();
+
+            if (!validIds.Any())
+                return;
+
+            var update = Builders<Order>.Update.Set(o => o.BillArchived, true);
+            await _orders.UpdateManyAsync(o => validIds.Contains(o.Id), update);
+        }
+
         // Delete order
         public async Task DeleteAsync(string id)
         {

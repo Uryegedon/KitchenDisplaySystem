@@ -5,6 +5,8 @@
     var currentUrl = Context.Request.Path + Context.Request.QueryString;
     var hasOrderingSession = ViewBag.HasOrderingSession is bool hasSession && hasSession;
     var orderingSessionRemaining = ViewBag.OrderingSessionRemaining is TimeSpan remaining ? remaining : TimeSpan.Zero;
+    var orderingSessionExpired = ViewBag.OrderingSessionExpired is bool expired && expired;
+    var confirmationBillPaid = ViewBag.ConfirmationBillPaid is bool billPaid && billPaid;
     var sessionHours = ViewBag.OrderingSessionHours is int hours ? hours : 2;
     var sessionRemainingLabel = $"{(int)orderingSessionRemaining.TotalMinutes:D2}:{orderingSessionRemaining.Seconds:D2}";
 }
@@ -302,6 +304,34 @@
         color: #c62828;
     }
 
+    .session-alert {
+        max-width: 720px;
+        margin: 18px auto 0;
+        padding: 14px 18px;
+        border-radius: 12px;
+        border: 2px solid #dc3545;
+        background: #fff0f1;
+        color: #842029;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        text-align: left;
+    }
+
+    .session-alert i {
+        font-size: 1.25rem;
+        margin-top: 1px;
+    }
+
+    .btn-disabled {
+        background: #adb5bd !important;
+        color: #fff !important;
+        opacity: 0.75;
+        pointer-events: none;
+        cursor: not-allowed;
+        text-decoration: none;
+    }
+
 </style>
 
 <div class="confirmation-container">
@@ -330,6 +360,20 @@
                 <span id="confirmation-session-label">@sessionHours-hour window starts from your first confirmed order.</span>
             }
         </div>
+        @if (orderingSessionExpired)
+        {
+            <div class="session-alert" id="session-ended-alert">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                <div>
+                    <strong>Your ordering session is already over.</strong>
+                    You cannot add more orders to this session.
+                    @if (!confirmationBillPaid)
+                    {
+                        <span>Please settle the pending bill before starting a new table session.</span>
+                    }
+                </div>
+            </div>
+        }
     </div>
 
     <!-- Two Column Layout -->
@@ -482,13 +526,13 @@
         }
         @if (Model.OrderType == "Unlimited")
         {
-            <a asp-action="UnlimitedMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="btn-primary" style="text-decoration: none; background: #F39C12;">
+            <a asp-action="UnlimitedMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="btn-primary @(orderingSessionExpired ? "btn-disabled" : "")" aria-disabled="@(orderingSessionExpired ? "true" : "false")" style="text-decoration: none; background: #F39C12;">
                 <i class="bi bi-arrow-repeat"></i> Reorder (Unlimited)
             </a>
         }
         else
         {
-            <a asp-action="AlaCarteMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="btn-primary" style="text-decoration: none; background: #F39C12;">
+            <a asp-action="AlaCarteMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="btn-primary @(orderingSessionExpired ? "btn-disabled" : "")" aria-disabled="@(orderingSessionExpired ? "true" : "false")" style="text-decoration: none; background: #F39C12;">
                 <i class="bi bi-arrow-repeat"></i> Reorder (Ala Carte)
             </a>
         }
@@ -520,6 +564,13 @@
 
 <script>
     // Highlight current step based on actual order status
+    const orderingSessionExpired = @orderingSessionExpired.ToString().ToLowerInvariant();
+    if (orderingSessionExpired) {
+        setTimeout(() => {
+            alert('Your ordering session is already over. You cannot add more orders to this session.');
+        }, 350);
+    }
+
     const orderStatus = "@Model.Status".toLowerCase().replace(" ", "-");
     const statusSteps = ["pending", "in-progress", "completed"];
     const currentStepIndex = statusSteps.indexOf(orderStatus);

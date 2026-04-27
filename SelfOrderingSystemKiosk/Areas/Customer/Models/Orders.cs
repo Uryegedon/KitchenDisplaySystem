@@ -70,6 +70,11 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
         [JsonPropertyName("paymentStatus")]
         public string PaymentStatus { get; set; }
 
+        /// <summary>Hides paid, expired bills from the kitchen bills dashboard without deleting the order.</summary>
+        [BsonElement("billArchived")]
+        [JsonPropertyName("billArchived")]
+        public bool BillArchived { get; set; }
+
         public Order()
         {
             Items = new List<OrderItem>();
@@ -79,6 +84,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
             OrderChannel = "Kiosk";
             PaymentMethod = "Cash";
             PaymentStatus = "Pending";
+            BillArchived = false;
         }
     }
 

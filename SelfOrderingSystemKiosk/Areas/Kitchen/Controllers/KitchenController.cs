@@ -73,7 +73,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> Receipts([FromQuery] string? dateFilter = "day")
+        public async Task<IActionResult> Receipts([FromQuery] string? dateFilter = "day", [FromQuery] bool showArchived = false)
         {
             var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter);
             var receipts = new List<SessionReceiptViewModel>();
@@ -87,16 +87,20 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                     continue;
 
                 var receipt = await BuildReceiptViewModelAsync(order);
-                receipts.Add(receipt);
-
                 foreach (var included in receipt.Orders)
                 {
                     if (!string.IsNullOrEmpty(included.Id))
                         coveredOrderIds.Add(included.Id);
                 }
+
+                if (!showArchived && ShouldHideClosedReceipt(receipt))
+                    continue;
+
+                receipts.Add(receipt);
             }
 
             ViewBag.DateFilter = dateFilter;
+            ViewBag.ShowArchived = showArchived;
             return View(receipts.OrderByDescending(r => r.SessionStartUtc).ToList());
         }
 
@@ -110,12 +114,14 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             if (anchorOrder == null)
                 return RedirectToAction("Receipts");
 
-            var normalizedStatus = string.Equals(paymentStatus, "Paid", StringComparison.OrdinalIgnoreCase)
-                ? "Paid"
-                : "Pending";
+            if (!string.Equals(paymentStatus, "Paid", StringComparison.OrdinalIgnoreCase))
+                return RedirectToAction("Receipt", new { id, returnUrl = GetSafeReturnUrl(returnUrl, anchorOrder, true) });
 
             var receipt = await BuildReceiptViewModelAsync(anchorOrder);
-            await _orderService.UpdatePaymentStatusAsync(receipt.Orders.Select(o => o.Id), normalizedStatus);
+            await _orderService.UpdatePaymentStatusAsync(receipt.Orders.Select(o => o.Id), "Paid");
+
+            if (ShouldHideClosedReceipt(receipt))
+                return RedirectToAction("Receipts");
 
             return RedirectToAction("Receipt", new { id, returnUrl = GetSafeReturnUrl(returnUrl, anchorOrder, true) });
         }
@@ -172,6 +178,13 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             return ordered
                 .Where(o => o.OrderDate >= sessionStart && o.OrderDate < sessionEnd)
                 .ToList();
+        }
+
+        private static bool ShouldHideClosedReceipt(SessionReceiptViewModel receipt)
+        {
+            return receipt.SessionEndUtc <= DateTime.UtcNow
+                && receipt.Orders.Any()
+                && receipt.Orders.All(o => o.BillArchived || string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
         }
 
         private static string BuildLocationLabel(string floor, string table)

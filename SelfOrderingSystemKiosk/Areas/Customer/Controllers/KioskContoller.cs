@@ -158,6 +158,116 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             ViewBag.OrderingSessionExpired = remaining == TimeSpan.Zero;
         }
 
+        private async Task<TableOrderingGateResult> CheckTableOrderingGateAsync(string tableNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tableNumber))
+                return TableOrderingGateResult.Allowed();
+
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            var latestSession = GetLatestTableSession(tableOrders);
+            if (!latestSession.Any())
+                return TableOrderingGateResult.Allowed();
+
+            var sessionStart = latestSession.Min(o => o.OrderDate);
+            var sessionEnd = sessionStart.Add(OrderingSessionLength);
+            var isExpired = DateTime.UtcNow >= sessionEnd;
+            var isPaid = latestSession.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+
+            if (!isExpired)
+            {
+                HttpContext.Session.SetString(SessionFirstOrderTime, sessionStart.ToString("O"));
+                return TableOrderingGateResult.Allowed(sessionStart, sessionEnd, isPaid, false);
+            }
+
+            if (!isPaid)
+            {
+                return TableOrderingGateResult.Blocked(
+                    $"The previous Table {tableNumber} session ended at {sessionEnd.ToLocalTime():h:mm tt} and the bill is still pending. Please ask staff to mark the bill paid before starting a new order.",
+                    sessionStart,
+                    sessionEnd);
+            }
+
+            HttpContext.Session.Remove(SessionFirstOrderTime);
+            return TableOrderingGateResult.Allowed(sessionStart, sessionEnd, true, true);
+        }
+
+        private async Task ApplyConfirmationSessionAsync(Order order)
+        {
+            ViewBag.ConfirmationBillPaid = false;
+
+            if (order == null)
+                return;
+
+            if (string.IsNullOrWhiteSpace(order.TableNumber) ||
+                !string.Equals(order.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase))
+            {
+                HttpContext.Session.SetString(SessionFirstOrderTime, order.OrderDate.ToUniversalTime().ToString("O"));
+                ViewBag.ConfirmationBillPaid = string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
+                return;
+            }
+
+            var tableOrders = await _orderService.GetOrdersByTableAsync(order.TableNumber);
+            var sessionOrders = GetOrdersInSameSession(tableOrders, order);
+            if (!sessionOrders.Any())
+                sessionOrders = new List<Order> { order };
+
+            var sessionStart = sessionOrders.Min(o => o.OrderDate);
+            HttpContext.Session.SetString(SessionFirstOrderTime, sessionStart.ToUniversalTime().ToString("O"));
+            ViewBag.ConfirmationBillPaid = sessionOrders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static List<Order> GetLatestTableSession(List<Order> tableOrders)
+        {
+            var ordered = tableOrders
+                .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(o => o.OrderDate)
+                .ToList();
+
+            if (!ordered.Any())
+                return new List<Order>();
+
+            var sessionStart = ordered.First().OrderDate;
+            var latestSession = new List<Order>();
+            foreach (var order in ordered)
+            {
+                if (order.OrderDate >= sessionStart.Add(OrderingSessionLength))
+                {
+                    sessionStart = order.OrderDate;
+                    latestSession.Clear();
+                }
+
+                latestSession.Add(order);
+            }
+
+            return latestSession;
+        }
+
+        private static List<Order> GetOrdersInSameSession(List<Order> tableOrders, Order anchorOrder)
+        {
+            var ordered = tableOrders
+                .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(o => o.OrderDate)
+                .ToList();
+
+            if (!ordered.Any())
+                return new List<Order> { anchorOrder };
+
+            var sessionStart = ordered.First().OrderDate;
+            foreach (var order in ordered)
+            {
+                if (order.OrderDate >= sessionStart.Add(OrderingSessionLength))
+                    sessionStart = order.OrderDate;
+
+                if (order.Id == anchorOrder.Id)
+                    break;
+            }
+
+            var sessionEnd = sessionStart.Add(OrderingSessionLength);
+            return ordered
+                .Where(o => o.OrderDate >= sessionStart && o.OrderDate < sessionEnd)
+                .ToList();
+        }
+
         private void RestoreQrSessionFromOrder(Order order)
         {
             if (order == null) return;
@@ -394,6 +504,16 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
                 SaveOrderingCookies(tableNumber, floor, personCount);
 
+                var tableGate = await CheckTableOrderingGateAsync(tableNumber);
+                if (!tableGate.CanOrder)
+                {
+                    return Json(new
+                    {
+                        success = false,
+                        message = tableGate.Message
+                    });
+                }
+
                 var orderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber);
 
                 // Check 2-hour time limit after first confirmed order (session)
@@ -475,6 +595,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return RedirectToAction("Index");
 
             RestoreQrSessionFromOrder(order);
+            await ApplyConfirmationSessionAsync(order);
 
             // Preserve order type and dining type for reordering
             if (!string.IsNullOrEmpty(order.OrderType))
@@ -598,6 +719,39 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 _logger.LogError(ex, "Error cancelling order");
                 return Json(new { success = false, message = $"Error cancelling order: {ex.Message}" });
             }
+        }
+    }
+
+    internal class TableOrderingGateResult
+    {
+        public bool CanOrder { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public DateTime? SessionStartUtc { get; set; }
+        public DateTime? SessionEndUtc { get; set; }
+        public bool IsPaid { get; set; }
+        public bool PreviousSessionExpired { get; set; }
+
+        public static TableOrderingGateResult Allowed(DateTime? sessionStartUtc = null, DateTime? sessionEndUtc = null, bool isPaid = false, bool previousSessionExpired = false)
+        {
+            return new TableOrderingGateResult
+            {
+                CanOrder = true,
+                SessionStartUtc = sessionStartUtc,
+                SessionEndUtc = sessionEndUtc,
+                IsPaid = isPaid,
+                PreviousSessionExpired = previousSessionExpired
+            };
+        }
+
+        public static TableOrderingGateResult Blocked(string message, DateTime sessionStartUtc, DateTime sessionEndUtc)
+        {
+            return new TableOrderingGateResult
+            {
+                CanOrder = false,
+                Message = message,
+                SessionStartUtc = sessionStartUtc,
+                SessionEndUtc = sessionEndUtc
+            };
         }
     }
 }
