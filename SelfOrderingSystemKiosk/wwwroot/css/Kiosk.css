@@ -151,29 +151,29 @@ p {
         min-width: 0;
     }
 
-    .card {
+    .kiosk-home .card {
         width: 100%;
         min-height: 136px;
         padding: 14px 10px;
         border-radius: 14px;
     }
 
-    .card:hover {
+    .kiosk-home .card:hover {
         transform: none;
     }
 
-    .card img {
+    .kiosk-home .card img {
         width: 48px;
         height: 48px;
         margin-bottom: 6px;
     }
 
-    .card h3 {
+    .kiosk-home .card h3 {
         font-size: 1.05rem;
         margin-bottom: 4px;
     }
 
-    .card p {
+    .kiosk-home .card p {
         font-size: 0.78rem;
         line-height: 1.28;
         max-width: 140px;
@@ -189,12 +189,12 @@ p {
         flex-direction: row;
     }
 
-    .card {
+    .kiosk-home .card {
         min-height: 126px;
         padding: 12px 8px;
     }
 
-    .card img {
+    .kiosk-home .card img {
         width: 42px;
         height: 42px;
     }
