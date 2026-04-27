@@ -8,6 +8,7 @@
     var isPaid = Model.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
     var paymentStatusLabel = isPaid ? "Paid" : "Pending";
     var sessionEndIso = Model.SessionEndUtc.ToUniversalTime().ToString("O");
+    var showStaffDetails = canManagePayment;
 }
 
 <!DOCTYPE html>
@@ -250,15 +251,45 @@
         }
 
         @@media (max-width: 760px) {
-            body { padding: 12px; }
-            .receipt { padding: 18px; }
+            body { padding: 8px; }
+            .page { max-width: 100%; }
+            .receipt {
+                padding: 14px;
+                border-radius: 14px;
+                border-left-width: 4px;
+            }
             .receipt-header,
             .toolbar {
                 flex-direction: column;
                 align-items: stretch;
+                gap: 10px;
             }
+            .toolbar { margin-bottom: 10px; }
+            .toolbar a { justify-content: center; padding: 10px 14px; }
             .receipt-meta { text-align: left; }
-            .info-grid { grid-template-columns: repeat(2, 1fr); }
+            .brand h1 { font-size: 1.35rem; }
+            .brand p,
+            .receipt-meta p { font-size: 0.9rem; }
+            .pill {
+                font-size: 0.78rem;
+                padding: 5px 8px;
+                margin-top: 5px;
+            }
+            .info-grid { grid-template-columns: 1fr; gap: 8px; }
+            .info-box { min-height: 0; padding: 9px 10px; }
+            .section-title { margin: 16px 0 8px; }
+            table {
+                display: block;
+                overflow-x: auto;
+                white-space: nowrap;
+                font-size: 0.86rem;
+            }
+            th, td { padding: 8px 7px; }
+            .totals { width: 100%; }
+            .total-row { padding: 9px 11px; }
+            .payment-actions { justify-content: stretch; }
+            .payment-actions form,
+            .payment-btn { width: 100%; justify-content: center; }
         }
 
         @@media print {
@@ -283,7 +314,10 @@
                     <p>Unified receipt and bill</p>
                     <span class="pill"><i class="bi bi-receipt"></i> @sessionLabel</span>
                     <span class="pill @(isPaid ? "paid" : "pending")"><i class="bi bi-cash-coin"></i> @paymentStatusLabel</span>
-                    <span class="pill" id="sessionTimerPill" data-session-end="@sessionEndIso"><i class="bi bi-hourglass-split"></i> <span id="sessionTimerText">Checking session</span></span>
+                    @if (showStaffDetails)
+                    {
+                        <span class="pill" id="sessionTimerPill" data-session-end="@sessionEndIso"><i class="bi bi-hourglass-split"></i> <span id="sessionTimerText">Checking session</span></span>
+                    }
                 </div>
                 <div class="receipt-meta">
                     <p><strong>Receipt:</strong> @Model.ReceiptNumber</p>
@@ -307,24 +341,36 @@
                 </div>
             }
 
-            <section class="info-grid">
-                <div class="info-box">
-                    <span>Location</span>
-                    <strong>@Model.LocationLabel</strong>
-                </div>
-                <div class="info-box">
-                    <span>Session Start</span>
-                    <strong>@Model.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</strong>
-                </div>
-                <div class="info-box">
-                    <span>Session Ends</span>
-                    <strong>@Model.SessionEndUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</strong>
-                </div>
-                <div class="info-box">
-                    <span>Payment</span>
-                    <strong>@(firstOrder?.PaymentMethod ?? "Cash") / @paymentStatusLabel</strong>
-                </div>
-            </section>
+            @if (showStaffDetails)
+            {
+                <section class="info-grid">
+                    <div class="info-box">
+                        <span>Location</span>
+                        <strong>@Model.LocationLabel</strong>
+                    </div>
+                    <div class="info-box">
+                        <span>Session Start</span>
+                        <strong>@Model.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</strong>
+                    </div>
+                    <div class="info-box">
+                        <span>Session Ends</span>
+                        <strong>@Model.SessionEndUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</strong>
+                    </div>
+                    <div class="info-box">
+                        <span>Payment</span>
+                        <strong>@(firstOrder?.PaymentMethod ?? "Cash") / @paymentStatusLabel</strong>
+                    </div>
+                </section>
+            }
+            else
+            {
+                <section class="info-grid">
+                    <div class="info-box">
+                        <span>Payment</span>
+                        <strong>@(firstOrder?.PaymentMethod ?? "Cash") / @paymentStatusLabel</strong>
+                    </div>
+                </section>
+            }
 
             <h2 class="section-title">Bill Items</h2>
             <table>
@@ -364,34 +410,37 @@
                 </div>
             </div>
 
-            <h2 class="section-title">Orders Included</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Order</th>
-                        <th>Type</th>
-                        <th>Status</th>
-                        <th class="num">Time</th>
-                        <th class="num">Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var order in Model.Orders)
-                    {
+            @if (showStaffDetails)
+            {
+                <h2 class="section-title">Orders Included</h2>
+                <table>
+                    <thead>
                         <tr>
-                            <td><strong>#@order.OrderNumber</strong></td>
-                            <td>@order.OrderType</td>
-                            <td>@order.Status</td>
-                            <td class="num">@order.OrderDate.ToLocalTime().ToString("h:mm tt")</td>
-                            <td class="num">₱@order.Total.ToString("N2")</td>
+                            <th>Order</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th class="num">Time</th>
+                            <th class="num">Total</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        @foreach (var order in Model.Orders)
+                        {
+                            <tr>
+                                <td><strong>#@order.OrderNumber</strong></td>
+                                <td>@order.OrderType</td>
+                                <td>@order.Status</td>
+                                <td class="num">@order.OrderDate.ToLocalTime().ToString("h:mm tt")</td>
+                                <td class="num">₱@order.Total.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
 
-            <p class="muted">
-                This receipt groups table orders inside the same two-hour ordering window. Canceled orders are excluded from the bill.
-            </p>
+                <p class="muted">
+                    This receipt groups table orders inside the same two-hour ordering window. Canceled orders are excluded from the bill.
+                </p>
+            }
         </main>
     </div>
     <script>
