@@ -11,8 +11,19 @@ namespace SelfOrderingSystemKiosk.Models
 
         public KitchenDatabase(IOptions<MongoDBSettings> settings)
         {
-            var client = new MongoClient(settings.Value.ConnectionString);
-            _database = client.GetDatabase(settings.Value.DatabaseName);
+            var connectionString = settings.Value.ConnectionString?.Trim().Trim('"').Trim('\'');
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                throw new InvalidOperationException(
+                    "MongoDB connection string is missing. Set DataCon__ConnectionString in Render environment variables.");
+            }
+
+            var databaseName = string.IsNullOrWhiteSpace(settings.Value.DatabaseName)
+                ? "Kitchen"
+                : settings.Value.DatabaseName.Trim();
+
+            var client = new MongoClient(connectionString);
+            _database = client.GetDatabase(databaseName);
         }
 
         // Expose it publicly

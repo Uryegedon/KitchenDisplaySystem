@@ -8,6 +8,11 @@ using SelfOrderingSystemKiosk.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+static string? CleanConfigValue(string? value) =>
+    string.IsNullOrWhiteSpace(value)
+        ? null
+        : value.Trim().Trim('"').Trim('\'');
+
 // Render sets PORT; Fly uses ASPNETCORE_URLS from fly.toml. Prefer PORT when present.
 var portEnv = Environment.GetEnvironmentVariable("PORT");
 if (!string.IsNullOrEmpty(portEnv))
@@ -34,13 +39,10 @@ builder.Services.Configure<MongoDBSettings>(options =>
     builder.Configuration.GetSection("KitchenDatabase").Bind(options);
 
     // Connection string with DataCon's value
-    // Trim quotes if accidentally included in environment variable
-    var connectionString = builder.Configuration["DataCon:ConnectionString"];
-    if (!string.IsNullOrEmpty(connectionString))
-    {
-        connectionString = connectionString.Trim().Trim('"').Trim('\'');
-    }
-    options.ConnectionString = connectionString;
+    var connectionString = CleanConfigValue(builder.Configuration["DataCon:ConnectionString"]);
+    options.ConnectionString = connectionString ?? string.Empty;
+    options.DatabaseName = CleanConfigValue(options.DatabaseName) ?? "Kitchen";
+    options.OrdersCollectionName = CleanConfigValue(options.OrdersCollectionName) ?? "Orders";
 });
 
 builder.Services.Configure<AuthenticationSettings>(
@@ -60,7 +62,13 @@ builder.Services.Configure<MenuCategoriesSettings>(
 builder.Services.AddSingleton<IMongoClient>(sp =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
-    var connectionString = config["DataCon:ConnectionString"];
+    var connectionString = CleanConfigValue(config["DataCon:ConnectionString"]);
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        throw new InvalidOperationException(
+            "MongoDB connection string is missing. Set DataCon__ConnectionString in Render environment variables.");
+    }
+
     return new MongoClient(connectionString);
 });
 
