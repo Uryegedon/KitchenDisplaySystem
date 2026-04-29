@@ -10,9 +10,13 @@
         .Where(i => !string.IsNullOrWhiteSpace(i.Item)
             && !string.IsNullOrWhiteSpace(i.Category)
             && ((variantCategories.Contains(i.Category) && i.Item.Contains(" - ", StringComparison.Ordinal))
-                || i.Item.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)))
+                || i.Item.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
+                || i.Item.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)
+                || i.Item.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)))
         .GroupBy(i => i.Item.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
             ? "Potato Thins"
+            : i.Item.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase) || i.Item.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)
+            ? "Rice"
             : i.Item[..i.Item.IndexOf(" - ", StringComparison.Ordinal)].Trim())
         .Where(g => g.Count() > 1)
         .ToDictionary(g => g.Key, g => g.OrderByDescending(i => i.MenuOrder).ToList(), StringComparer.OrdinalIgnoreCase);
@@ -64,6 +68,8 @@
     static string VariantBaseName(string itemName) =>
         itemName.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
             ? "Potato Thins"
+            : itemName.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase) || itemName.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)
+            ? "Rice"
             : itemName.Contains(" - ", StringComparison.Ordinal)
             ? itemName[..itemName.IndexOf(" - ", StringComparison.Ordinal)].Trim()
             : itemName;
@@ -71,13 +77,17 @@
     static string VariantLabel(string itemName) =>
         itemName.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
             ? itemName["Potato Thins ".Length..].Trim()
+            : itemName.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)
+            ? "Plain"
+            : itemName.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)
+            ? "Garlic"
             : itemName.Contains(" - ", StringComparison.Ordinal)
             ? itemName[(itemName.IndexOf(" - ", StringComparison.Ordinal) + 3)..].Trim()
             : itemName;
 }
 
 <link rel="stylesheet" href="~/css/Kiosk.css" asp-append-version="true" />
-<link rel="stylesheet" href="~/css/Menu.css" />
+<link rel="stylesheet" href="~/css/Menu.css" asp-append-version="true" />
 @await Html.PartialAsync("_Loader")
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 
@@ -85,7 +95,7 @@
     <div class="kiosk-page-actions">
         <form asp-action="ChooseExperience" method="get" class="kiosk-back-form">
             <button type="submit" class="back-btn" title="Back to Experience Selection">
-                <i class="bi bi-arrow-left-circle-fill" style="font-size: 2rem;"></i>
+                <i class="bi bi-arrow-left-circle-fill"></i>
             </button>
         </form>
     </div>
@@ -136,6 +146,7 @@
                         var groupItems = variantGroups[baseName];
                         var selected = groupItems.First();
                         var groupImage = KpImages.ResolveDisplayPath(selected.Item, selected.Image);
+                        var isFixedVariantQuantityItem = string.Equals(selected.Category, "Sulit Kap Meals", StringComparison.OrdinalIgnoreCase);
                         var variantsJson = JsonSerializer.Serialize(groupItems.Select(v => new
                         {
                             name = v.Item,
@@ -143,7 +154,7 @@
                             price = v.Price,
                             image = Url.Content(KpImages.ResolveDisplayPath(v.Item, v.Image))
                         }));
-                        <div class="menu-row" data-category="@selected.Category">
+                        <div class="menu-row @(isFixedVariantQuantityItem ? "fixed-quantity-item" : "has-card-quantity")" data-category="@selected.Category">
                             <img src="@Url.Content(groupImage)" alt="@baseName" />
                             <div class="menu-details">
                                 <h4>@baseName.ToUpper()</h4>
@@ -151,15 +162,32 @@
                                     @foreach (var variant in groupItems)
                                     {
                                         var variantImage = KpImages.ResolveDisplayPath(variant.Item, variant.Image);
-                                        <option value="@variant.Item" data-price="@variant.Price" data-image="@Url.Content(variantImage)">@VariantLabel(variant.Item) - ₱@variant.Price.ToString("0.00")</option>
+                                        <option value="@variant.Item" data-price="@variant.Price" data-image="@Url.Content(variantImage)">@VariantLabel(variant.Item)</option>
                                     }
                                 </select>
+                                @if (string.Equals(baseName, "Rice", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <select class="menu-option-select serving-select" aria-label="Choose rice serving">
+                                        <option value="Full cup">Full cup</option>
+                                        <option value="Half cup">Half cup</option>
+                                    </select>
+                                }
                                 <p class="menu-price">₱@selected.Price.ToString("0.00")</p>
                             </div>
+                            @if (!isFixedVariantQuantityItem)
+                            {
+                                <div class="menu-quantity-control" data-max-quantity="5">
+                                    <button type="button" class="menu-qty-btn menu-qty-minus" aria-label="Decrease quantity">-</button>
+                                    <span class="menu-qty-value">1</span>
+                                    <button type="button" class="menu-qty-btn menu-qty-plus" aria-label="Increase quantity">+</button>
+                                </div>
+                            }
                             <button class="add-to-cart"
                                     data-name="@selected.Item"
                                     data-price="@selected.Price"
                                     data-image="@Url.Content(groupImage)"
+                                    data-fixed-quantity="@isFixedVariantQuantityItem.ToString().ToLowerInvariant()"
+                                    data-serving-size="@(string.Equals(baseName, "Rice", StringComparison.OrdinalIgnoreCase) ? "Full cup" : "")"
                                     data-variants='@variantsJson'>
                                 Add to cart
                             </button>
@@ -171,34 +199,33 @@
                     var isWingSet = string.Equals(item.Category, "Wings Ala Carte", StringComparison.Ordinal)
                         || menuLabel.Contains("Chicken Wings", StringComparison.OrdinalIgnoreCase);
                     var flavorLimit = isWingSet ? ExtractFlavorLimit(menuLabel) : 0;
-                    <div class="menu-row" data-category="@item.Category">
+                    var isFixedQuantityItem = string.Equals(item.Category, "Sulit Kap Meals", StringComparison.OrdinalIgnoreCase);
+                    var showCardQuantity = flavorLimit == 0 && !isFixedQuantityItem;
+                    <div class="menu-row @(showCardQuantity ? "has-card-quantity" : isFixedQuantityItem ? "fixed-quantity-item" : "")" data-category="@item.Category">
                         <img src="@Url.Content(displayImage)" alt="@menuLabel" />
                         <div class="menu-details">
                             <h4>@menuLabel.ToUpper()</h4>
                             @if (flavorLimit > 0 && wingFlavors.Count > 0)
                             {
-                                <button type="button" class="flavor-toggle" aria-expanded="false">
-                                    <i class="bi bi-chevron-down"></i>
-                                    <span>Choose flavors</span>
-                                </button>
-                                <div class="flavor-chip-picker collapsed" data-flavor-limit="@flavorLimit">
-                                    <div class="flavor-chip-grid">
-                                    @foreach (var flavor in wingFlavors)
-                                    {
-                                        <button type="button" class="flavor-chip" data-flavor="@flavor">@flavor</button>
-                                    }
-                                    </div>
-                                    <small class="flavor-count" data-empty-text="Choose up to @flavorLimit flavor@(flavorLimit == 1 ? "" : "s")">Choose up to @flavorLimit flavor@(flavorLimit == 1 ? "" : "s")</small>
-                                </div>
+                                <small class="wing-set-hint">Choose up to @flavorLimit flavor@(flavorLimit == 1 ? "" : "s") on the next screen</small>
                             }
                             <p>₱@item.Price.ToString("0.00")</p>
                         </div>
+                        @if (showCardQuantity)
+                        {
+                            <div class="menu-quantity-control" data-max-quantity="5">
+                                <button type="button" class="menu-qty-btn menu-qty-minus" aria-label="Decrease quantity">-</button>
+                                <span class="menu-qty-value">1</span>
+                                <button type="button" class="menu-qty-btn menu-qty-plus" aria-label="Increase quantity">+</button>
+                            </div>
+                        }
                         <button class="add-to-cart"
                                 data-name="@item.Item"
                                 data-price="@item.Price"
                                 data-image="@Url.Content(displayImage)"
+                                data-fixed-quantity="@isFixedQuantityItem.ToString().ToLowerInvariant()"
                                 data-flavor-limit="@flavorLimit">
-                            Add to cart
+                            @(flavorLimit > 0 ? "Choose flavors" : "Add to cart")
                         </button>
                     </div>
                 }
@@ -228,15 +255,101 @@
     </div>
 </div>
 
+<div class="wing-flavor-screen" id="wingFlavorScreen" aria-hidden="true">
+    <div class="wing-flavor-shell">
+        <header class="wing-flavor-header">
+            <button type="button" class="wing-flavor-back back-btn" id="wingFlavorBack" title="Back to menu">
+                <i class="bi bi-arrow-left"></i>
+            </button>
+            <div>
+                <p>Wing set</p>
+                <h2 id="wingFlavorTitle">Choose flavors</h2>
+            </div>
+        </header>
+
+        <section class="wing-flavor-product">
+            <img id="wingFlavorImage" src="" alt="" />
+            <div>
+                <strong id="wingFlavorPrice">₱0.00</strong>
+                <span id="wingFlavorInstruction">Choose at least 1 flavor.</span>
+            </div>
+        </section>
+
+        <section class="wing-flavor-grid" id="wingFlavorGrid">
+            @foreach (var flavor in wingFlavors)
+            {
+                <button type="button" class="wing-flavor-card" data-flavor="@flavor">@flavor</button>
+            }
+        </section>
+
+        <footer class="wing-flavor-footer">
+            <div>
+                <strong id="wingFlavorCount">0 selected</strong>
+                <span id="wingFlavorLimitText">Choose flavors for this set</span>
+            </div>
+            <button type="button" class="wing-flavor-add" id="wingFlavorAdd" disabled>
+                <i class="bi bi-cart-plus"></i> Add set
+            </button>
+        </footer>
+    </div>
+</div>
+
 <style>
     .menu-option-select {
-        width: min(100%, 260px);
+        width: min(100%, 190px);
         margin: 6px 0;
         padding: 8px 10px;
         border: 1px solid #ddd;
         border-radius: 8px;
         background: white;
         font-size: 0.9rem;
+    }
+
+    .menu-row {
+        position: relative;
+    }
+
+    .menu-row.has-card-quantity {
+        padding-right: 118px;
+    }
+
+    .menu-quantity-control {
+        position: absolute;
+        top: 10px;
+        right: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 4px;
+        border: 1px solid #f2c094;
+        border-radius: 999px;
+        background: #fff8ef;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+    }
+
+    .menu-row .menu-qty-btn {
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        padding: 0;
+        border-radius: 50%;
+        font-size: 1rem;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .menu-row .menu-qty-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .menu-qty-value {
+        min-width: 18px;
+        color: #333;
+        font-weight: 900;
+        text-align: center;
     }
 
     .flavor-chip-picker,
@@ -326,7 +439,265 @@
         font-size: 0.85rem;
     }
 
+    .wing-set-hint {
+        display: block;
+        margin: 5px 0 0;
+        color: #666;
+        font-size: 0.84rem;
+        font-weight: 700;
+    }
+
+    .wing-flavor-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 5000;
+        display: none;
+        background: #fff8f2;
+        color: #222;
+    }
+
+    .wing-flavor-screen.active {
+        display: block;
+    }
+
+    .wing-flavor-shell {
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto auto 1fr auto;
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px;
+        gap: 16px;
+    }
+
+    .wing-flavor-header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+
+    .wing-flavor-back {
+        width: 48px;
+        height: 48px;
+        border: 0;
+        border-radius: 50%;
+        background: #ff6b35;
+        color: white;
+        font-size: 1.35rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+    }
+
+    .wing-flavor-back i {
+        font-size: 1.55rem;
+        line-height: 1;
+    }
+
+    .wing-flavor-header p {
+        margin: 0 0 2px;
+        color: #9a4a24;
+        font-weight: 800;
+        text-transform: uppercase;
+        font-size: 0.78rem;
+    }
+
+    .wing-flavor-header h2 {
+        margin: 0;
+        font-size: 1.7rem;
+        line-height: 1.15;
+    }
+
+    .wing-flavor-product {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        align-items: center;
+        gap: 16px;
+        padding: 12px;
+        border: 1px solid rgba(255, 107, 53, 0.22);
+        border-radius: 8px;
+        background: #fff;
+    }
+
+    .wing-flavor-product img {
+        width: 120px;
+        height: 96px;
+        object-fit: cover;
+        border-radius: 8px;
+    }
+
+    .wing-flavor-product strong,
+    .wing-flavor-product span {
+        display: block;
+    }
+
+    .wing-flavor-product strong {
+        font-size: 1.4rem;
+        color: #ff6b35;
+        margin-bottom: 5px;
+    }
+
+    .wing-flavor-product span {
+        color: #555;
+        font-weight: 700;
+    }
+
+    .wing-flavor-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        overflow-y: auto;
+        padding-bottom: 8px;
+    }
+
+    .wing-flavor-card {
+        min-height: 76px;
+        border: 1px solid #ead7ca;
+        border-radius: 8px;
+        background: #fff;
+        color: #222;
+        padding: 12px;
+        font-size: 0.98rem;
+        font-weight: 800;
+        line-height: 1.2;
+        cursor: pointer;
+        transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+    }
+
+    .wing-flavor-card.selected {
+        background: #ff6b35;
+        border-color: #ff6b35;
+        color: #fff;
+    }
+
+    .wing-flavor-card:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .wing-flavor-card:not(:disabled):active {
+        transform: scale(0.98);
+    }
+
+    .wing-flavor-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 14px 16px;
+        border: 1px solid rgba(255, 107, 53, 0.22);
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.08);
+    }
+
+    .wing-flavor-footer strong,
+    .wing-flavor-footer span {
+        display: block;
+    }
+
+    .wing-flavor-footer span {
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .wing-flavor-add {
+        min-height: 48px;
+        border: 0;
+        border-radius: 8px;
+        background: #ff6b35;
+        color: white;
+        padding: 0 22px;
+        font-size: 1rem;
+        font-weight: 900;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        white-space: nowrap;
+    }
+
+    .wing-flavor-add:disabled {
+        background: #bbb;
+        cursor: not-allowed;
+    }
+
     @@media (max-width: 768px) {
+        .wing-flavor-screen {
+            overflow: hidden;
+        }
+
+        .wing-flavor-shell {
+            height: 100dvh;
+            min-height: 100dvh;
+            padding: 14px;
+            gap: 9px;
+            grid-template-rows: auto auto minmax(0, 1fr) auto;
+        }
+
+        .wing-flavor-header h2 {
+            font-size: 1.12rem;
+        }
+
+        .wing-flavor-back {
+            width: 42px;
+            height: 42px;
+        }
+
+        .wing-flavor-back i {
+            font-size: 1.35rem;
+        }
+
+        .wing-flavor-product {
+            grid-template-columns: 68px 1fr;
+            gap: 10px;
+            padding: 8px;
+        }
+
+        .wing-flavor-product img {
+            width: 68px;
+            height: 54px;
+        }
+
+        .wing-flavor-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 7px;
+            min-height: 0;
+            padding-bottom: 2px;
+        }
+
+        .wing-flavor-card {
+            min-height: 44px;
+            padding: 7px 8px;
+            font-size: 0.78rem;
+        }
+
+        .wing-flavor-footer {
+            align-items: stretch;
+            flex-direction: column;
+            gap: 8px;
+            padding: 9px 10px;
+            flex: 0 0 auto;
+        }
+
+        .wing-flavor-add {
+            width: 100%;
+            min-height: 42px;
+        }
+
+        .menu-row.has-card-quantity {
+            padding-right: 10px;
+            padding-top: 46px;
+        }
+
+        .menu-quantity-control {
+            top: 8px;
+            right: 10px;
+        }
+
         .flavor-chip-picker {
             position: fixed;
             left: 0;
@@ -448,12 +819,149 @@
         return [
             item.name,
             item.variantLabel || '',
+            item.servingSize || '',
             (item.flavors || []).join('|')
         ].join('::');
     }
 
+    let activeWingSet = null;
+    const wingFlavorScreen = document.getElementById('wingFlavorScreen');
+    const wingFlavorTitle = document.getElementById('wingFlavorTitle');
+    const wingFlavorImage = document.getElementById('wingFlavorImage');
+    const wingFlavorPrice = document.getElementById('wingFlavorPrice');
+    const wingFlavorInstruction = document.getElementById('wingFlavorInstruction');
+    const wingFlavorCount = document.getElementById('wingFlavorCount');
+    const wingFlavorLimitText = document.getElementById('wingFlavorLimitText');
+    const wingFlavorAdd = document.getElementById('wingFlavorAdd');
+
+    function formatPeso(value) {
+        return `₱${Number(value || 0).toFixed(2)}`;
+    }
+
+    function selectedWingScreenFlavors() {
+        return Array.from(document.querySelectorAll('.wing-flavor-card.selected'))
+            .map(button => button.getAttribute('data-flavor'))
+            .filter(value => value);
+    }
+
+    function resetWingFlavorScreen() {
+        document.querySelectorAll('.wing-flavor-card').forEach(button => {
+            button.classList.remove('selected');
+            button.disabled = false;
+        });
+        updateWingFlavorScreenState();
+    }
+
+    function updateWingFlavorScreenState() {
+        if (!activeWingSet) return;
+
+        const selected = selectedWingScreenFlavors();
+        const limit = activeWingSet.flavorLimit;
+        const atLimit = selected.length >= limit;
+
+        document.querySelectorAll('.wing-flavor-card').forEach(button => {
+            button.disabled = atLimit && !button.classList.contains('selected');
+        });
+
+        wingFlavorCount.textContent = selected.length === 0
+            ? '0 selected'
+            : `${selected.length}/${limit} selected`;
+        wingFlavorLimitText.textContent = selected.length === 0
+            ? `Choose at least 1 and up to ${limit} flavor${limit === 1 ? '' : 's'}`
+            : selected.join(', ');
+        wingFlavorAdd.disabled = selected.length === 0;
+    }
+
+    function openWingFlavorScreen(button) {
+        const name = button.getAttribute('data-name');
+        const price = parseFloat(button.getAttribute('data-price'));
+        const image = button.getAttribute('data-image');
+        const flavorLimit = parseInt(button.getAttribute('data-flavor-limit') || '0');
+
+        activeWingSet = {
+            name,
+            price,
+            image,
+            flavorLimit,
+            sourceButton: button
+        };
+
+        wingFlavorTitle.textContent = name;
+        wingFlavorImage.src = image;
+        wingFlavorImage.alt = name;
+        wingFlavorPrice.textContent = `₱${price.toFixed(2)}`;
+        wingFlavorInstruction.textContent = `Choose at least 1 and up to ${flavorLimit} flavor${flavorLimit === 1 ? '' : 's'} for this set.`;
+        resetWingFlavorScreen();
+        wingFlavorScreen.classList.add('active');
+        wingFlavorScreen.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeWingFlavorScreen() {
+        wingFlavorScreen.classList.remove('active');
+        wingFlavorScreen.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+        activeWingSet = null;
+    }
+
+    function flashAdded(button) {
+        if (!button) return;
+        const originalText = button.textContent;
+        button.textContent = 'Added!';
+        button.style.backgroundColor = '#28a745';
+        setTimeout(() => {
+            button.textContent = originalText;
+            button.style.backgroundColor = '';
+        }, 500);
+    }
+
+    function addItemToCart(newItem) {
+        const newKey = cartKey(newItem);
+        const existingItem = cart.find(item => cartKey(item) === newKey);
+
+        if (newItem.isFixedQuantity) {
+            if (existingItem) {
+                alert(`${newItem.name} is a single item and is already in your cart.`);
+                return false;
+            }
+            cart.push(newItem);
+            updateCartDisplay();
+            return true;
+        }
+
+        if (existingItem) {
+            if (existingItem.quantity + newItem.quantity > 5) {
+                alert(`Maximum quantity of 5 per item allowed. You already have ${existingItem.quantity} of ${newItem.name} in your cart.`);
+                return false;
+            }
+            existingItem.quantity += newItem.quantity;
+        } else {
+            cart.push(newItem);
+        }
+
+        updateCartDisplay();
+        return true;
+    }
+
+    function readCardQuantity(row) {
+        const value = parseInt(row?.querySelector('.menu-qty-value')?.textContent || '1', 10);
+        return Number.isFinite(value) ? Math.min(Math.max(value, 1), 5) : 1;
+    }
+
+    function updateCardQuantity(control, quantity) {
+        const nextQuantity = Math.min(Math.max(quantity, 1), 5);
+        const value = control.querySelector('.menu-qty-value');
+        const minus = control.querySelector('.menu-qty-minus');
+        const plus = control.querySelector('.menu-qty-plus');
+
+        if (value) value.textContent = nextQuantity;
+        if (minus) minus.disabled = nextQuantity <= 1;
+        if (plus) plus.disabled = nextQuantity >= 5;
+    }
+
     function refreshVariantRow(row) {
         const select = row.querySelector('.variant-select');
+        const servingSelect = row.querySelector('.serving-select');
         const button = row.querySelector('.add-to-cart');
         const priceEl = row.querySelector('.menu-price');
         const imageEl = row.querySelector('img');
@@ -467,6 +975,9 @@
         if (image) {
             button.setAttribute('data-image', image);
             if (imageEl) imageEl.src = image;
+        }
+        if (servingSelect) {
+            button.setAttribute('data-serving-size', servingSelect.value);
         }
         if (priceEl) priceEl.textContent = `₱${price.toFixed(2)}`;
     }
@@ -499,6 +1010,14 @@
         });
     });
 
+    document.querySelectorAll('.serving-select').forEach(select => {
+        select.addEventListener('change', function() {
+            const row = this.closest('.menu-row');
+            const button = row?.querySelector('.add-to-cart');
+            if (button) button.setAttribute('data-serving-size', this.value);
+        });
+    });
+
     document.querySelectorAll('.flavor-chip-picker').forEach(picker => {
         picker.addEventListener('click', function(e) {
             const chip = e.target.closest('.flavor-chip');
@@ -518,6 +1037,59 @@
         });
     });
 
+    document.querySelectorAll('.menu-quantity-control').forEach(control => {
+        updateCardQuantity(control, 1);
+        control.addEventListener('click', function(e) {
+            const button = e.target.closest('.menu-qty-btn');
+            if (!button) return;
+
+            const current = parseInt(this.querySelector('.menu-qty-value')?.textContent || '1', 10);
+            const delta = button.classList.contains('menu-qty-plus') ? 1 : -1;
+            updateCardQuantity(this, current + delta);
+        });
+    });
+
+    document.querySelectorAll('.wing-flavor-card').forEach(button => {
+        button.addEventListener('click', function() {
+            if (this.disabled) return;
+            this.classList.toggle('selected');
+            updateWingFlavorScreenState();
+        });
+    });
+
+    document.getElementById('wingFlavorBack')?.addEventListener('click', closeWingFlavorScreen);
+    wingFlavorScreen?.addEventListener('click', function(e) {
+        if (e.target === wingFlavorScreen) closeWingFlavorScreen();
+    });
+
+    wingFlavorAdd?.addEventListener('click', function() {
+        if (!activeWingSet) return;
+
+        const flavors = selectedWingScreenFlavors();
+        if (flavors.length === 0) {
+            alert('Please choose at least 1 wing flavor before adding this set.');
+            return;
+        }
+
+        const newItem = {
+            name: activeWingSet.name,
+            price: activeWingSet.price,
+            image: activeWingSet.image,
+            quantity: 1,
+            flavorLimit: activeWingSet.flavorLimit,
+            flavors: flavors,
+            variants: [],
+            variantLabel: '',
+            servingSize: ''
+        };
+
+        const sourceButton = activeWingSet.sourceButton;
+        if (addItemToCart(newItem)) {
+            closeWingFlavorScreen();
+            flashAdded(sourceButton);
+        }
+    });
+
     // Add to cart functionality
     document.querySelectorAll('.add-to-cart').forEach(button => {
         button.addEventListener('click', function (e) {
@@ -526,57 +1098,33 @@
             const name = this.getAttribute('data-name');
             const price = parseFloat(this.getAttribute('data-price'));
             const image = this.getAttribute('data-image');
-            const row = this.closest('.menu-row');
             const flavorLimit = parseInt(this.getAttribute('data-flavor-limit') || '0');
             const variants = JSON.parse(this.getAttribute('data-variants') || '[]');
             const selectedVariant = variants.find(v => v.name === name);
-            const flavors = selectedFlavorChips(row?.querySelector('.flavor-chip-picker'));
+            const servingSize = this.getAttribute('data-serving-size') || '';
+            const isFixedQuantity = this.getAttribute('data-fixed-quantity') === 'true';
 
             if (flavorLimit > 0) {
-                if (flavors.length === 0) {
-                    const picker = row?.querySelector('.flavor-chip-picker');
-                    const toggle = row?.querySelector('.flavor-toggle');
-                    setPickerOpen(toggle, picker, true);
-                    alert(`Please choose at least 1 wing flavor before adding this set.`);
-                    return;
-                }
+                openWingFlavorScreen(this);
+                return;
             }
 
             const newItem = {
                 name: name,
                 price: price,
                 image: image,
-                quantity: 1,
+                quantity: isFixedQuantity ? 1 : readCardQuantity(this.closest('.menu-row')),
                 flavorLimit: flavorLimit,
-                flavors: flavors,
+                flavors: [],
                 variants: variants,
-                variantLabel: selectedVariant?.label || ''
+                variantLabel: selectedVariant?.label || '',
+                servingSize: servingSize,
+                isFixedQuantity: isFixedQuantity
             };
 
-            // Check if item already exists in cart
-            const newKey = cartKey(newItem);
-            const existingItem = cart.find(item => cartKey(item) === newKey);
-
-            if (existingItem) {
-                // Limit quantity to 5 per item for ala carte
-                if (existingItem.quantity >= 5) {
-                    alert(`Maximum quantity of 5 per item allowed. You already have ${existingItem.quantity} of ${name} in your cart.`);
-                    return;
-                }
-                existingItem.quantity += 1;
-            } else {
-                cart.push(newItem);
+            if (addItemToCart(newItem)) {
+                flashAdded(this);
             }
-
-            updateCartDisplay();
-
-            // Visual feedback
-            this.textContent = 'Added!';
-            this.style.backgroundColor = '#28a745';
-            setTimeout(() => {
-                this.textContent = 'Add to cart';
-                this.style.backgroundColor = '';
-            }, 500);
         });
     });
 
@@ -604,11 +1152,17 @@
             const itemDiv = document.createElement('div');
             itemDiv.className = 'cart-item';
             const isMaxQuantity = item.quantity >= 5;
-            const plusButtonDisabled = isMaxQuantity ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : '';
-            const maxQuantityIndicator = isMaxQuantity ? '<small style="color:#e74c3c;font-size:0.75em;display:block;">Max: 5</small>' : '';
+            const plusButtonDisabled = isMaxQuantity || item.isFixedQuantity ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : '';
+            const maxQuantityIndicator = isMaxQuantity && !item.isFixedQuantity ? '<small style="color:#e74c3c;font-size:0.75em;display:block;">Max: 5</small>' : '';
             const variantEditor = item.variants && item.variants.length > 0
                 ? `<select class="cart-edit-field cart-variant" data-index="${index}">
-                    ${item.variants.map(v => `<option value="${escapeHtml(v.name)}" data-price="${v.price}" data-label="${escapeHtml(v.label)}" data-image="${escapeHtml(v.image || '')}" ${v.name === item.name ? 'selected' : ''}>${escapeHtml(v.label)} - ₱${Number(v.price).toFixed(2)}</option>`).join('')}
+                    ${item.variants.map(v => `<option value="${escapeHtml(v.name)}" data-price="${v.price}" data-label="${escapeHtml(v.label)}" data-image="${escapeHtml(v.image || '')}" ${v.name === item.name ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}
+                   </select>`
+                : '';
+            const servingEditor = item.servingSize
+                ? `<select class="cart-edit-field cart-serving" data-index="${index}">
+                    <option value="Full cup" ${item.servingSize === 'Full cup' ? 'selected' : ''}>Full cup</option>
+                    <option value="Half cup" ${item.servingSize === 'Half cup' ? 'selected' : ''}>Half cup</option>
                    </select>`
                 : '';
             const flavorEditor = item.flavorLimit > 0
@@ -622,15 +1176,16 @@
                 <div style="flex:1;margin-left:10px;">
                     <h5 style="margin:0;font-size:14px;">${escapeHtml(item.name)}</h5>
                     ${variantEditor}
+                    ${servingEditor}
                     ${flavorEditor}
                     ${flavorSummary}
                     <p style="margin:0;color:#666;">₱${item.price.toFixed(2)}</p>
                     ${maxQuantityIndicator}
                 </div>
                 <div style="display:flex;align-items:center;gap:10px;">
-                    <button class="qty-btn minus" data-index="${index}">-</button>
+                    ${item.isFixedQuantity ? '' : `<button class="qty-btn minus" data-index="${index}">-</button>`}
                     <span class="qty">${item.quantity}</span>
-                    <button class="qty-btn plus" data-index="${index}" ${plusButtonDisabled}>+</button>
+                    ${item.isFixedQuantity ? '' : `<button class="qty-btn plus" data-index="${index}" ${plusButtonDisabled}>+</button>`}
                     <button class="remove-btn" data-index="${index}">
                         <i class="bi bi-trash"></i>
                     </button>
@@ -657,6 +1212,7 @@
                     return;
                 }
                 const index = parseInt(this.getAttribute('data-index'));
+                if (cart[index].isFixedQuantity) return;
                 // Limit quantity to 5 per item for ala carte
                 if (cart[index].quantity >= 5) {
                     alert(`Maximum quantity of 5 per item allowed. You already have ${cart[index].quantity} of ${cart[index].name} in your cart.`);
@@ -670,6 +1226,7 @@
         document.querySelectorAll('.qty-btn.minus').forEach(btn => {
             btn.addEventListener('click', function() {
                 const index = parseInt(this.getAttribute('data-index'));
+                if (cart[index].isFixedQuantity) return;
                 if (cart[index].quantity > 1) {
                     cart[index].quantity -= 1;
                 } else {
@@ -695,6 +1252,14 @@
                 cart[index].price = parseFloat(option.getAttribute('data-price'));
                 cart[index].variantLabel = option.getAttribute('data-label') || '';
                 cart[index].image = option.getAttribute('data-image') || cart[index].image;
+                updateCartDisplay();
+            });
+        });
+
+        document.querySelectorAll('.cart-serving').forEach(select => {
+            select.addEventListener('change', function() {
+                const index = parseInt(this.getAttribute('data-index'));
+                cart[index].servingSize = this.value;
                 updateCartDisplay();
             });
         });
@@ -745,6 +1310,8 @@
         const orderItems = cart.map(item => ({
             itemName: item.flavors && item.flavors.length > 0
                 ? `${item.name} (Flavors: ${item.flavors.join(', ')})`
+                : item.servingSize
+                ? `${item.name} (${item.servingSize})`
                 : item.name,
             price: item.price,
             quantity: item.quantity

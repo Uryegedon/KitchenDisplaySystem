@@ -152,6 +152,18 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = QXJlYXNcS2l0Y2hlblxWaWV3c1xLaXRjaGVuXEluZGV4LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
+[E:/KitchenDisplaySystem/SelfOrderingSystemKiosk/Areas/Kitchen/Views/Kitchen/Receipt.cshtml]
+build_metadata.AdditionalFiles.TargetPath = QXJlYXNcS2l0Y2hlblxWaWV3c1xLaXRjaGVuXFJlY2VpcHQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[E:/KitchenDisplaySystem/SelfOrderingSystemKiosk/Areas/Kitchen/Views/Kitchen/Receipts.cshtml]
+build_metadata.AdditionalFiles.TargetPath = QXJlYXNcS2l0Y2hlblxWaWV3c1xLaXRjaGVuXFJlY2VpcHRzLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[E:/KitchenDisplaySystem/SelfOrderingSystemKiosk/Areas/Kitchen/Views/_ViewImports.cshtml]
+build_metadata.AdditionalFiles.TargetPath = QXJlYXNcS2l0Y2hlblxWaWV3c1xfVmlld0ltcG9ydHMuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
 [E:/KitchenDisplaySystem/SelfOrderingSystemKiosk/Areas/Admin/Views/Shared/_Layout.cshtml]
 build_metadata.AdditionalFiles.TargetPath = QXJlYXNcQWRtaW5cVmlld3NcU2hhcmVkXF9MYXlvdXQuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = b-11lanpxgv8

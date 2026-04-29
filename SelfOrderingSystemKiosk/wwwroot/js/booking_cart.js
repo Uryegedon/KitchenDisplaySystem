@@ -106,6 +106,39 @@ function displayPersonCount() {
     updateOrderSummary();
 }
 
+function savePersonCount() {
+    return fetch(`/Customer/Kiosk/SaveOrderingSession?personCount=${personCount}`, {
+        method: 'POST'
+    }).catch(err => console.error('Error saving ordering session:', err));
+}
+
+function refreshVariantRow(row) {
+    const select = row?.querySelector('.variant-select');
+    const servingSelect = row?.querySelector('.serving-select');
+    const button = row?.querySelector('.add-to-cart');
+    const imageEl = row?.querySelector('img');
+    if (!select || !button) return;
+
+    const option = select.selectedOptions[0];
+    const image = option?.getAttribute('data-image') || '';
+    button.setAttribute('data-name', option.value);
+    if (image) {
+        button.setAttribute('data-image', image);
+        if (imageEl) imageEl.src = image;
+    }
+    if (servingSelect) {
+        button.setAttribute('data-serving-size', servingSelect.value);
+    }
+}
+
+function cartKey(item) {
+    return [
+        item.name,
+        item.variantLabel || '',
+        item.servingSize || ''
+    ].join('::');
+}
+
 // ✅ Confirm persons
 document.addEventListener("DOMContentLoaded", () => {
     refreshRememberedPersonCount();
@@ -131,9 +164,7 @@ document.addEventListener("DOMContentLoaded", () => {
             document.querySelector(".person-count").textContent =
                 `${personCount} Person${personCount > 1 ? "s" : ""}`;
 
-            fetch(`/Customer/Kiosk/SaveOrderingSession?personCount=${personCount}`, {
-                method: 'POST'
-            }).catch(err => console.error('Error saving ordering session:', err));
+            savePersonCount();
             
             // Update order summary with a small delay to ensure DOM is ready
             setTimeout(() => {
@@ -144,6 +175,37 @@ document.addEventListener("DOMContentLoaded", () => {
             showRulesModal();
         });
     }
+
+    const addPersonBtn = document.getElementById("addPersonBtn");
+    if (addPersonBtn) {
+        addPersonBtn.addEventListener("click", function () {
+            const input = prompt("How many persons should be added?", "1");
+            const added = readPositiveCount(input);
+            if (added <= 0) {
+                showNotification("Please enter a valid number of persons.", "error");
+                return;
+            }
+
+            personCount += added;
+            displayPersonCount();
+            savePersonCount();
+            showNotification(`${added} person${added > 1 ? "s" : ""} added.`, "success");
+        });
+    }
+
+    document.querySelectorAll('.variant-select').forEach(select => {
+        select.addEventListener('change', function () {
+            refreshVariantRow(this.closest('.menu-row'));
+        });
+    });
+
+    document.querySelectorAll('.serving-select').forEach(select => {
+        select.addEventListener('change', function () {
+            const row = this.closest('.menu-row');
+            const button = row?.querySelector('.add-to-cart');
+            if (button) button.setAttribute('data-serving-size', this.value);
+        });
+    });
 
     // 🍗 Add to cart by two’s
     document.querySelectorAll('.add-to-cart').forEach(button => {
@@ -159,15 +221,27 @@ document.addEventListener("DOMContentLoaded", () => {
             const name = this.getAttribute('data-name');
             const image = this.getAttribute('data-image');
             const isWingFlavor = this.getAttribute('data-is-wing-flavor') !== 'false';
+            const variants = JSON.parse(this.getAttribute('data-variants') || '[]');
+            const selectedVariant = variants.find(v => v.name === name);
+            const servingSize = this.getAttribute('data-serving-size') || '';
             const flavorLimit = getFlavorLimit();
 
             const selectedWingFlavorCount = cart.filter(i => i.isWingFlavor !== false).length;
-            if (isWingFlavor && selectedWingFlavorCount >= flavorLimit && !cart.find(i => i.name === name)) {
+            if (isWingFlavor && selectedWingFlavorCount >= flavorLimit && !cart.find(i => i.name === name && i.isWingFlavor !== false)) {
                 showNotification(`You can only choose up to ${flavorLimit} flavors.`, 'error');
                 return;
             }
 
-            const existingItem = cart.find(item => item.name === name);
+            const newItem = {
+                name,
+                image,
+                quantity: isWingFlavor ? Math.min(4, getQuantityLimit()) : 1,
+                isWingFlavor,
+                variants,
+                variantLabel: selectedVariant?.label || '',
+                servingSize
+            };
+            const existingItem = cart.find(item => cartKey(item) === cartKey(newItem));
             const quantityLimit = getQuantityLimit();
 
             if (existingItem) {
@@ -175,9 +249,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     showNotification(`You can only order up to ${quantityLimit} pcs per flavor.`, 'error');
                     return;
                 }
-                existingItem.quantity += 1;
+                existingItem.quantity += isWingFlavor ? Math.min(4, quantityLimit - existingItem.quantity) : 1;
             } else {
-                cart.push({ name, image, quantity: 1, isWingFlavor });
+                cart.push(newItem);
             }
 
             updateCartDisplay();
@@ -190,6 +264,126 @@ document.addEventListener("DOMContentLoaded", () => {
                 this.style.backgroundColor = '';
             }, 500);
         });
+    });
+
+    const wingFlavorScreen = document.getElementById('unliWingFlavorScreen');
+    const wingFlavorImage = document.getElementById('unliWingFlavorImage');
+    const wingFlavorInstruction = document.getElementById('unliWingFlavorInstruction');
+    const wingFlavorCount = document.getElementById('unliWingFlavorCount');
+    const wingFlavorLimitText = document.getElementById('unliWingFlavorLimitText');
+    const wingFlavorAdd = document.getElementById('unliWingFlavorAdd');
+
+    function selectedWingFlavorCards() {
+        return Array.from(document.querySelectorAll('#unliWingFlavorGrid .wing-flavor-card.selected'));
+    }
+
+    function updateWingFlavorScreenState() {
+        if (!wingFlavorScreen) return;
+
+        const selected = selectedWingFlavorCards();
+        const limit = getFlavorLimit();
+        const atLimit = Number.isFinite(limit) && selected.length >= limit;
+
+        document.querySelectorAll('#unliWingFlavorGrid .wing-flavor-card').forEach(button => {
+            button.disabled = atLimit && !button.classList.contains('selected');
+        });
+
+        const limitLabel = Number.isFinite(limit) ? limit : 'unlimited';
+        wingFlavorCount.textContent = selected.length === 0
+            ? '0 selected'
+            : `${selected.length}/${limitLabel} selected`;
+        wingFlavorLimitText.textContent = selected.length === 0
+            ? `Choose up to ${limitLabel} flavor${limit === 1 ? '' : 's'}`
+            : selected.map(button => button.getAttribute('data-flavor')).join(', ');
+        wingFlavorAdd.disabled = selected.length === 0;
+    }
+
+    function openWingFlavorScreen(button) {
+        if (personCount === 0) {
+            showNotification("Please enter the number of persons first.", 'error');
+            openModal("personModal");
+            return;
+        }
+
+        const image = button.getAttribute('data-image') || '';
+        const flavorLimit = getFlavorLimit();
+        const quantityLimit = getQuantityLimit();
+        const existingFlavors = new Set(cart.filter(item => item.isWingFlavor !== false).map(item => item.name));
+
+        document.querySelectorAll('#unliWingFlavorGrid .wing-flavor-card').forEach(card => {
+            const flavor = card.getAttribute('data-flavor');
+            card.classList.toggle('selected', existingFlavors.has(flavor));
+            card.disabled = false;
+        });
+
+        if (wingFlavorImage) wingFlavorImage.src = image;
+        if (wingFlavorInstruction) {
+            const limitText = Number.isFinite(flavorLimit) ? `up to ${flavorLimit}` : 'unlimited';
+            wingFlavorInstruction.textContent = `Choose ${limitText} flavor${flavorLimit === 1 ? '' : 's'}; up to ${quantityLimit} pcs per flavor.`;
+        }
+
+        wingFlavorScreen.classList.add('active');
+        wingFlavorScreen.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+        updateWingFlavorScreenState();
+    }
+
+    function closeWingFlavorScreen() {
+        if (!wingFlavorScreen) return;
+        wingFlavorScreen.classList.remove('active');
+        wingFlavorScreen.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+    }
+
+    document.querySelectorAll('.unli-wing-flavor-launch').forEach(button => {
+        button.addEventListener('click', function () {
+            openWingFlavorScreen(this);
+        });
+    });
+
+    document.querySelectorAll('#unliWingFlavorGrid .wing-flavor-card').forEach(button => {
+        button.addEventListener('click', function () {
+            if (this.disabled) return;
+            this.classList.toggle('selected');
+            updateWingFlavorScreenState();
+        });
+    });
+
+    document.getElementById('unliWingFlavorBack')?.addEventListener('click', closeWingFlavorScreen);
+    wingFlavorScreen?.addEventListener('click', function (e) {
+        if (e.target === wingFlavorScreen) closeWingFlavorScreen();
+    });
+
+    wingFlavorAdd?.addEventListener('click', function () {
+        const selected = selectedWingFlavorCards();
+        if (selected.length === 0) {
+            showNotification('Please choose at least 1 wing flavor.', 'error');
+            return;
+        }
+
+        const selectedNames = new Set(selected.map(button => button.getAttribute('data-flavor')));
+        cart = cart.filter(item => item.isWingFlavor === false || selectedNames.has(item.name));
+
+        selected.forEach(button => {
+            const name = button.getAttribute('data-flavor');
+            const image = button.getAttribute('data-image');
+            const existing = cart.find(item => item.name === name && item.isWingFlavor !== false);
+            if (!existing) {
+                cart.push({
+                    name,
+                    image,
+                    quantity: Math.min(4, getQuantityLimit()),
+                    isWingFlavor: true,
+                    variants: [],
+                    variantLabel: '',
+                    servingSize: ''
+                });
+            }
+        });
+
+        updateCartDisplay();
+        closeWingFlavorScreen();
+        showNotification('Wing flavors updated.', 'success');
     });
 });
 
@@ -288,11 +482,24 @@ function updateCartDisplay() {
     cart.forEach((item, index) => {
         const itemDiv = document.createElement('div');
         itemDiv.className = 'cart-item';
+        const variantEditor = item.variants && item.variants.length > 0
+            ? `<select class="cart-edit-field cart-variant" data-index="${index}">
+                ${item.variants.map(v => `<option value="${escapeHtml(v.name)}" data-label="${escapeHtml(v.label)}" data-image="${escapeHtml(v.image || '')}" ${v.name === item.name ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}
+               </select>`
+            : '';
+        const servingEditor = item.servingSize
+            ? `<select class="cart-edit-field cart-serving" data-index="${index}">
+                <option value="Full cup" ${item.servingSize === 'Full cup' ? 'selected' : ''}>Full cup</option>
+                <option value="Half cup" ${item.servingSize === 'Half cup' ? 'selected' : ''}>Half cup</option>
+               </select>`
+            : '';
         itemDiv.innerHTML = `
             <img src="${item.image}" alt="${item.name}"
                 style="width:50px;height:50px;object-fit:cover;border-radius:8px;">
             <div style="flex:1;margin-left:10px;">
                 <h5 style="margin:0;font-size:14px;">${item.name}</h5>
+                ${variantEditor}
+                ${servingEditor}
             </div>
             <div style="display:flex;align-items:center;gap:10px;">
                 <button class="qty-btn minus" data-index="${index}">-</button>
@@ -352,5 +559,52 @@ function addCartEventListeners() {
             updateCartDisplay();
         }
     });
+
+    document.querySelectorAll('.cart-variant').forEach(select => {
+        select.addEventListener('change', function () {
+            const index = parseInt(this.getAttribute('data-index'));
+            const option = this.selectedOptions[0];
+            cart[index].name = option.value;
+            cart[index].variantLabel = option.getAttribute('data-label') || '';
+            cart[index].image = option.getAttribute('data-image') || cart[index].image;
+            updateCartDisplay();
+        });
+    });
+
+    document.querySelectorAll('.cart-serving').forEach(select => {
+        select.addEventListener('change', function () {
+            const index = parseInt(this.getAttribute('data-index'));
+            cart[index].servingSize = this.value;
+            updateCartDisplay();
+        });
+    });
 }
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// 🎯 Desktop drawer toggle on header click
+document.addEventListener('DOMContentLoaded', () => {
+    const summary = document.querySelector('.order-summary');
+    const header = summary?.querySelector('.summary-header');
+    
+    if (header && summary) {
+        header.addEventListener('click', function (e) {
+            // Don't toggle if clicking on a button inside header
+            if (e.target.tagName === 'BUTTON') return;
+            
+            // Toggle collapsed state only on desktop (max-width: 1200px)
+            const isDesktop = window.matchMedia('(min-width: 1201px)').matches;
+            if (isDesktop) {
+                summary.classList.toggle('collapsed');
+            }
+        });
+    }
+});
 

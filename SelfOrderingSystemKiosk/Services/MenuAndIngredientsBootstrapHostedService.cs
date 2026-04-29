@@ -149,6 +149,12 @@ namespace SelfOrderingSystemKiosk.Services
                 Menu("Kap's Burger Ala Carte", "Kap's Burger", 57m, 930, "/images/wings.png", "burger"),
                 Menu("Kap's Burger Meal", "Kap's Burger", 87m, 929, "/images/wings.png", "burger"),
 
+                Menu("Water", "Drinks", 0m, 925, "/images/wings.png", "drink"),
+                Menu("Iced Tea", "Drinks", 0m, 924, "/images/wings.png", "drink"),
+                Menu("Coffee", "Drinks", 0m, 923, "/images/wings.png", "drink"),
+                Menu("Hot Tea", "Drinks", 0m, 922, "/images/wings.png", "drink"),
+                Menu("Softdrinks", "Drinks", 0m, 921, "/images/wings.png", "drink"),
+
                 Menu("Red Iced Tea", "Unlimited Inclusions", 0m, 920, "/images/wings.png", "drink"),
                 Menu("Coffee", "Unlimited Inclusions", 0m, 919, "/images/wings.png", "drink"),
                 Menu("Tea", "Unlimited Inclusions", 0m, 918, "/images/wings.png", "drink"),
@@ -209,32 +215,28 @@ namespace SelfOrderingSystemKiosk.Services
             new()
             {
                 // Produce & herbs
-                Ing("Garlic", "Produce & herbs", "pcs"),
-                Ing("Onion", "Produce & herbs", "pcs"),
-                Ing("Tomatoes", "Produce & herbs", "kg"),
-                Ing("Fresh tomatoes", "Produce & herbs", "kg"),
-                Ing("Mushrooms", "Produce & herbs", "g"),
-                Ing("Basil", "Produce & herbs", "g"),
-                Ing("Chili / chili peppers", "Produce & herbs", "g"),
-                // Dry goods & dairy
-                Ing("Parmesan cheese", "Dry goods & dairy", "g"),
-                Ing("Peanuts", "Dry goods & dairy", "g"),
-                Ing("Sugar", "Dry goods & dairy", "g"),
-                // Specialty
-                Ing("Salted egg yolk", "Specialty", "pcs"),
-                // Oils, fats & liquids
-                Ing("Cooking oil", "Oils, fats & liquids", "ml"),
-                Ing("Olive oil", "Oils, fats & liquids", "ml"),
-                Ing("Butter", "Oils, fats & liquids", "g"),
-                Ing("Lemon juice", "Oils, fats & liquids", "ml"),
-                Ing("Lime juice", "Oils, fats & liquids", "ml"),
-                Ing("Milk / cream", "Oils, fats & liquids", "ml"),
-                // Sauces & condiments
-                Ing("Mustard", "Sauces & condiments", "ml"),
-                Ing("Soy sauce", "Sauces & condiments", "ml"),
-                Ing("Oyster sauce", "Sauces & condiments", "ml"),
-                Ing("Fish sauce", "Sauces & condiments", "ml"),
-                Ing("Tomato sauce", "Sauces & condiments", "ml"),
+                Ing("Garlic", "Raw mats", "pcs"),
+                Ing("Onion", "Raw mats", "pcs"),
+                Ing("Tomatoes", "Raw mats", "g"),
+                Ing("Fresh tomatoes", "Raw mats", "g"),
+                Ing("Mushrooms", "Raw mats", "g"),
+                Ing("Basil", "Raw mats", "g"),
+                Ing("Chili / chili peppers", "Raw mats", "g"),
+                Ing("Parmesan cheese", "Raw mats", "g"),
+                Ing("Peanuts", "Raw mats", "g"),
+                Ing("Sugar", "Raw mats", "g"),
+                Ing("Salted egg yolk", "Raw mats", "pcs"),
+                Ing("Cooking oil", "Misc", "ml"),
+                Ing("Olive oil", "Misc", "ml"),
+                Ing("Butter", "Raw mats", "g"),
+                Ing("Lemon juice", "Sauce", "ml"),
+                Ing("Lime juice", "Sauce", "ml"),
+                Ing("Milk / cream", "Raw mats", "ml"),
+                Ing("Mustard", "Sauce", "ml"),
+                Ing("Soy sauce", "Sauce", "ml"),
+                Ing("Oyster sauce", "Sauce", "ml"),
+                Ing("Fish sauce", "Sauce", "ml"),
+                Ing("Tomato sauce", "Sauce", "ml"),
             };
 
         private static IngredientItem Ing(string name, string category, string unit) => new()

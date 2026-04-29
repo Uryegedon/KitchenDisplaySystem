@@ -91,6 +91,7 @@ builder.Services.AddSingleton<QrCodeService>();
 builder.Services.AddScoped<ChickenService>();
 
 builder.Services.AddHostedService<OrderIndexesHostedService>();
+builder.Services.AddHostedService<OrderExpirationHostedService>();
 builder.Services.AddHostedService<MenuAndIngredientsBootstrapHostedService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)

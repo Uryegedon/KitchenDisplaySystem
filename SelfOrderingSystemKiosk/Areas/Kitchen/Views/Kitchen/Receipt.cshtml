@@ -5,10 +5,12 @@
     var sessionLabel = Model.IsTableSession ? "Table Session" : "Single Order";
     var returnUrl = ViewBag.ReturnUrl as string ?? Url.Action("Receipts", "Kitchen", new { area = "Kitchen" });
     var canManagePayment = ViewBag.CanManagePayment is bool canPay && canPay;
-    var isPaid = Model.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
-    var paymentStatusLabel = isPaid ? "Paid" : "Pending";
+    var isCanceled = Model.Orders.Any() && Model.Orders.All(o => string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase));
+    var isPaid = !isCanceled && Model.Orders.Any() && Model.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+    var paymentStatusLabel = isCanceled ? "Canceled" : isPaid ? "Paid" : "Pending";
     var sessionEndIso = Model.SessionEndUtc.ToUniversalTime().ToString("O");
     var showStaffDetails = canManagePayment;
+    var allowPaymentActions = canManagePayment && !isCanceled;
     var isSessionEnded = Model.Orders.Any() && Model.Orders.All(o => o.BillArchived);
     var hasUnlimitedOrder = Model.Orders.Any(o => string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase));
 }
@@ -351,7 +353,7 @@
                     <h1>Kapitak PakPak</h1>
                     <p>Unified receipt and bill</p>
                     <span class="pill"><i class="bi bi-receipt"></i> @sessionLabel</span>
-                    <span class="pill @(isPaid ? "paid" : "pending")"><i class="bi bi-cash-coin"></i> @paymentStatusLabel</span>
+                    <span class="pill @(isCanceled ? "expired" : isPaid ? "paid" : "pending")"><i class="bi bi-cash-coin"></i> @paymentStatusLabel</span>
                     @if (isSessionEnded)
                     {
                         <span class="pill paid"><i class="bi bi-check2-circle"></i> Session Ended</span>
@@ -368,7 +370,14 @@
                 </div>
             </div>
 
-            @if (canManagePayment)
+            @if (TempData["ErrorMessage"] != null)
+            {
+                <div class="pill expired" style="margin-bottom: 16px;">
+                    <i class="bi bi-exclamation-triangle-fill"></i> @TempData["ErrorMessage"]
+                </div>
+            }
+
+            @if (allowPaymentActions)
             {
                 <div class="payment-actions">
                     @if (!isPaid)
@@ -447,7 +456,7 @@
                 </tbody>
             </table>
 
-            @if (canManagePayment)
+            @if (allowPaymentActions)
             {
                 <label class="discount-control">
                     <input type="checkbox" id="seniorDiscountToggle" />
@@ -460,7 +469,7 @@
                     <span>Subtotal</span>
                     <strong>₱@Model.Subtotal.ToString("N2")</strong>
                 </div>
-                @if (canManagePayment)
+                @if (allowPaymentActions)
                 {
                     <div class="total-row discount-row" id="seniorDiscountRow" style="display:none;">
                         <span>Senior Discount (20%)</span>

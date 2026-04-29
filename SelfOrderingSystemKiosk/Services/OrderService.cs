@@ -6,6 +6,9 @@ namespace SelfOrderingSystemKiosk.Services
 {
     public class OrderService
     {
+        private const string PendingStatus = "Pending";
+        private const string CanceledStatus = "Canceled";
+        private static readonly TimeSpan PendingOrderExpiration = TimeSpan.FromHours(24);
         private readonly IMongoCollection<Order> _orders;
 
         public OrderService(Models.KitchenDatabase db)
@@ -27,6 +30,8 @@ namespace SelfOrderingSystemKiosk.Services
         /// <summary>Kitchen board: filter in MongoDB by date preset instead of loading all orders.</summary>
         public async Task<List<Order>> GetOrdersForKitchenAsync(string? dateFilter)
         {
+            await ExpirePendingOrdersAsync();
+
             var now = DateTime.UtcNow;
             var filter = string.IsNullOrEmpty(dateFilter) ? "all" : dateFilter.ToLowerInvariant();
             List<Order> orders = filter switch
@@ -122,6 +127,19 @@ namespace SelfOrderingSystemKiosk.Services
         {
             var update = Builders<Order>.Update.Set(o => o.Status, status);
             await _orders.UpdateOneAsync(o => o.Id == id, update);
+        }
+
+        public async Task<long> ExpirePendingOrdersAsync(CancellationToken cancellationToken = default)
+        {
+            var cutoffUtc = DateTime.UtcNow.Subtract(PendingOrderExpiration);
+            var filter = Builders<Order>.Filter.And(
+                Builders<Order>.Filter.Eq(o => o.Status, PendingStatus),
+                Builders<Order>.Filter.Lte(o => o.OrderDate, cutoffUtc));
+            var update = Builders<Order>.Update
+                .Set(o => o.Status, CanceledStatus)
+                .Set(o => o.BillArchived, true);
+            var result = await _orders.UpdateManyAsync(filter, update, cancellationToken: cancellationToken);
+            return result.ModifiedCount;
         }
 
         public async Task UpdatePaymentStatusAsync(IEnumerable<string> ids, string paymentStatus)

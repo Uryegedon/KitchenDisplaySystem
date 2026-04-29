@@ -13,14 +13,17 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
         public string LocationLabel { get; set; } = string.Empty;
         public bool IsTableSession { get; set; }
 
-        public decimal Subtotal => Orders.Sum(o => o.Subtotal);
-        public decimal Tax => Orders.Sum(o => o.Tax);
+        public IEnumerable<Order> BillableOrders =>
+            Orders.Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase));
+
+        public decimal Subtotal => BillableOrders.Sum(o => o.Subtotal);
+        public decimal Tax => BillableOrders.Sum(o => o.Tax);
         public decimal Total => Subtotal;
-        public int TotalItems => Orders.SelectMany(o => o.Items ?? new List<OrderItem>()).Sum(i => i.Quantity);
+        public int TotalItems => BillableOrders.SelectMany(o => o.Items ?? new List<OrderItem>()).Sum(i => i.Quantity);
         public string ReceiptNumber => IsTableSession ? $"T{TableNumber}-{SessionStartUtc:MMddHHmm}" : AnchorOrder?.OrderNumber ?? string.Empty;
 
         public IReadOnlyList<ReceiptLineItem> LineItems =>
-            Orders
+            BillableOrders
                 .SelectMany(o => o.Items ?? new List<OrderItem>())
                 .GroupBy(i => new { i.ItemName, i.Price })
                 .Select(g => new ReceiptLineItem

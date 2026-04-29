@@ -44,7 +44,7 @@ namespace SelfOrderingSystemKiosk.Services
 
             var oldStock = item.CurrentStock;
             var newStock = Math.Max(0, oldStock - quantity);
-            var status = newStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
+            var status = newStock == 0 ? "No Stock" : newStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
 
             await _collection.UpdateOneAsync(
                 x => x.Id == ingredientId,
@@ -89,7 +89,7 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task AddAsync(IngredientItem item)
         {
-            item.Status = item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
+            item.Status = item.CurrentStock == 0 ? "No Stock" : item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
             await _collection.InsertOneAsync(item);
 
             if (item.CurrentStock > 0)
@@ -111,7 +111,7 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task UpdateAsync(IngredientItem item)
         {
-            item.Status = item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
+            item.Status = item.CurrentStock == 0 ? "No Stock" : item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
             await _collection.ReplaceOneAsync(x => x.Id == item.Id, item);
         }
 
@@ -129,7 +129,7 @@ namespace SelfOrderingSystemKiosk.Services
 
             var oldStock = item.CurrentStock;
             item.CurrentStock += quantityAdded;
-            item.Status = item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
+            item.Status = item.CurrentStock == 0 ? "No Stock" : item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
 
             await UpdateAsync(item);
 

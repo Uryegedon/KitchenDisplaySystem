@@ -51,6 +51,8 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> Receipt(string? id = null, string? orderNumber = null, string? returnUrl = null)
         {
+            await _orderService.ExpirePendingOrdersAsync();
+
             Order? anchorOrder = null;
             var isSignedIn = User?.Identity?.IsAuthenticated == true;
 
@@ -110,9 +112,17 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             if (string.IsNullOrWhiteSpace(id))
                 return RedirectToAction("Receipts");
 
+            await _orderService.ExpirePendingOrdersAsync();
+
             var anchorOrder = await _orderService.GetByIdAsync(id);
             if (anchorOrder == null)
                 return RedirectToAction("Receipts");
+
+            if (string.Equals(anchorOrder.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
+            {
+                TempData["ErrorMessage"] = "This order was canceled because it was not started within 24 hours.";
+                return RedirectToAction("Receipt", new { id, returnUrl = GetSafeReturnUrl(returnUrl, anchorOrder, true) });
+            }
 
             if (!string.Equals(paymentStatus, "Paid", StringComparison.OrdinalIgnoreCase))
                 return RedirectToAction("Receipt", new { id, returnUrl = GetSafeReturnUrl(returnUrl, anchorOrder, true) });
@@ -132,9 +142,17 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             if (string.IsNullOrWhiteSpace(id))
                 return RedirectToAction("Receipts");
 
+            await _orderService.ExpirePendingOrdersAsync();
+
             var anchorOrder = await _orderService.GetByIdAsync(id);
             if (anchorOrder == null)
                 return RedirectToAction("Receipts");
+
+            if (string.Equals(anchorOrder.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
+            {
+                TempData["ErrorMessage"] = "This order was canceled because it was not started within 24 hours.";
+                return RedirectToAction("Receipt", new { id, returnUrl = GetSafeReturnUrl(returnUrl, anchorOrder, true) });
+            }
 
             var receipt = await BuildReceiptViewModelAsync(anchorOrder);
             if (!receipt.IsTableSession)
@@ -154,7 +172,9 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         private async Task<SessionReceiptViewModel> BuildReceiptViewModelAsync(Order anchorOrder)
         {
             var orders = new List<Order> { anchorOrder };
-            var isTableSession = !string.IsNullOrWhiteSpace(anchorOrder.TableNumber)
+            var isAnchorCanceled = string.Equals(anchorOrder.Status, "Canceled", StringComparison.OrdinalIgnoreCase);
+            var isTableSession = !isAnchorCanceled
+                && !string.IsNullOrWhiteSpace(anchorOrder.TableNumber)
                 && string.Equals(anchorOrder.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase);
 
             if (isTableSession)
@@ -246,11 +266,19 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         [HttpPost]
         public async Task<IActionResult> UpdateStatus(string id, string status)
         {
+            await _orderService.ExpirePendingOrdersAsync();
+
             // Get the order to check current status
             var order = await _orderService.GetByIdAsync(id);
             
             if (order == null)
             {
+                return RedirectToAction("Index");
+            }
+
+            if (order.Status.Equals("Canceled", StringComparison.OrdinalIgnoreCase))
+            {
+                TempData["ErrorMessage"] = "This order was canceled because it was not started within 24 hours.";
                 return RedirectToAction("Index");
             }
 

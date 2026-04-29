@@ -105,11 +105,20 @@ namespace SelfOrderingSystemKiosk.Services
                 },
                 new MenuCategoryOption
                 {
+                    Key = "Drinks",
+                    DisplayName = "Drinks",
+                    DefaultImage = "/images/wings.png",
+                    ShowInKiosk = true,
+                    SortOrder = 8,
+                    TabIconClass = "cup-straw"
+                },
+                new MenuCategoryOption
+                {
                     Key = "Group Add-ons",
                     DisplayName = "Group Add-ons",
                     DefaultImage = "/images/wings.png",
                     ShowInKiosk = true,
-                    SortOrder = 8,
+                    SortOrder = 9,
                     TabIconClass = "people"
                 },
                 new MenuCategoryOption

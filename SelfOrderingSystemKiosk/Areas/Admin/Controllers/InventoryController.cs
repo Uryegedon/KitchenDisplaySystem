@@ -33,38 +33,76 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Add(string item, string ingredientCategory, int stock, string unit, int reorderLevel)
+        public async Task<IActionResult> Add(
+            List<string> item,
+            List<string> ingredientCategory,
+            List<int> stock,
+            List<string> unit,
+            List<int> reorderLevel)
         {
-            if (string.IsNullOrWhiteSpace(item))
+            var rows = item
+                .Select((name, index) => new
+                {
+                    Name = name?.Trim() ?? "",
+                    Category = index < ingredientCategory.Count ? ingredientCategory[index] : "",
+                    Stock = index < stock.Count ? stock[index] : 0,
+                    Unit = index < unit.Count ? unit[index] : "g",
+                    ReorderLevel = index < reorderLevel.Count ? reorderLevel[index] : 10
+                })
+                .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+                .ToList();
+
+            if (rows.Count == 0)
             {
-                TempData["Message"] = "Ingredient name is required.";
+                TempData["Message"] = "At least one ingredient name is required.";
                 return RedirectToAction("Index");
             }
 
             var allItems = await _ingredients.GetAllAsync();
-            if (allItems.Any(i => string.Equals(i.Item, item, StringComparison.OrdinalIgnoreCase)))
+            var existingNames = allItems
+                .Select(i => i.Item ?? "")
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var duplicateInForm = rows
+                .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(g => g.Count() > 1);
+            if (duplicateInForm != null)
             {
-                TempData["Message"] = $"An ingredient with the name '{item}' already exists.";
+                TempData["Message"] = $"Ingredient '{duplicateInForm.Key}' is listed more than once.";
                 return RedirectToAction("Index");
             }
 
-            if (!_ingredientCategories.IsValid(ingredientCategory))
+            var existingDuplicate = rows.FirstOrDefault(x => existingNames.Contains(x.Name));
+            if (existingDuplicate != null)
             {
-                TempData["Message"] = "Invalid ingredient category.";
+                TempData["Message"] = $"An ingredient with the name '{existingDuplicate.Name}' already exists.";
                 return RedirectToAction("Index");
             }
 
-            var newItem = new IngredientItem
+            var invalidCategory = rows.FirstOrDefault(x => !_ingredientCategories.IsValid(x.Category));
+            if (invalidCategory != null)
             {
-                Item = item.Trim(),
-                IngredientCategory = ingredientCategory,
-                CurrentStock = stock,
-                Unit = unit ?? "g",
-                ReorderLevel = reorderLevel
-            };
+                TempData["Message"] = $"Invalid ingredient category for '{invalidCategory.Name}'.";
+                return RedirectToAction("Index");
+            }
 
-            await _ingredients.AddAsync(newItem);
-            TempData["Message"] = "Ingredient added!";
+            foreach (var row in rows)
+            {
+                var newItem = new IngredientItem
+                {
+                    Item = row.Name,
+                    IngredientCategory = row.Category,
+                    CurrentStock = Math.Max(0, row.Stock),
+                    Unit = string.IsNullOrWhiteSpace(row.Unit) ? "g" : row.Unit,
+                    ReorderLevel = Math.Max(0, row.ReorderLevel)
+                };
+
+                await _ingredients.AddAsync(newItem);
+            }
+
+            TempData["Message"] = rows.Count == 1
+                ? "Ingredient added!"
+                : $"{rows.Count} ingredients added!";
             return RedirectToAction("Index");
         }
 
@@ -111,7 +149,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Restock(string id, int amount)
+        public async Task<IActionResult> Restock(string id, int amount, string? batchNote = null)
         {
             var item = await _ingredients.GetByIdAsync(id);
             if (item == null)
@@ -149,9 +187,39 @@ namespace SelfOrderingSystemKiosk.Controllers
                 item.Item ?? "",
                 previousStock,
                 item.CurrentStock,
-                $"Restock by {amount} units");
+                string.IsNullOrWhiteSpace(batchNote)
+                    ? $"Restock by {amount} units"
+                    : $"Restock by {amount} units - Batch/Delivery: {batchNote.Trim()}");
 
-            TempData["Message"] = $"Restocked '{item.Item}' by {amount} units.";
+            TempData["Message"] = string.IsNullOrWhiteSpace(batchNote)
+                ? $"Restocked '{item.Item}' by {amount} units."
+                : $"Restocked '{item.Item}' by {amount} units. Batch/Delivery: {batchNote.Trim()}";
+            return RedirectToAction("Index");
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> ClearStock(string id)
+        {
+            var item = await _ingredients.GetByIdAsync(id);
+            if (item == null)
+            {
+                TempData["Message"] = "Ingredient not found.";
+                return RedirectToAction("Index");
+            }
+
+            var previousStock = item.CurrentStock;
+            item.CurrentStock = 0;
+            item.Status = "No Stock";
+
+            await _ingredients.UpdateAsync(item);
+            await _ingredients.RecordAdjustmentAsync(
+                item.Id,
+                item.Item ?? "",
+                previousStock,
+                item.CurrentStock,
+                "Stock cleared to 0");
+
+            TempData["Message"] = $"Stock for '{item.Item}' was cleared to 0.";
             return RedirectToAction("Index");
         }
 

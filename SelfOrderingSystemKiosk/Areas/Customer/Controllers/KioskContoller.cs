@@ -455,6 +455,9 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal))
                 return true;
 
+            if (string.Equals(item.Category, "Drinks", StringComparison.Ordinal))
+                return true;
+
             if (string.Equals(item.Category, "Add Ons", StringComparison.Ordinal))
             {
                 return name.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)

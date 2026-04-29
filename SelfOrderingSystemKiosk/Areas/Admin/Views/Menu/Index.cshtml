@@ -329,6 +329,31 @@
 </style>
 
 <script>
+    const MENU_SCROLL_KEY = 'adminMenuScrollPosition';
+    const MENU_TABLE_SCROLL_KEY = 'adminMenuTableScrollPosition';
+
+    function rememberMenuScroll() {
+        const tableContainer = document.querySelector('.table-container');
+        sessionStorage.setItem(MENU_SCROLL_KEY, String(window.scrollY || 0));
+        sessionStorage.setItem(MENU_TABLE_SCROLL_KEY, String(tableContainer?.scrollTop || 0));
+    }
+
+    function restoreMenuScroll() {
+        const savedWindow = parseInt(sessionStorage.getItem(MENU_SCROLL_KEY) || '', 10);
+        const savedTable = parseInt(sessionStorage.getItem(MENU_TABLE_SCROLL_KEY) || '', 10);
+        sessionStorage.removeItem(MENU_SCROLL_KEY);
+        sessionStorage.removeItem(MENU_TABLE_SCROLL_KEY);
+
+        if (Number.isFinite(savedTable)) {
+            const tableContainer = document.querySelector('.table-container');
+            if (tableContainer) tableContainer.scrollTop = savedTable;
+        }
+
+        if (Number.isFinite(savedWindow)) {
+            window.scrollTo(0, savedWindow);
+        }
+    }
+
     function toggleAvailability(itemId, isAvailable) {
         const availability = isAvailable ? 'Available' : 'Unavailable';
         const label = document.getElementById('label-' + itemId);
@@ -336,6 +361,7 @@
         // Optimistic label until server responds (reload on success)
         label.textContent = availability;
         label.className = 'availability-label ' + availability.toLowerCase();
+        rememberMenuScroll();
         
         fetch('/Admin/Menu/ToggleAvailability', {
             method: 'POST',
@@ -611,6 +637,12 @@
         document.addEventListener('DOMContentLoaded', initializeModals);
     } else {
         initializeModals();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', restoreMenuScroll);
+    } else {
+        restoreMenuScroll();
     }
 </script>
 

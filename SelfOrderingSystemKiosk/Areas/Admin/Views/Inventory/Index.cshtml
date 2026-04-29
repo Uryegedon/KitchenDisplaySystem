@@ -1,6 +1,7 @@
 @model IEnumerable<SelfOrderingSystemKiosk.Models.IngredientItem>
 @using SelfOrderingSystemKiosk.Services
 @using System.Net
+@using System.Text.Encodings.Web
 @{
     ViewData["Title"] = "Ingredients inventory";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
@@ -23,10 +24,11 @@
         background: white;
         padding: 28px;
         border-radius: 15px;
-        max-width: 480px;
+        max-width: min(980px, calc(100vw - 32px));
         width: 92%;
         max-height: 90vh;
         overflow-y: auto;
+        overflow-x: hidden;
         box-shadow: 0 10px 40px rgba(0,0,0,0.3);
     }
     .inv-modal-header {
@@ -106,6 +108,17 @@
     .btn-restock:hover {
         background: #218838;
     }
+    .btn-clear-stock {
+        background: #dc3545;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 0.9em;
+        margin-left: 5px;
+    }
+    .btn-clear-stock:hover { background: #bd2130; }
     .alert {
         padding: 12px 20px;
         border-radius: 5px;
@@ -116,6 +129,88 @@
         background-color: #d4edda;
         border-color: #c3e6cb;
         color: #155724;
+    }
+    .ingredient-add-row {
+        border: 1px solid #eee;
+        border-radius: 10px;
+        padding: 12px;
+        background: #fffaf4;
+        display: grid;
+        grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(88px, 0.55fr) minmax(82px, 0.45fr) minmax(98px, 0.55fr) 36px;
+        gap: 10px;
+        align-items: end;
+        max-width: 100%;
+    }
+    .ingredient-add-row label {
+        margin: 0;
+    }
+    .ingredient-remove-row {
+        width: 34px;
+        height: 34px;
+        border: 0;
+        border-radius: 50%;
+        background: #ffe1df;
+        color: #dc3545;
+        font-weight: 800;
+        cursor: pointer;
+    }
+    .ingredient-add-more {
+        align-self: flex-start;
+        border: 1px solid #f2c094;
+        background: #fff8ef;
+        color: #d35400;
+        border-radius: 999px;
+        padding: 9px 14px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+    @@media (max-width: 900px) {
+        .ingredient-add-row {
+            grid-template-columns: 1fr;
+        }
+        .ingredient-remove-row {
+            width: auto;
+            border-radius: 8px;
+        }
+    }
+    @@media print {
+        .sidebar,
+        .topbar,
+        .inv-page-toolbar,
+        .inventory-filters,
+        .btn,
+        .btn-clear-stock,
+        .restock-container,
+        .inv-modal-overlay,
+        .alert,
+        th:last-child,
+        td:last-child,
+        #inventoryTable th:nth-child(5),
+        #inventoryTable td:nth-child(5) {
+            display: none !important;
+        }
+        body {
+            background: #fff !important;
+        }
+        .main-content,
+        .content,
+        .table-container {
+            margin: 0 !important;
+            padding: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            box-shadow: none !important;
+        }
+        #inventoryTable {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11pt;
+        }
+        #inventoryTable th,
+        #inventoryTable td {
+            border: 1px solid #999;
+            padding: 6px 8px;
+        }
     }
 </style>
 
@@ -134,11 +229,16 @@
             }
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-           
+            <button type="button" class="btn btn-add" onclick="openAddIngredientModal()">
+                <i class="bi bi-plus-circle"></i> Add Ingredient
+            </button>
+            <button type="button" class="btn btn-edit" onclick="window.print()">
+                <i class="bi bi-printer"></i> Print Table
+            </button>
         </div>
     </div>
 
-    <form method="get" asp-area="Admin" asp-controller="Inventory" asp-action="Index" style="margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+    <form method="get" asp-area="Admin" asp-controller="Inventory" asp-action="Index" class="inventory-filters" style="margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <label for="categoryFilter" style="font-weight: 600; margin: 0;">Category</label>
         <select name="categoryFilter" id="categoryFilter" onchange="this.form.submit()" style="padding: 8px 12px; min-width: 260px; border: 2px solid #ddd; border-radius: 5px;">
             @if (catFilter == "all")
@@ -165,24 +265,50 @@
         <input type="text" id="searchInput" placeholder="Search ingredients..." style="padding: 8px 12px; min-width: 220px; border: 2px solid #ddd; border-radius: 5px;" />
     </form>
 
-    <div class="inventory-form" style="margin-bottom:1rem;">
-        <h2>Add ingredient</h2>
+    <div class="inv-modal-overlay" id="addIngredientModal" aria-hidden="true">
+        <div class="inv-modal-content" role="dialog" aria-labelledby="addIngredientTitle">
+        <div class="inv-modal-header">
+            <h2 id="addIngredientTitle">Add ingredient</h2>
+            <button type="button" class="inv-close" onclick="closeAddIngredientModal()" aria-label="Close">&times;</button>
+        </div>
         <form method="post" asp-action="Add" id="addIngredientForm">
-            <div class="form-row-horizontal" style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;">
-                <input type="text" name="item" placeholder="Ingredient name (e.g., Chicken Breast)" required title="Enter the name of the ingredient" />
-                <select name="ingredientCategory" required style="padding: 8px; min-width: 200px;" title="Select the category this ingredient belongs to">
-                    <option value="">— Select Category —</option>
-                    @foreach (var c in categories)
-                    {
-                        <option value="@c">@c</option>
-                    }
-                </select>
-                <input type="number" name="stock" placeholder="Initial stock quantity" value="0" required title="Current stock level (numbers only)" min="0" />
-                <input type="text" name="unit" placeholder="Unit (e.g., g, ml, pcs)" value="g" required title="Unit of measurement (grams, milliliters, pieces, etc.)" />
-                <input type="number" name="reorderLevel" placeholder="Reorder threshold" value="10" required title="Stock level that triggers reorder alert" min="0" />
-                <button type="button" class="btn btn-add" id="addIngredientBtn">Add</button>
+            <div class="inv-form-grid" id="ingredientRows">
+                <div class="ingredient-add-row">
+                    <label>Ingredient name<br />
+                        <input type="text" name="item" placeholder="e.g., Chicken Breast" required title="Enter the name of the ingredient" />
+                    </label>
+                    <label>Category<br />
+                    <select name="ingredientCategory" required title="Select the category this ingredient belongs to">
+                        <option value="">— Select Category —</option>
+                        @foreach (var c in categories)
+                        {
+                            <option value="@c">@c</option>
+                        }
+                    </select>
+                    </label>
+                    <label>Stock<br />
+                        <input type="number" name="stock" value="0" required title="Current stock level (numbers only)" min="0" />
+                    </label>
+                    <label>Unit<br />
+                    <select name="unit" required title="Unit of measurement">
+                        <option value="g" selected>g</option>
+                        <option value="ml">ml</option>
+                        <option value="pcs">pcs</option>
+                    </select>
+                    </label>
+                    <label>Reorder<br />
+                        <input type="number" name="reorderLevel" value="10" required title="Stock level that triggers reorder alert" min="0" />
+                    </label>
+                    <button type="button" class="ingredient-remove-row" title="Remove row" onclick="removeIngredientRow(this)">×</button>
+                </div>
+            </div>
+            <button type="button" class="ingredient-add-more" onclick="addIngredientRow()">+ Add more</button>
+            <div class="inv-modal-actions">
+                <button type="button" class="inv-btn-cancel" onclick="closeAddIngredientModal()">Cancel</button>
+                <button type="button" class="inv-btn-save" id="addIngredientBtn">Add ingredients</button>
             </div>
         </form>
+        </div>
     </div>
 
     <div class="table-container" id="inventoryTableContainer" style="margin-top:0; max-height: 600px !important; overflow-y: auto !important; overflow-x: auto !important;">
@@ -251,6 +377,12 @@
                                         Restock
                                     </button>
                                 </div>
+                                <form method="post" asp-area="Admin" asp-controller="Inventory" asp-action="ClearStock" style="display:inline; margin:0;">
+                                    <input type="hidden" name="id" value="@i.Id" />
+                                    <button type="submit" class="btn-clear-stock" onclick="return confirm('Set @JavaScriptEncoder.Default.Encode(i.Item ?? "this ingredient") stock quantity to 0?');">
+                                        Clear
+                                    </button>
+                                </form>
                             </td>
                         </tr>
                     }
@@ -294,7 +426,7 @@
 <div class="inv-modal-overlay" id="restockModal" aria-hidden="true">
     <div class="inv-modal-content" role="dialog" aria-labelledby="restockTitle">
         <div class="inv-modal-header">
-            <h2 id="restockTitle">Restock Ingredient</h2>
+            <h2 id="restockTitle">Add Stock Delivery</h2>
             <button type="button" class="inv-close" onclick="closeRestockModal()" aria-label="Close">&times;</button>
         </div>
         <div class="inv-form-grid">
@@ -311,10 +443,13 @@
                 <label>Total Stock:</label>
                 <span id="totalStockDisplay" style="font-weight: bold; color: #28a745;"></span>
             </div>
+            <label>Batch / delivery note<br />
+                <input type="text" id="batchNote" placeholder="e.g., DR #, supplier, or delivery date" />
+            </label>
         </div>
         <div class="inv-modal-actions">
             <button type="button" class="inv-btn-cancel" onclick="closeRestockModal()">Cancel</button>
-            <button type="button" class="inv-btn-save" onclick="confirmRestock()">Restock</button>
+            <button type="button" class="inv-btn-save" onclick="confirmRestock()">Add Stock</button>
         </div>
     </div>
 </div>
@@ -367,21 +502,32 @@
             const btn = document.getElementById('addIngredientBtn');
             if (btn.disabled) return; // Prevent double submit
             
-            const itemName = document.querySelector('input[name="item"]').value.trim();
-            if (!itemName) {
-                alert('Please enter an ingredient name.');
+            const itemInputs = Array.from(document.querySelectorAll('#addIngredientForm input[name="item"]'));
+            const itemNames = itemInputs.map(x => x.value.trim()).filter(Boolean);
+            if (itemNames.length === 0) {
+                alert('Please enter at least one ingredient name.');
                 return;
             }
-            
-            // Check for duplicate
-            fetch(`/Admin/Inventory/CheckDuplicate?itemName=${encodeURIComponent(itemName)}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.exists) {
-                        alert(`An ingredient with the name '${itemName}' already exists.`);
+
+            const repeatedName = itemNames.find((name, index) =>
+                itemNames.findIndex(other => other.toLowerCase() === name.toLowerCase()) !== index);
+            if (repeatedName) {
+                alert(`Ingredient '${repeatedName}' is listed more than once.`);
+                return;
+            }
+
+            const duplicateChecks = itemNames.map(itemName =>
+                fetch(`/Admin/Inventory/CheckDuplicate?itemName=${encodeURIComponent(itemName)}`)
+                    .then(response => response.json())
+                    .then(data => ({ itemName, exists: data.exists })));
+
+            Promise.all(duplicateChecks)
+                .then(results => {
+                    const duplicate = results.find(x => x.exists);
+                    if (duplicate) {
+                        alert(`An ingredient with the name '${duplicate.itemName}' already exists.`);
                         return;
                     }
-                    // No duplicate, show confirm
                     if (confirm(message)) {
                         btn.disabled = true;
                         btn.textContent = 'Adding...';
@@ -395,9 +541,11 @@
         }
 
         document.addEventListener('DOMContentLoaded', function() {
+            updateIngredientRemoveButtons();
+
             document.getElementById('addIngredientBtn').addEventListener('click', function(e) {
                 e.preventDefault();
-                confirmAction('Add this ingredient?');
+                confirmAction('Add these ingredients?');
             });
 
             // Close edit modal after form submission (like menu)
@@ -419,6 +567,75 @@
             document.getElementById('invEditCategory').value = btn.getAttribute('data-category') || '';
             modal.classList.add('active');
             modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function openAddIngredientModal() {
+            const modal = document.getElementById('addIngredientModal');
+            const form = document.getElementById('addIngredientForm');
+            const btn = document.getElementById('addIngredientBtn');
+            if (!modal) return;
+            if (form) {
+                form.reset();
+                resetIngredientRows();
+            }
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Add ingredients';
+            }
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function createIngredientRow() {
+            const template = document.querySelector('#ingredientRows .ingredient-add-row');
+            const row = template.cloneNode(true);
+            row.querySelectorAll('input').forEach(input => {
+                input.value = input.name === 'reorderLevel' ? '10' : input.name === 'stock' ? '0' : '';
+            });
+            row.querySelectorAll('select').forEach(select => {
+                select.selectedIndex = select.name === 'unit' ? 0 : 0;
+            });
+            return row;
+        }
+
+        function addIngredientRow() {
+            const rows = document.getElementById('ingredientRows');
+            if (!rows) return;
+            rows.appendChild(createIngredientRow());
+            updateIngredientRemoveButtons();
+        }
+
+        function removeIngredientRow(button) {
+            const rows = document.getElementById('ingredientRows');
+            const row = button.closest('.ingredient-add-row');
+            if (!rows || !row || rows.querySelectorAll('.ingredient-add-row').length <= 1) return;
+            row.remove();
+            updateIngredientRemoveButtons();
+        }
+
+        function resetIngredientRows() {
+            const rows = document.getElementById('ingredientRows');
+            if (!rows) return;
+            const first = rows.querySelector('.ingredient-add-row');
+            rows.innerHTML = '';
+            rows.appendChild(first);
+            updateIngredientRemoveButtons();
+        }
+
+        function updateIngredientRemoveButtons() {
+            const rowCount = document.querySelectorAll('#ingredientRows .ingredient-add-row').length;
+            document.querySelectorAll('#ingredientRows .ingredient-remove-row').forEach(btn => {
+                btn.disabled = rowCount <= 1;
+                btn.style.opacity = rowCount <= 1 ? '0.45' : '1';
+                btn.style.cursor = rowCount <= 1 ? 'not-allowed' : 'pointer';
+            });
+        }
+
+        function closeAddIngredientModal() {
+            const modal = document.getElementById('addIngredientModal');
+            if (!modal) return;
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
         }
 
         function closeInvEditModal() {
@@ -452,10 +669,15 @@
             if (e.target === this) closeRestockModal();
         });
 
+        document.getElementById('addIngredientModal')?.addEventListener('click', function (e) {
+            if (e.target === this) closeAddIngredientModal();
+        });
+
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') {
                 closeRestockModal();
                 closeInvEditModal();
+                closeAddIngredientModal();
             }
         });
 
@@ -479,6 +701,7 @@
             document.getElementById('currentStockDisplay').textContent = `${currentStock} ${unit}`;
             document.getElementById('unitDisplay').textContent = unit;
             document.getElementById('restockAmount').value = reorderLevel;
+            document.getElementById('batchNote').value = '';
             updateTotalStock();
             
             // Store the item ID for later use
@@ -506,6 +729,7 @@
             const modal = document.getElementById('restockModal');
             const itemId = modal.getAttribute('data-item-id');
             const restockAmount = parseInt(document.getElementById('restockAmount').value || 0);
+            const batchNote = document.getElementById('batchNote').value || '';
             
             if (restockAmount <= 0) {
                 alert('Please enter a valid restock amount.');
@@ -527,9 +751,15 @@
             amountInput.type = 'hidden';
             amountInput.name = 'amount';
             amountInput.value = restockAmount;
+
+            const batchInput = document.createElement('input');
+            batchInput.type = 'hidden';
+            batchInput.name = 'batchNote';
+            batchInput.value = batchNote;
             
             form.appendChild(idInput);
             form.appendChild(amountInput);
+            form.appendChild(batchInput);
             document.body.appendChild(form);
             
             closeRestockModal();

@@ -1,15 +1,51 @@
 @model IEnumerable<SelfOrderingSystemKiosk.Models.MenuItem>
 @inject SelfOrderingSystemKiosk.Services.KpItemsImageResolver KpImages
+@using System.Text.Json
 @{
     Layout = "~/Areas/Customer/Views/Shared/_Layout.cshtml";
     ViewData["Title"] = "Unlimited Menu";
+    var allMenuItems = (Model ?? Enumerable.Empty<SelfOrderingSystemKiosk.Models.MenuItem>()).ToList();
     var rememberedPersonCount = ViewBag.PersonCount is int count && count > 0
         ? count.ToString(System.Globalization.CultureInfo.InvariantCulture)
         : "null";
+    var variantGroups = allMenuItems
+        .Where(i => !string.IsNullOrWhiteSpace(i.Item)
+            && (i.Item.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
+                || i.Item.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)
+                || i.Item.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)))
+        .GroupBy(i => i.Item.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
+            ? "Potato Thins"
+            : "Rice")
+        .Where(g => g.Count() > 1)
+        .ToDictionary(g => g.Key, g => g.OrderByDescending(i => i.MenuOrder).ToList(), StringComparer.OrdinalIgnoreCase);
+    var variantMemberNames = variantGroups.Values.SelectMany(g => g).Select(i => i.Item).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var renderedVariantBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var wingFlavors = allMenuItems
+        .Where(i => string.Equals(i.Category, "Wings", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(i.Item))
+        .OrderByDescending(i => i.MenuOrder)
+        .ThenBy(i => i.Item)
+        .ToList();
+    var renderedWingFlavorChooser = false;
+
+    static string VariantBaseName(string itemName) =>
+        itemName.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
+            ? "Potato Thins"
+            : itemName.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase) || itemName.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)
+            ? "Rice"
+            : itemName;
+
+    static string VariantLabel(string itemName) =>
+        itemName.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
+            ? itemName["Potato Thins ".Length..].Trim()
+            : itemName.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)
+            ? "Plain"
+            : itemName.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)
+            ? "Garlic"
+            : itemName;
 }
 
 <link rel="stylesheet" href="~/css/Kiosk.css" asp-append-version="true" />
-<link rel="stylesheet" href="~/css/Menu.css" />
+<link rel="stylesheet" href="~/css/Menu.css" asp-append-version="true" />
 @await Html.PartialAsync("_Loader")
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 
@@ -17,7 +53,7 @@
     <div class="kiosk-page-actions">
         <form asp-action="ChooseExperience" method="get" class="kiosk-back-form">
             <button type="submit" class="back-btn" title="Back to Experience Selection">
-                <i class="bi bi-arrow-left-circle-fill" style="font-size: 2rem;"></i>
+                <i class="bi bi-arrow-left-circle-fill"></i>
             </button>
         </form>
     </div>
@@ -70,19 +106,90 @@
 
             <!-- Scrollable Menu Items -->
             <div class="menu-scroll">
-                @foreach (var item in Model)
+                @foreach (var item in allMenuItems)
                 {
                     var menuLabel = item.Item ?? "";
+                    var baseName = VariantBaseName(menuLabel);
+                    if (variantMemberNames.Contains(menuLabel))
+                    {
+                        if (!renderedVariantBases.Add(baseName))
+                        {
+                            continue;
+                        }
+
+                        var groupItems = variantGroups[baseName];
+                        var selected = groupItems.First();
+                        var groupImage = KpImages.ResolveDisplayPath(selected.Item, selected.Image);
+                        var variantsJson = JsonSerializer.Serialize(groupItems.Select(v => new
+                        {
+                            name = v.Item,
+                            label = VariantLabel(v.Item),
+                            image = Url.Content(KpImages.ResolveDisplayPath(v.Item, v.Image))
+                        }));
+                        <div class="menu-row" data-category="@selected.Category">
+                            <img src="@Url.Content(groupImage)" alt="@baseName" />
+                            <div class="menu-details">
+                                <h4>@baseName.ToUpper()</h4>
+                                <select class="menu-option-select variant-select" aria-label="Choose option">
+                                    @foreach (var variant in groupItems)
+                                    {
+                                        var variantImage = KpImages.ResolveDisplayPath(variant.Item, variant.Image);
+                                        <option value="@variant.Item" data-image="@Url.Content(variantImage)">@VariantLabel(variant.Item)</option>
+                                    }
+                                </select>
+                                @if (string.Equals(baseName, "Rice", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <select class="menu-option-select serving-select" aria-label="Choose rice serving">
+                                        <option value="Full cup">Full cup</option>
+                                        <option value="Half cup">Half cup</option>
+                                    </select>
+                                }
+                                <p style="color:#2e7d32;font-weight:700;margin:4px 0 0;">Included</p>
+                            </div>
+                            <button class="add-to-cart"
+                                    data-name="@selected.Item"
+                                    data-price="477"
+                                    data-image="@Url.Content(groupImage)"
+                                    data-is-wing-flavor="false"
+                                    data-serving-size="@(string.Equals(baseName, "Rice", StringComparison.OrdinalIgnoreCase) ? "Full cup" : "")"
+                                    data-variants='@variantsJson'>
+                                Add to cart
+                            </button>
+                        </div>
+                        continue;
+                    }
+
                     var displayImage = KpImages.ResolveDisplayPath(item.Item, item.Image);
                     var isWingFlavor = string.Equals(item.Category, "Wings", StringComparison.Ordinal);
+                    if (isWingFlavor)
+                    {
+                        if (renderedWingFlavorChooser)
+                        {
+                            continue;
+                        }
+
+                        renderedWingFlavorChooser = true;
+                        var wingImage = Url.Content(displayImage);
+                        <div class="menu-row" data-category="@item.Category">
+                            <img src="@wingImage" alt="Chicken wings flavors" />
+                            <div class="menu-details">
+                                <h4>CHICKEN WINGS FLAVORS</h4>
+                                <small class="wing-set-hint">Choose flavors on the next screen</small>
+                                <p style="color:#2e7d32;font-weight:700;margin:4px 0 0;">Included</p>
+                            </div>
+                            <button type="button"
+                                    class="unli-wing-flavor-launch"
+                                    data-image="@wingImage">
+                                Choose flavors
+                            </button>
+                        </div>
+                        continue;
+                    }
                     <div class="menu-row" data-category="@item.Category">
                         <img src="@Url.Content(displayImage)" alt="@menuLabel" />
                         <div class="menu-details">
                             <h4>@menuLabel.ToUpper()</h4>
-                            @if (!isWingFlavor)
-                            {
-                                <p style="color:#2e7d32;font-weight:700;margin:4px 0 0;">Included</p>
-                            }
+                            <p style="color:#2e7d32;font-weight:700;margin:4px 0 0;">Included</p>
                         </div>
                         <button class="add-to-cart"
                                 data-name="@item.Item"
@@ -102,6 +209,7 @@
                 <h3>Order Summary</h3>
                 <p class="item-count">0 Items</p>
                 <p class="person-count">0 Person(s)</p>
+                <button type="button" class="add-person-btn" id="addPersonBtn"><i class="bi bi-person-plus"></i> Add person</button>
                 <p class="serving-note"><i class="bi bi-stopwatch"></i> Serving time: 8 - 12 minutes</p>
             </div>
 
@@ -130,6 +238,46 @@
                 <button class="confirm-btn">CONFIRM ORDER</button>
             </div>
         </div>
+    </div>
+</div>
+
+<div class="wing-flavor-screen" id="unliWingFlavorScreen" aria-hidden="true">
+    <div class="wing-flavor-shell">
+        <header class="wing-flavor-header">
+            <button type="button" class="wing-flavor-back back-btn" id="unliWingFlavorBack" title="Back to menu">
+                <i class="bi bi-arrow-left"></i>
+            </button>
+            <div>
+                <p>Unlimited wings</p>
+                <h2>Choose flavors</h2>
+            </div>
+        </header>
+
+        <section class="wing-flavor-product">
+            <img id="unliWingFlavorImage" src="" alt="Chicken wings flavors" />
+            <div>
+                <strong>Included</strong>
+                <span id="unliWingFlavorInstruction">Choose flavors for this order.</span>
+            </div>
+        </section>
+
+        <section class="wing-flavor-grid" id="unliWingFlavorGrid">
+            @foreach (var flavor in wingFlavors)
+            {
+                var flavorImage = Url.Content(KpImages.ResolveDisplayPath(flavor.Item, flavor.Image));
+                <button type="button" class="wing-flavor-card" data-flavor="@flavor.Item" data-image="@flavorImage">@flavor.Item</button>
+            }
+        </section>
+
+        <footer class="wing-flavor-footer">
+            <div>
+                <strong id="unliWingFlavorCount">0 selected</strong>
+                <span id="unliWingFlavorLimitText">Choose flavors for this order</span>
+            </div>
+            <button type="button" class="wing-flavor-add" id="unliWingFlavorAdd" disabled>
+                <i class="bi bi-cart-plus"></i> Add flavors
+            </button>
+        </footer>
     </div>
 </div>
 
@@ -207,7 +355,7 @@
 
         // Prepare order items
         let orderItems = cart.map(c => ({
-            ItemName: c.name,
+            ItemName: c.servingSize ? `${c.name} (${c.servingSize})` : c.name,
             Quantity: c.quantity,
             Price: 0 // Unlimited items are included, no individual price
         }));
