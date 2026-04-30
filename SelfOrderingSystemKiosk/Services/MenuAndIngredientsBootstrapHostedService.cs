@@ -201,42 +201,189 @@ namespace SelfOrderingSystemKiosk.Services
         private async Task SeedIngredientsIfNeededAsync(IMongoDatabase db, string ingCollection, CancellationToken ct)
         {
             var coll = db.GetCollection<IngredientItem>(ingCollection);
-            if (await coll.CountDocumentsAsync(FilterDefinition<IngredientItem>.Empty, cancellationToken: ct) > 0)
+            var seed = BuildIngredientSeed();
+            if (seed.Count == 0)
                 return;
 
-            var seed = BuildIngredientSeed();
-            if (seed.Count > 0)
-                await coll.InsertManyAsync(seed, cancellationToken: ct);
+            var seedNames = seed.Select(x => x.Item).ToList();
+            var existingItems = await coll.Find(Builders<IngredientItem>.Filter.In(x => x.Item, seedNames))
+                .ToListAsync(ct);
+            var existingByName = existingItems.ToDictionary(x => x.Item, StringComparer.OrdinalIgnoreCase);
+            var missing = new List<IngredientItem>();
+            var legacyDefaults = LegacyIngredientSeedNames.Except(seedNames, StringComparer.OrdinalIgnoreCase).ToList();
 
-            _logger.LogInformation("Seeded {Count} ingredients into {Coll}.", seed.Count, ingCollection);
+            foreach (var item in seed)
+            {
+                if (!existingByName.TryGetValue(item.Item, out var existing))
+                {
+                    missing.Add(item);
+                    continue;
+                }
+
+                if (existing.IngredientCategory == item.IngredientCategory && existing.Unit == item.Unit)
+                    continue;
+
+                await coll.UpdateOneAsync(
+                    x => x.Id == existing.Id,
+                    Builders<IngredientItem>.Update
+                        .Set(x => x.IngredientCategory, item.IngredientCategory)
+                        .Set(x => x.Unit, item.Unit),
+                    cancellationToken: ct);
+            }
+
+            if (missing.Count > 0)
+                await coll.InsertManyAsync(missing, cancellationToken: ct);
+
+            if (legacyDefaults.Count > 0)
+            {
+                await coll.DeleteManyAsync(
+                    Builders<IngredientItem>.Filter.In(x => x.Item, legacyDefaults),
+                    ct);
+            }
+
+            _logger.LogInformation("Ingredient catalog synced with {Count} spreadsheet items in {Coll}; inserted {Missing}.", seed.Count, ingCollection, missing.Count);
         }
+
+        private static readonly string[] LegacyIngredientSeedNames =
+        {
+            "Garlic",
+            "Onion",
+            "Tomatoes",
+            "Fresh tomatoes",
+            "Mushrooms",
+            "Basil",
+            "Chili / chili peppers",
+            "Parmesan cheese",
+            "Peanuts",
+            "Sugar",
+            "Salted egg yolk",
+            "Cooking oil",
+            "Olive oil",
+            "Butter",
+            "Lemon juice",
+            "Lime juice",
+            "Milk / cream",
+            "Mustard",
+            "Soy sauce",
+            "Oyster sauce",
+            "Fish sauce",
+            "Tomato sauce",
+        };
 
         private static List<IngredientItem> BuildIngredientSeed() =>
             new()
             {
-                // Produce & herbs
-                Ing("Garlic", "Raw mats", "pcs"),
-                Ing("Onion", "Raw mats", "pcs"),
-                Ing("Tomatoes", "Raw mats", "g"),
-                Ing("Fresh tomatoes", "Raw mats", "g"),
-                Ing("Mushrooms", "Raw mats", "g"),
-                Ing("Basil", "Raw mats", "g"),
-                Ing("Chili / chili peppers", "Raw mats", "g"),
-                Ing("Parmesan cheese", "Raw mats", "g"),
-                Ing("Peanuts", "Raw mats", "g"),
-                Ing("Sugar", "Raw mats", "g"),
-                Ing("Salted egg yolk", "Raw mats", "pcs"),
-                Ing("Cooking oil", "Misc", "ml"),
-                Ing("Olive oil", "Misc", "ml"),
-                Ing("Butter", "Raw mats", "g"),
-                Ing("Lemon juice", "Sauce", "ml"),
-                Ing("Lime juice", "Sauce", "ml"),
-                Ing("Milk / cream", "Raw mats", "ml"),
-                Ing("Mustard", "Sauce", "ml"),
-                Ing("Soy sauce", "Sauce", "ml"),
-                Ing("Oyster sauce", "Sauce", "ml"),
-                Ing("Fish sauce", "Sauce", "ml"),
-                Ing("Tomato sauce", "Sauce", "ml"),
+                Ing("Mayora Sriracha Original", "Sauces", "ml"),
+                Ing("Chief Parm Base", "Sauces", "ml"),
+                Ing("Mayo Garlic", "Sauces", "ml"),
+                Ing("Teriyaki Sen", "Sauces", "ml"),
+                Ing("Konsi Honeysoy", "Sauces", "ml"),
+                Ing("Colonel Mustard", "Sauces", "ml"),
+                Ing("Vice Thai", "Sauces", "ml"),
+                Ing("Bisita ni Kap", "Sauces", "ml"),
+                Ing("Honey", "Sauces", "ml"),
+                Ing("Cheese Sauce", "Sauces", "ml"),
+                Ing("Kung Pao", "Sauces", "ml"),
+                Ing("Salsicca", "Sauces", "ml"),
+                Ing("Sardine", "Sauces", "ml"),
+                Ing("Manzo", "Sauces", "ml"),
+                Ing("Pomodoro", "Sauces", "ml"),
+                Ing("Gravy", "Sauces", "ml"),
+                Ing("Hot Sauce", "Sauces", "ml"),
+                Ing("Garlic Rice Sauce", "Sauces", "ml"),
+
+                Ing("Chicken Wings", "Raw Materials", "pcs"),
+                Ing("Whole Chicken", "Raw Materials", "pcs"),
+                Ing("Beef", "Raw Materials", "g"),
+                Ing("Shrimp", "Raw Materials", "g"),
+                Ing("Potato", "Raw Materials", "g"),
+                Ing("Tomato", "Raw Materials", "g"),
+                Ing("Onion", "Raw Materials", "g"),
+                Ing("Fresh Garlic", "Raw Materials", "g"),
+                Ing("Cabbage", "Raw Materials", "g"),
+                Ing("Cucumber", "Raw Materials", "g"),
+                Ing("Salted Egg", "Raw Materials", "pcs"),
+                Ing("Parmesan", "Raw Materials", "g"),
+                Ing("Cheddar Cheese", "Raw Materials", "g"),
+                Ing("Garlic Bits", "Raw Materials", "g"),
+                Ing("Sesame Seed", "Raw Materials", "g"),
+                Ing("Chili Flakes", "Raw Materials", "g"),
+                Ing("Cheese Powder", "Raw Materials", "g"),
+                Ing("Sour Cream", "Raw Materials", "g"),
+                Ing("Barbeque Powder", "Raw Materials", "g"),
+                Ing("Rice", "Raw Materials", "g"),
+                Ing("Pasta", "Raw Materials", "g"),
+                Ing("Nachos", "Raw Materials", "g"),
+                Ing("Mayo", "Raw Materials", "ml"),
+                Ing("Catsup", "Raw Materials", "ml"),
+                Ing("White Wine", "Raw Materials", "ml"),
+                Ing("Olive Oil", "Raw Materials", "ml"),
+                Ing("Palm Oil", "Raw Materials", "ml"),
+                Ing("Iodized Salt", "Raw Materials", "g"),
+                Ing("Salt", "Raw Materials", "g"),
+                Ing("Pepper", "Raw Materials", "g"),
+                Ing("Condensed Milk", "Raw Materials", "ml"),
+                Ing("Sugar", "Raw Materials", "g"),
+
+                Ing("Bottled Water", "Drinks", "pcs"),
+                Ing("Mineral Water", "Drinks", "pcs"),
+                Ing("Ice Tea", "Drinks", "ml"),
+                Ing("Ice Tea Sugar", "Drinks", "g"),
+                Ing("Coke in a Can", "Drinks", "pcs"),
+                Ing("Coke Zero", "Drinks", "pcs"),
+                Ing("Tea", "Drinks", "pcs"),
+                Ing("Coffee", "Drinks", "g"),
+
+                Ing("Milky Melon", "Ice Cream", "pcs"),
+                Ing("Choco Stick", "Ice Cream", "pcs"),
+                Ing("Sundae Choco", "Ice Cream", "pcs"),
+                Ing("Sundae Strawberry", "Ice Cream", "pcs"),
+                Ing("Mochi Choco", "Ice Cream", "pcs"),
+                Ing("Mochi Vanilla", "Ice Cream", "pcs"),
+                Ing("Chocolate Crispy", "Ice Cream", "pcs"),
+                Ing("Coffee Crispy", "Ice Cream", "pcs"),
+                Ing("Taro Crispy", "Ice Cream", "pcs"),
+                Ing("Strawberry Crispy", "Ice Cream", "pcs"),
+                Ing("Semangka", "Ice Cream", "pcs"),
+                Ing("Chocomelt", "Ice Cream", "pcs"),
+                Ing("Strawberry Cone", "Ice Cream", "pcs"),
+
+                Ing("Box Small", "Miscellaneous", "pcs"),
+                Ing("Box Big", "Miscellaneous", "pcs"),
+                Ing("Paper Bag #8", "Miscellaneous", "pcs"),
+                Ing("Paper Bag #20", "Miscellaneous", "pcs"),
+                Ing("Plastic Bag Small", "Miscellaneous", "pcs"),
+                Ing("Plastic Bag Large", "Miscellaneous", "pcs"),
+                Ing("Cling Wrap", "Miscellaneous", "pcs"),
+                Ing("Hinge Cup Small", "Miscellaneous", "pcs"),
+                Ing("Hinge Cup Big", "Miscellaneous", "pcs"),
+                Ing("Bilao Small", "Miscellaneous", "pcs"),
+                Ing("Bilao Big", "Miscellaneous", "pcs"),
+                Ing("Party Tray", "Miscellaneous", "pcs"),
+                Ing("Rice Wrap", "Miscellaneous", "pcs"),
+                Ing("Grease Proof", "Miscellaneous", "pcs"),
+                Ing("Plastic 8x11", "Miscellaneous", "pcs"),
+                Ing("Disposable Spoon", "Miscellaneous", "pcs"),
+                Ing("Disposable Fork", "Miscellaneous", "pcs"),
+                Ing("Toothpick", "Miscellaneous", "pcs"),
+                Ing("Zonrox", "Miscellaneous", "ml"),
+                Ing("Degreaser", "Miscellaneous", "ml"),
+                Ing("Glass Cleaner", "Miscellaneous", "ml"),
+                Ing("Dish Washing", "Miscellaneous", "ml"),
+                Ing("Hand Soap", "Miscellaneous", "ml"),
+                Ing("Detergent Powder", "Miscellaneous", "g"),
+                Ing("Alcohol", "Miscellaneous", "ml"),
+                Ing("Baygon", "Miscellaneous", "pcs"),
+                Ing("Garbage Bag Black", "Miscellaneous", "pcs"),
+                Ing("Garbage Bag White", "Miscellaneous", "pcs"),
+                Ing("Tissue Napkin", "Miscellaneous", "pcs"),
+                Ing("Tissue Roll", "Miscellaneous", "pcs"),
+                Ing("Sponge", "Miscellaneous", "pcs"),
+                Ing("Scotch Tape", "Miscellaneous", "pcs"),
+                Ing("Staple Wire", "Miscellaneous", "pcs"),
+                Ing("Gloves", "Miscellaneous", "pcs"),
+
+                Ing("Vinegar", "Merchandise", "ml"),
             };
 
         private static IngredientItem Ing(string name, string category, string unit) => new()

@@ -75,11 +75,6 @@ p {
     transition: transform 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
-    .back-btn i {
-        font-size: 1.55rem;
-        line-height: 1;
-    }
-
     .back-btn:hover {
         color: #e67e22;
         transform: translateY(-1px);
@@ -158,10 +153,6 @@ p {
         height: 42px;
         font-size: 1.15rem;
     }
-
-        .back-btn i {
-            font-size: 1.35rem;
-        }
 
     h1 {
         font-size: 1.8rem;

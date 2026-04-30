@@ -4,11 +4,12 @@ namespace SelfOrderingSystemKiosk.Services
     {
         public static readonly string[] All =
         {
-            "Raw mats",
-            "Sauce",
-            "Misc",
+            "Sauces",
+            "Raw Materials",
             "Drinks",
-            "Ice cream"
+            "Ice Cream",
+            "Miscellaneous",
+            "Merchandise"
         };
 
         public bool IsValid(string? value) =>
