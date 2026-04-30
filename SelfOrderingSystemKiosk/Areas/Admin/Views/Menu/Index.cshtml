@@ -13,7 +13,7 @@
 
 <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">
         <div>
-            <p style="margin-top: 0;">Sellable dishes shown on the kiosk (stored in <strong>MenuItems</strong>). Ingredients are under <a asp-area="Admin" asp-controller="Inventory" asp-action="Index">Ingredients</a>.</p>
+            <p style="margin-top: 0;">Sellable dishes shown on the kiosk (stored in <strong>MenuItems</strong>). Kitchen/supplies are under <a asp-area="Admin" asp-controller="Inventory" asp-action="Index">Kitchen/Supplies</a>.</p>
             <p style="color: #666; font-size: 0.9em; margin-top: 5px;">
                 <i class="bi bi-info-circle"></i> Kiosk tab = Wings / Appetizer / Add-Ons. <strong>Recipe</strong> links each dish to ingredients: when the kitchen marks an order completed, those ingredient amounts are deducted (qty per <em>one</em> sold × line quantity in the order).
             </p>
@@ -56,6 +56,12 @@
                 }
             }
         </select>
+        <label for="menuSearchInput" style="font-weight: 600; margin: 0;">Search</label>
+        <input type="search"
+               id="menuSearchInput"
+               placeholder="Search menu items..."
+               autocomplete="off"
+               style="padding: 8px 12px; min-width: 240px; border: 2px solid #ddd; border-radius: 5px;" />
     </form>
 
     <div class="table-container">
@@ -73,12 +79,12 @@
                         <th>Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="menuTableBody">
                     @foreach (var i in Model)
                     {
                         var menuLabel = i.Item ?? "";
                         var thumbSrc = KpImages.ResolveDisplayPath(i.Item, i.Image);
-                        <tr>
+                        <tr class="menu-table-row">
                             <td>
                                 <div style="display: flex; align-items: center; gap: 10px;">
                                     @if (!string.IsNullOrEmpty(thumbSrc))
@@ -125,6 +131,9 @@
                             </td>
                         </tr>
                     }
+                    <tr id="menuNoResultsRow" style="display:none;">
+                        <td colspan="7" style="text-align:center; padding:20px; color:#999;">No menu items match your search.</td>
+                    </tr>
                 </tbody>
             </table>
         }
@@ -135,6 +144,7 @@
     </div>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+@Html.AntiForgeryToken()
 
 <script>
     const RECIPE_JSON_URL = '@Url.Action("RecipeJson", "Menu", new { area = "Admin" })';
@@ -354,9 +364,35 @@
         }
     }
 
+    function setupMenuSearch() {
+        const input = document.getElementById('menuSearchInput');
+        const rows = Array.from(document.querySelectorAll('#menuTableBody .menu-table-row'));
+        const noResults = document.getElementById('menuNoResultsRow');
+        if (!input || rows.length === 0) return;
+
+        function applySearch() {
+            const query = input.value.trim().toLowerCase();
+            let visibleCount = 0;
+
+            rows.forEach(row => {
+                const matches = query === '' || row.textContent.toLowerCase().includes(query);
+                row.style.display = matches ? '' : 'none';
+                if (matches) visibleCount++;
+            });
+
+            if (noResults) {
+                noResults.style.display = visibleCount === 0 ? '' : 'none';
+            }
+        }
+
+        input.addEventListener('input', applySearch);
+        applySearch();
+    }
+
     function toggleAvailability(itemId, isAvailable) {
         const availability = isAvailable ? 'Available' : 'Unavailable';
         const label = document.getElementById('label-' + itemId);
+        const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
         
         // Optimistic label until server responds (reload on success)
         label.textContent = availability;
@@ -367,6 +403,7 @@
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
+                'RequestVerificationToken': token
             },
             body: 'id=' + encodeURIComponent(itemId) + '&availability=' + encodeURIComponent(availability)
         })
@@ -612,6 +649,7 @@
     function initializeModals() {
         setupAddModal();
         setupEditModal();
+        setupMenuSearch();
         
         // Setup form submission handlers
         const addForm = document.getElementById('addItemForm');
@@ -683,7 +721,7 @@
                 </div>
                 <div class="form-group">
                     <label>Price (₱) *</label>
-                    <input type="number" step="0.01" name="price" placeholder="0.00" required min="0" />
+                    <input type="number" step="1" name="price" placeholder="0" required min="0" />
                 </div>
             </div>
 
@@ -713,6 +751,7 @@
         <form method="post" asp-action="Edit" id="editItemForm" class="modal-form" enctype="multipart/form-data">
             <input type="hidden" name="Id" id="editItemId" />
             <input type="hidden" name="Image" id="editItemImage" value="" />
+            <input type="hidden" name="categoryFilter" value="@catFilter" />
             
             <div class="form-group">
                 <label>Menu Item Name *</label>
@@ -753,7 +792,7 @@
                 </div>
                 <div class="form-group">
                     <label>Price (₱) *</label>
-                    <input type="number" step="0.01" name="Price" id="editPrice" placeholder="0.00" required min="0" />
+                    <input type="number" step="1" name="Price" id="editPrice" placeholder="0" required min="0" />
                 </div>
             </div>
 

@@ -48,6 +48,7 @@
 <link rel="stylesheet" href="~/css/Menu.css" />
 @await Html.PartialAsync("_Loader")
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+@Html.AntiForgeryToken()
 
 <div class="container">
     <div class="kiosk-page-actions">
@@ -77,12 +78,12 @@
                     Ordering session: @ViewBag.OrderingSessionHours hours after the first confirmed order.
                 </div>
                 <div style="background: rgba(255,255,255,0.95); border: 1px solid rgba(255,107,53,0.4); border-radius: 10px; padding: 12px 14px; margin: 14px auto; max-width: 520px; text-align: left; font-size: 0.92rem;">
-                    <strong style="color:#ff6b35; display:block; margin-bottom:6px;">Unli inclusions</strong>
-                    <span>Wings (regular and premium flavors), rice (garlic and plain), red iced tea, gravy, nachos, potato thins, regular pasta, coffee, and tea.</span>
+                    <strong style="color:#ff6b35; display:block; margin-bottom:6px;">Ala Carte add-ons</strong>
+                    <span>Items with prices are charged on top of the unlimited rate. Items marked Included stay part of the unlimited order.</span>
                 </div>
                 <div id="session-timer" style="background: #e8f5e9; border: 2px solid #4caf50; border-radius: 10px; padding: 10px 15px; margin: 15px auto; display: none; max-width: 300px;">
                     <i class="bi bi-clock" style="color: #2e7d32; margin-right: 5px;"></i>
-                    <strong style="color: #2e7d32;">Session Time: <span id="timer-display">--:--</span></strong>
+                    <strong style="color: #2e7d32;">Session Time: <span id="timer-display">--:--:--</span></strong>
                 </div>
                 <div id="session-timer-expired" style="background: #ffebee; border: 2px solid #f44336; border-radius: 10px; padding: 10px 15px; margin: 15px auto; display: none; max-width: 300px;">
                     <i class="bi bi-exclamation-triangle" style="color: #c62828; margin-right: 5px;"></i>
@@ -128,14 +129,14 @@
                                     @foreach (var variant in groupItems)
                                     {
                                         var variantImage = KpImages.ResolveDisplayPath(variant.Item, variant.Image);
-                                        <option value="@variant.Item" data-image="@Url.Content(variantImage)">@VariantLabel(variant.Item)</option>
+                                        <option value="@variant.Item" data-price="@variant.Price" data-image="@Url.Content(variantImage)">@VariantLabel(variant.Item) @(variant.Price <= 0 ? "- Included" : $"- ₱{variant.Price:0.00}")</option>
                                     }
                                 </select>
-                                <p style="color:#2e7d32;font-weight:700;margin:4px 0 0;">Included</p>
+                                <p class="menu-price" style="color:@(selected.Price <= 0 ? "#2e7d32" : "#ff6b35");font-weight:700;margin:4px 0 0;">@(selected.Price <= 0 ? "Included" : $"₱{selected.Price:0.00}")</p>
                             </div>
                             <button class="add-to-cart"
                                     data-name="@selected.Item"
-                                    data-price="477"
+                                    data-price="@selected.Price"
                                     data-image="@Url.Content(groupImage)"
                                     data-is-wing-flavor="false">
                                 Add to cart
@@ -154,7 +155,7 @@
                             {
                                 <p class="wing-order-note">Max 4 pieces per flavor</p>
                             }
-                            <p style="color:#2e7d32;font-weight:700;margin:4px 0 0;">Included</p>
+                            <p style="color:@(item.Price <= 0 ? "#2e7d32" : "#ff6b35");font-weight:700;margin:4px 0 0;">@(item.Price <= 0 ? "Included" : $"₱{item.Price:0.00}")</p>
                         </div>
                         @if (isWingFlavor)
                         {
@@ -166,7 +167,7 @@
                         }
                         <button class="add-to-cart"
                                 data-name="@item.Item"
-                                data-price="477"
+                                data-price="@item.Price"
                                 data-image="@Url.Content(displayImage)"
                                 data-is-wing-flavor="@(isWingFlavor ? "true" : "false")">
                             Add to cart
@@ -197,6 +198,10 @@
                     <div class="breakdown-row">
                         <span>Per Person (₱477 × <span id="person-count-display">0</span>):</span>
                         <span id="per-person-subtotal">₱0.00</span>
+                    </div>
+                    <div class="breakdown-row">
+                        <span>Ala Carte add-ons:</span>
+                        <span id="ala-carte-subtotal">₱0.00</span>
                     </div>
                     <div class="breakdown-row total-row">
                         <span><strong>TOTAL:</strong></span>
@@ -285,14 +290,16 @@
         let orderItems = cart.map(c => ({
             ItemName: c.name,
             Quantity: c.quantity,
-            Price: 0 // Unlimited items are included, no individual price
+            Price: c.price || 0
         }));
 
         // Send personCount as query parameter for unlimited orders
+        const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
         fetch(`/Customer/Kiosk/ConfirmOrder?orderType=Unlimited&personCount=${personCount}`, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'RequestVerificationToken': token
         },
         body: JSON.stringify(orderItems)
     })
@@ -308,7 +315,7 @@
         .then(data => {
             if(data && data.success){
                 // Redirect to order tracking page
-                window.location.href = '/Customer/Kiosk/Confirmation?orderNumber=' + data.orderNumber;
+                window.location.href = '/Customer/Kiosk/Confirmation?orderNumber=' + encodeURIComponent(data.orderNumber) + '&accessToken=' + encodeURIComponent(data.accessToken || '');
             } else {
                 alert(data?.message || 'Error creating order. Please try again.');
             }
@@ -322,6 +329,14 @@
     // Session timer
     (function() {
         let timerInterval = null;
+
+        function formatSessionTime(totalSeconds) {
+            const safeSeconds = Math.max(0, Number(totalSeconds) || 0);
+            const hours = Math.floor(safeSeconds / 3600);
+            const minutes = Math.floor((safeSeconds % 3600) / 60);
+            const seconds = safeSeconds % 60;
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
 
         function updateTimer() {
             fetch('/Customer/Kiosk/GetSessionInfo')
@@ -352,9 +367,7 @@
                             timerContainer.style.display = 'block';
                             expiredContainer.style.display = 'none';
                             
-                            const minutes = Math.floor(data.timeRemainingSeconds / 60);
-                            const seconds = data.timeRemainingSeconds % 60;
-                            timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                            timerDisplay.textContent = formatSessionTime(data.timeRemainingSeconds);
                             
                             // Change color when less than 10 minutes remaining
                             if (data.timeRemainingSeconds < 600) {

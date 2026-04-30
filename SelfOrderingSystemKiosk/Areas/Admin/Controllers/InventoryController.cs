@@ -20,7 +20,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         public async Task<IActionResult> Index(string? categoryFilter = null)
         {
-            ViewData["Title"] = "Ingredients inventory";
+            ViewData["Title"] = "Kitchen/Supplies inventory";
             var all = await _ingredients.GetAllAsync();
             ViewBag.CategoryFilter = string.IsNullOrWhiteSpace(categoryFilter) || categoryFilter == "all" ? "all" : categoryFilter;
             var items = all;

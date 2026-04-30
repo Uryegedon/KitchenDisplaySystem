@@ -3,7 +3,7 @@
 @using System.Net
 @using System.Text.Encodings.Web
 @{
-    ViewData["Title"] = "Ingredients inventory";
+    ViewData["Title"] = "Kitchen/Supplies inventory";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     var catFilter = ViewBag.CategoryFilter as string ?? "all";
     var categories = IngredientCategoryRegistry.All;

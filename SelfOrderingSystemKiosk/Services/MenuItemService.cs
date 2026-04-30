@@ -97,7 +97,7 @@ namespace SelfOrderingSystemKiosk.Services
             }
         }
 
-        public async Task UpdateAsync(MenuItem item)
+        public async Task<bool> UpdateAsync(MenuItem item)
         {
             if (string.Equals(item.Category, "Unavailable", StringComparison.Ordinal))
                 item.Availability = "Unavailable";
@@ -106,7 +106,22 @@ namespace SelfOrderingSystemKiosk.Services
             else if (string.IsNullOrEmpty(item.Availability))
                 item.Availability = "Available";
 
-            await _collection.ReplaceOneAsync(x => x.Id == item.Id, item);
+            var update = Builders<MenuItem>.Update
+                .Set(x => x.Item, item.Item)
+                .Set(x => x.Category, item.Category)
+                .Set(x => x.FoodCategory, item.FoodCategory)
+                .Set(x => x.MenuOrder, item.MenuOrder)
+                .Set(x => x.CurrentStock, item.CurrentStock)
+                .Set(x => x.Unit, item.Unit)
+                .Set(x => x.ReorderLevel, item.ReorderLevel)
+                .Set(x => x.Price, item.Price)
+                .Set(x => x.Status, item.Status)
+                .Set(x => x.Availability, item.Availability)
+                .Set(x => x.Image, item.Image)
+                .Set(x => x.Recipe, item.Recipe);
+
+            var result = await _collection.UpdateOneAsync(x => x.Id == item.Id, update);
+            return result.MatchedCount > 0;
         }
 
         public async Task DeleteAsync(string id) =>

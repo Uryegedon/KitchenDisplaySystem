@@ -391,6 +391,7 @@
     </style>
 </head>
 <body>
+    @Html.AntiForgeryToken()
     <div class="header">
         <h1>
             <i class="bi bi-egg-fried" style="font-size: 2.5rem; color: #FF5722;"></i>
@@ -597,6 +598,7 @@
             const form = document.createElement('form');
             form.method = 'POST';
             form.action = '/Kitchen/Kitchen/UpdateStatus';
+            const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
 
             const idInput = document.createElement('input');
             idInput.type = 'hidden';
@@ -607,9 +609,14 @@
             statusInput.type = 'hidden';
             statusInput.name = 'status';
             statusInput.value = newStatus;
+            const tokenInput = document.createElement('input');
+            tokenInput.type = 'hidden';
+            tokenInput.name = '__RequestVerificationToken';
+            tokenInput.value = token;
 
             form.appendChild(idInput);
             form.appendChild(statusInput);
+            form.appendChild(tokenInput);
             document.body.appendChild(form);
             form.submit();
         }

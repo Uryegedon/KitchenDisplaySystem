@@ -8,11 +8,17 @@
     var orderingSessionExpired = ViewBag.OrderingSessionExpired is bool expired && expired;
     var confirmationBillPaid = ViewBag.ConfirmationBillPaid is bool billPaid && billPaid;
     var sessionHours = ViewBag.OrderingSessionHours is int hours ? hours : 2;
-    var sessionRemainingLabel = $"{(int)orderingSessionRemaining.TotalMinutes:D2}:{orderingSessionRemaining.Seconds:D2}";
+    var sessionRemainingLabel = $"{(int)orderingSessionRemaining.TotalHours:D2}:{orderingSessionRemaining.Minutes:D2}:{orderingSessionRemaining.Seconds:D2}";
+    var hasPrivateOrderAccess = ViewBag.HasPrivateOrderAccess is bool privateAccess && privateAccess;
+    var publicAccessToken = ViewBag.PublicAccessToken as string ?? "";
+    const int cancelWindowSeconds = 5;
+    var cancelDeadlineUtc = Model.OrderDate.ToUniversalTime().AddSeconds(cancelWindowSeconds);
+    var cancelRemainingSeconds = Math.Max(0, (int)Math.Ceiling((cancelDeadlineUtc - DateTime.UtcNow).TotalSeconds));
 }
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+@Html.AntiForgeryToken()
 
 <style>
     /* Container */
@@ -339,6 +345,29 @@
             border-radius: 14px;
         }
 
+    .order-received-state {
+        background: #6c757d;
+        color: white;
+        border: none;
+        padding: 12px 35px;
+        border-radius: 10px;
+        font-size: 1.1rem;
+        opacity: 0.85;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .pending-spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
         .success-icon {
             width: 58px;
             height: 58px;
@@ -421,7 +450,8 @@
 
         .action-buttons .btn-primary,
         .action-buttons .btn-secondary,
-        .action-buttons .btn-danger {
+        .action-buttons .btn-danger,
+        .action-buttons .order-received-state {
             width: 100%;
             min-height: 44px;
             padding: 10px 12px;
@@ -537,14 +567,21 @@
                                 <span style="color: #666;"> x @item.Quantity</span>
                                 @if (Model.OrderType == "Unlimited")
                                 {
-                                    <br /><small style="color: #999; font-size: 0.85em;">Unlimited Menu Item</small>
+                                    <br /><small style="color: #999; font-size: 0.85em;">@(item.Price > 0 ? "Ala Carte add-on" : "Unlimited Menu Item")</small>
                                 }
                             </div>
                             <div>
                                 @if (Model.OrderType == "Unlimited")
                                 {
-                                    <span style="color: #666; text-decoration: line-through;">₱@((item.Price * item.Quantity).ToString("0.00"))</span>
-                                    <br /><span style="color: #28a745; font-weight: bold;">Included</span>
+                                    @if (item.Price > 0)
+                                    {
+                                        <span>₱@((item.Price * item.Quantity).ToString("0.00"))</span>
+                                        <br /><span style="color: #ff6b35; font-weight: bold;">Ala Carte add-on</span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color: #28a745; font-weight: bold;">Included</span>
+                                    }
                                 }
                                 else
                                 {
@@ -621,14 +658,30 @@
     <div class="action-buttons">
         @{
             var canCancel = Model.Status != null && 
+                           hasPrivateOrderAccess &&
+                           cancelRemainingSeconds > 0 &&
                            !Model.Status.Equals("In Progress", StringComparison.OrdinalIgnoreCase) &&
                            !Model.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase) &&
                            !Model.Status.Equals("Canceled", StringComparison.OrdinalIgnoreCase);
+            var isPendingAfterCancelWindow = Model.Status != null &&
+                           hasPrivateOrderAccess &&
+                           Model.Status.Equals("Pending", StringComparison.OrdinalIgnoreCase);
         }
         @if (canCancel)
         {
-            <button class="btn-danger" id="cancelOrderBtn" onclick="cancelOrder('@Model.OrderNumber')">
-                <i class="bi bi-x-circle"></i> Cancel Order
+            <button class="btn-danger" id="cancelOrderBtn" data-cancel-deadline="@cancelDeadlineUtc.ToString("O")" onclick="cancelOrder('@Model.OrderNumber')">
+                <i class="bi bi-x-circle"></i> Cancel Order <span id="cancelCountdown">@cancelRemainingSeconds</span>s
+            </button>
+            <button class="order-received-state" id="orderReceivedState" disabled style="display:none;">
+                <span class="pending-spinner" aria-hidden="true"></span>
+                <span>Order received</span>
+            </button>
+        }
+        else if (isPendingAfterCancelWindow)
+        {
+            <button class="order-received-state" disabled>
+                <span class="pending-spinner" aria-hidden="true"></span>
+                <span>Order received</span>
             </button>
         }
         else
@@ -643,9 +696,12 @@
                 <i class="bi bi-arrow-repeat"></i> Reorder (Unlimited)
             </a>
         }
-        <a asp-action="Receipt" asp-controller="Kitchen" asp-area="Kitchen" asp-route-orderNumber="@Model.OrderNumber" asp-route-returnUrl="@currentUrl" class="btn-primary" style="text-decoration: none; background: #111827;">
-            <i class="bi bi-receipt"></i> Receipt / Bill
-        </a>
+        @if (hasPrivateOrderAccess)
+        {
+            <a asp-action="Receipt" asp-controller="Kitchen" asp-area="Kitchen" asp-route-orderNumber="@Model.OrderNumber" asp-route-accessToken="@publicAccessToken" asp-route-returnUrl="@currentUrl" class="btn-primary" style="text-decoration: none; background: #111827;">
+                <i class="bi bi-receipt"></i> Receipt / Bill
+            </a>
+        }
         <a asp-action="Index" asp-controller="Kiosk" asp-area="Customer" class="btn-primary" style="text-decoration: none;">
             <i class="bi bi-house"></i> New Order
         </a>
@@ -672,6 +728,7 @@
 <script>
     // Highlight current step based on actual order status
     const orderingSessionExpired = @orderingSessionExpired.ToString().ToLowerInvariant();
+    const publicAccessToken = "@publicAccessToken";
     if (orderingSessionExpired) {
         setTimeout(() => {
             alert('Your ordering session is already over. You cannot add more orders to this session.');
@@ -714,7 +771,7 @@
             indicator.classList.add('show');
         }
 
-        fetch('/Customer/Kiosk/GetOrderStatus?orderNumber=@Model.OrderNumber')
+        fetch('/Customer/Kiosk/GetOrderStatus?orderNumber=@Model.OrderNumber&accessToken=' + encodeURIComponent(publicAccessToken))
             .then(response => {
                 if (!response.ok) {
                     throw new Error('Network response was not ok');
@@ -756,11 +813,40 @@
 
     setTimeout(checkOrderStatus, 2000);
 
+    (function () {
+        const cancelBtn = document.getElementById('cancelOrderBtn');
+        const receivedState = document.getElementById('orderReceivedState');
+        const countdown = document.getElementById('cancelCountdown');
+        if (!cancelBtn || !countdown) return;
+
+        const deadline = new Date(cancelBtn.dataset.cancelDeadline);
+        function updateCancelCountdown() {
+            const remaining = Math.max(0, Math.ceil((deadline.getTime() - Date.now()) / 1000));
+            countdown.textContent = String(remaining);
+            if (remaining <= 0) {
+                cancelBtn.style.display = 'none';
+                if (receivedState) receivedState.style.display = 'inline-flex';
+                return;
+            }
+            setTimeout(updateCancelCountdown, 250);
+        }
+
+        updateCancelCountdown();
+    })();
+ 
     // Ordering session timer
     (function () {
         const timerBox = document.getElementById('confirmation-session-timer');
         const timerLabel = document.getElementById('confirmation-session-label');
         if (!timerBox || !timerLabel) return;
+
+        function formatSessionTime(totalSeconds) {
+            const safeSeconds = Math.max(0, Number(totalSeconds) || 0);
+            const hours = Math.floor(safeSeconds / 3600);
+            const minutes = Math.floor((safeSeconds % 3600) / 60);
+            const seconds = safeSeconds % 60;
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
 
         function updateSessionTimer() {
             fetch('/Customer/Kiosk/GetSessionInfo')
@@ -779,9 +865,7 @@
                     }
 
                     timerBox.classList.remove('expired');
-                    const minutes = Math.floor(data.timeRemainingSeconds / 60);
-                    const seconds = data.timeRemainingSeconds % 60;
-                    timerLabel.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')} remaining`;
+                    timerLabel.textContent = `${formatSessionTime(data.timeRemainingSeconds)} remaining`;
                 })
                 .catch(error => console.log('Session timer check failed:', error));
         }
@@ -797,15 +881,17 @@
         }
 
         const cancelBtn = document.getElementById('cancelOrderBtn');
+        const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
         if (cancelBtn) {
             cancelBtn.disabled = true;
             cancelBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Cancelling...';
         }
 
-        fetch('/Customer/Kiosk/CancelOrder?orderNumber=' + orderNumber, {
+        fetch('/Customer/Kiosk/CancelOrder?orderNumber=' + encodeURIComponent(orderNumber) + '&accessToken=' + encodeURIComponent(publicAccessToken), {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
             }
         })
         .then(response => response.json())

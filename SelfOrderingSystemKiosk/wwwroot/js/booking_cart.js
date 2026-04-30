@@ -125,10 +125,17 @@ function refreshVariantRow(row) {
 
     const option = select.selectedOptions[0];
     const image = option?.getAttribute('data-image') || '';
+    const price = Number(option?.getAttribute('data-price') || '0');
+    const priceEl = row?.querySelector('.menu-price');
     button.setAttribute('data-name', option.value);
+    button.setAttribute('data-price', Number.isFinite(price) ? String(price) : '0');
     if (image) {
         button.setAttribute('data-image', image);
         if (imageEl) imageEl.src = image;
+    }
+    if (priceEl) {
+        priceEl.textContent = price > 0 ? `₱${price.toFixed(2)}` : 'Included';
+        priceEl.style.color = price > 0 ? '#ff6b35' : '#2e7d32';
     }
 }
 
@@ -180,8 +187,12 @@ document.addEventListener("DOMContentLoaded", () => {
             document.querySelector(".person-count").textContent =
                 `${personCount} Person${personCount > 1 ? "s" : ""}`;
 
+            const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
             fetch(`/Customer/Kiosk/SaveOrderingSession?personCount=${personCount}`, {
-                method: 'POST'
+                method: 'POST',
+                headers: {
+                    'RequestVerificationToken': token
+                }
             }).catch(err => console.error('Error saving ordering session:', err));
             
             // Update order summary with a small delay to ensure DOM is ready
@@ -226,14 +237,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const name = this.getAttribute('data-name');
             const image = this.getAttribute('data-image');
+            const price = Number(this.getAttribute('data-price') || '0');
             const isWingFlavor = this.getAttribute('data-is-wing-flavor') !== 'false';
+            const isAlaCarteAddOn = Number.isFinite(price) && price > 0;
             const requestedQuantity = isWingFlavor ? readCardQuantity(this.closest('.menu-row')) : 1;
 
             const newItem = {
                 name,
                 image,
+                price: Number.isFinite(price) ? price : 0,
                 quantity: requestedQuantity,
-                isWingFlavor
+                isWingFlavor,
+                isAlaCarteAddOn
             };
             const existingItem = cart.find(item => cartKey(item) === cartKey(newItem));
             const flavorLimit = getFlavorLimit();
@@ -243,6 +258,10 @@ document.addEventListener("DOMContentLoaded", () => {
             if (existingItem) {
                 if (isWingFlavor && existingItem.quantity + requestedQuantity > quantityLimit) {
                     showNotification(`You can only add up to ${quantityLimit} pieces per wing flavor.`, 'error');
+                    return;
+                }
+                if (isAlaCarteAddOn && existingItem.quantity + requestedQuantity > quantityLimit) {
+                    showNotification(`You can only add up to ${quantityLimit} per Ala Carte add-on.`, 'error');
                     return;
                 }
                 existingItem.quantity += requestedQuantity;
@@ -306,6 +325,7 @@ function showRulesModal() {
 function updateOrderSummary() {
     const personCountDisplay = document.getElementById('person-count-display');
     const perPersonSubtotalEl = document.getElementById('per-person-subtotal');
+    const alaCarteSubtotalEl = document.getElementById('ala-carte-subtotal');
     const taxAmountEl = document.getElementById('tax-amount');
     const orderTotalEl = document.querySelector('.order-total');
     
@@ -320,17 +340,20 @@ function updateOrderSummary() {
     if (currentPersonCount === 0) {
         personCountDisplay.textContent = '0';
         perPersonSubtotalEl.textContent = '₱0.00';
+        if (alaCarteSubtotalEl) alaCarteSubtotalEl.textContent = '₱0.00';
         if (taxAmountEl) taxAmountEl.textContent = '₱0.00';
         orderTotalEl.innerHTML = '<strong>₱0.00</strong>';
         return;
     }
 
     const perPersonSubtotal = currentPersonCount * pricePerHead;
-    const total = perPersonSubtotal;
+    const alaCarteSubtotal = cart.reduce((sum, item) => sum + ((item.price || 0) * item.quantity), 0);
+    const total = perPersonSubtotal + alaCarteSubtotal;
 
     // Update all elements - ensure we're setting the text content correctly
     if (personCountDisplay) personCountDisplay.textContent = String(currentPersonCount);
     if (perPersonSubtotalEl) perPersonSubtotalEl.textContent = `₱${perPersonSubtotal.toFixed(2)}`;
+    if (alaCarteSubtotalEl) alaCarteSubtotalEl.textContent = `₱${alaCarteSubtotal.toFixed(2)}`;
     if (taxAmountEl) taxAmountEl.textContent = '₱0.00';
     if (orderTotalEl) {
         // Only update the amount, not the "TOTAL:" text
@@ -353,6 +376,7 @@ function updateCartDisplay() {
             </div>
         `;
         itemCount.textContent = '0 Items';
+        updateOrderSummary();
         return;
     }
 
@@ -360,11 +384,15 @@ function updateCartDisplay() {
         const itemDiv = document.createElement('div');
         itemDiv.className = 'cart-item';
         const quantityLimit = getQuantityLimit();
-        const isMaxQuantity = item.isWingFlavor !== false && item.quantity >= quantityLimit;
+        const isQuantityLimited = item.isWingFlavor !== false || item.isAlaCarteAddOn === true;
+        const isMaxQuantity = isQuantityLimited && item.quantity >= quantityLimit;
         const plusButtonDisabled = isMaxQuantity ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : '';
         const wingOrderNote = item.isWingFlavor !== false
             ? `<small style="color:#2e7d32;font-size:0.75em;display:block;">Max 4 pieces per flavor</small>`
             : '';
+        const priceLine = item.price > 0
+            ? `<p style="margin:2px 0 0;color:#ff6b35;font-weight:700;">₱${item.price.toFixed(2)}</p>`
+            : `<p style="margin:2px 0 0;color:#2e7d32;font-weight:700;">Included</p>`;
         const maxQuantityIndicator = isMaxQuantity
             ? `<small style="color:#e74c3c;font-size:0.75em;display:block;">Max: ${quantityLimit} pieces</small>`
             : '';
@@ -373,6 +401,7 @@ function updateCartDisplay() {
                 style="width:50px;height:50px;object-fit:cover;border-radius:8px;">
             <div style="flex:1;margin-left:10px;">
                 <h5 style="margin:0;font-size:14px;">${escapeHtml(item.name)}</h5>
+                ${priceLine}
                 ${wingOrderNote}
                 ${maxQuantityIndicator}
             </div>
@@ -390,6 +419,7 @@ function updateCartDisplay() {
 
     const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
     itemCount.textContent = `${totalItems} Item${totalItems !== 1 ? 's' : ''}`;
+    updateOrderSummary();
 
     addCartEventListeners();
 }
@@ -412,8 +442,9 @@ function addCartEventListeners() {
 
         if (target.classList.contains('plus')) {
             const quantityLimit = getQuantityLimit();
-            if (cart[index].isWingFlavor !== false && cart[index].quantity >= quantityLimit) {
-                showNotification(`You can only add up to ${quantityLimit} pieces per wing flavor.`, 'error');
+            if ((cart[index].isWingFlavor !== false || cart[index].isAlaCarteAddOn === true) && cart[index].quantity >= quantityLimit) {
+                const label = cart[index].isAlaCarteAddOn === true ? 'per Ala Carte add-on' : 'pieces per wing flavor';
+                showNotification(`You can only add up to ${quantityLimit} ${label}.`, 'error');
                 return;
             }
             cart[index].quantity += 1;

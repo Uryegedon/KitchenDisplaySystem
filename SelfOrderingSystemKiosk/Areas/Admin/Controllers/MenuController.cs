@@ -13,6 +13,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         private readonly IngredientStockService _ingredients;
         private readonly IWebHostEnvironment _environment;
         private readonly MenuCategoryRegistry _menuCategories;
+        private const long MaxImageUploadBytes = 5 * 1024 * 1024;
 
         public MenuController(
             MenuItemService menuItems,
@@ -62,6 +63,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [RequestSizeLimit(MaxImageUploadBytes)]
         public async Task<IActionResult> Add(string name, string category, decimal price, IFormFile imageFile)
         {
             if (string.IsNullOrEmpty(name))
@@ -105,24 +107,26 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [RequestSizeLimit(MaxImageUploadBytes)]
         public async Task<IActionResult> Edit(
             string Id,
             string Item,
             string Category,
             decimal Price,
             string? Image,
-            IFormFile imageFile)
+            IFormFile imageFile,
+            string? categoryFilter = null)
         {
             try
             {
                 var existing = await _menuItems.GetByIdAsync(Id);
                 if (existing == null)
-                    return RedirectToAction("Index", new { message = "Item not found." });
+                    return RedirectToAction("Index", new { message = "Item not found.", categoryFilter = categoryFilter ?? "all" });
 
                 var categoryOk = _menuCategories.IsValidKey(Category)
                     || string.Equals(Category, existing.Category, StringComparison.Ordinal);
                 if (!categoryOk)
-                    return RedirectToAction("Index", new { message = "Invalid kiosk category selected." });
+                    return RedirectToAction("Index", new { message = "Invalid kiosk category selected.", categoryFilter = categoryFilter ?? "all" });
 
                 if (imageFile != null && imageFile.Length > 0)
                 {
@@ -145,12 +149,15 @@ namespace SelfOrderingSystemKiosk.Controllers
                 // else: keep existing Avail/Stock/Unit/Reorder/MenuOrder/FoodCategory
 
                 existing.Status = existing.CurrentStock <= existing.ReorderLevel ? "Low Stock" : "In Stock";
-                await _menuItems.UpdateAsync(existing);
-                return RedirectToAction("Index", new { message = "Menu item updated successfully!" });
+                var updated = await _menuItems.UpdateAsync(existing);
+                if (!updated)
+                    return RedirectToAction("Index", new { message = "Menu item was not updated because no database row matched it.", categoryFilter = categoryFilter ?? "all" });
+
+                return RedirectToAction("Index", new { message = "Menu item updated successfully!", categoryFilter = string.IsNullOrWhiteSpace(categoryFilter) ? existing.Category : categoryFilter });
             }
-            catch (Exception ex)
+            catch
             {
-                return RedirectToAction("Index", new { message = $"Error updating item: {ex.Message}" });
+                return RedirectToAction("Index", new { message = "Error updating item. Please try again.", categoryFilter = categoryFilter ?? "all" });
             }
         }
 
@@ -195,10 +202,14 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             if (imageFile == null || imageFile.Length == 0)
                 return null;
+            if (imageFile.Length > MaxImageUploadBytes)
+                return null;
 
             var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
             var fileExtension = Path.GetExtension(imageFile.FileName).ToLowerInvariant();
             if (!allowedExtensions.Contains(fileExtension))
+                return null;
+            if (!await HasValidImageSignatureAsync(imageFile, fileExtension))
                 return null;
 
             var itemsDirectory = Path.Combine(_environment.WebRootPath, "images", "items");
@@ -214,6 +225,30 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
 
             return $"/images/items/{fileName}";
+        }
+
+        private static async Task<bool> HasValidImageSignatureAsync(IFormFile imageFile, string extension)
+        {
+            var buffer = new byte[12];
+            await using var stream = imageFile.OpenReadStream();
+            var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length));
+            if (read < 4)
+                return false;
+
+            return extension switch
+            {
+                ".jpg" or ".jpeg" => buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF,
+                ".png" => read >= 8
+                    && buffer[0] == 0x89 && buffer[1] == 0x50 && buffer[2] == 0x4E && buffer[3] == 0x47
+                    && buffer[4] == 0x0D && buffer[5] == 0x0A && buffer[6] == 0x1A && buffer[7] == 0x0A,
+                ".gif" => read >= 6
+                    && buffer[0] == 0x47 && buffer[1] == 0x49 && buffer[2] == 0x46
+                    && buffer[3] == 0x38 && (buffer[4] == 0x37 || buffer[4] == 0x39) && buffer[5] == 0x61,
+                ".webp" => read >= 12
+                    && buffer[0] == 0x52 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x46
+                    && buffer[8] == 0x57 && buffer[9] == 0x45 && buffer[10] == 0x42 && buffer[11] == 0x50,
+                _ => false
+            };
         }
 
         [HttpPost]

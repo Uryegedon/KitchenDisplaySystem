@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using SelfOrderingSystemKiosk.Areas.Customer.Models;
 using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
+using System.Security.Cryptography;
 using Order = SelfOrderingSystemKiosk.Areas.Customer.Models.Order;
 
 namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
@@ -26,7 +27,9 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private const string OrderChannelKiosk = "Kiosk";
         private const string OrderChannelQr = "Qr";
         private const string SessionFirstOrderTime = "FirstOrderTime";
+        private const string OrderAccessSessionPrefix = "OrderAccess:";
         private static readonly TimeSpan OrderingSessionLength = TimeSpan.FromHours(2);
+        private static readonly TimeSpan CustomerCancelWindow = TimeSpan.FromSeconds(5);
 
         public KioskController(OrderService orderService, MenuItemService menuItems, MenuCategoryRegistry menuCategories, ILogger<KioskController> logger)
         {
@@ -288,6 +291,40 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             return string.Equals(order.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase);
         }
 
+        private void RememberOrderAccess(Order order)
+        {
+            if (!string.IsNullOrWhiteSpace(order?.OrderNumber) && !string.IsNullOrWhiteSpace(order.PublicAccessToken))
+                HttpContext.Session.SetString(OrderAccessSessionPrefix + order.OrderNumber, order.PublicAccessToken);
+        }
+
+        private bool HasPrivateOrderAccess(Order order, string accessToken)
+        {
+            if (order == null)
+                return false;
+            if (string.IsNullOrWhiteSpace(order.PublicAccessToken))
+                return false;
+            if (!string.IsNullOrWhiteSpace(accessToken) &&
+                CryptographicOperations.FixedTimeEquals(
+                    System.Text.Encoding.UTF8.GetBytes(order.PublicAccessToken),
+                    System.Text.Encoding.UTF8.GetBytes(accessToken.Trim())))
+                return true;
+
+            var remembered = HttpContext.Session.GetString(OrderAccessSessionPrefix + order.OrderNumber);
+            return !string.IsNullOrWhiteSpace(remembered) &&
+                CryptographicOperations.FixedTimeEquals(
+                    System.Text.Encoding.UTF8.GetBytes(order.PublicAccessToken),
+                    System.Text.Encoding.UTF8.GetBytes(remembered));
+        }
+
+        private static string CreatePublicAccessToken()
+        {
+            var bytes = RandomNumberGenerator.GetBytes(32);
+            return Convert.ToBase64String(bytes)
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+        }
+
         private void RestoreQrSessionFromOrder(Order order)
         {
             if (order == null) return;
@@ -427,10 +464,19 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 }
             }
             
-            // Unlimited orders include the items listed on the unlimited dine-in board.
+            // Unlimited orders show the unlimited board plus paid Ala Carte add-ons.
             var items = await _menuItems.GetAvailableAsync() ?? new List<MenuItem>();
             items = items
-                .Where(IsUnlimitedIncludedItem)
+                .Where(IsUnlimitedMenuItem)
+                .Select(item =>
+                {
+                    if (IsUnlimitedIncludedItem(item))
+                    {
+                        item.Price = 0m;
+                    }
+
+                    return item;
+                })
                 .OrderByDescending(i => i.MenuOrder)
                 .ThenBy(i => i.Item)
                 .ToList();
@@ -443,6 +489,15 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             return View(items);
         }
 
+        private static bool IsUnlimitedMenuItem(MenuItem item)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.Item))
+                return false;
+
+            return !string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal)
+                && !string.Equals(item.Category, "Unavailable", StringComparison.Ordinal);
+        }
+
         private static bool IsUnlimitedIncludedItem(MenuItem item)
         {
             if (item == null || string.IsNullOrWhiteSpace(item.Item))
@@ -450,9 +505,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
             var name = item.Item.Trim();
             if (string.Equals(item.Category, "Wings", StringComparison.Ordinal))
-                return true;
-
-            if (string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal))
                 return true;
 
             if (string.Equals(item.Category, "Drinks", StringComparison.Ordinal))
@@ -475,42 +527,37 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         }
 
         [HttpPost]
-        [IgnoreAntiforgeryToken] // Allow API calls without CSRF token
         public async Task<IActionResult> ConfirmOrder([FromBody] List<OrderItem> Items, [FromQuery] string orderType, [FromQuery] int? personCount)
         {
             try
             {
-                // Log incoming request for debugging
-                Console.WriteLine($"ConfirmOrder called - orderType: {orderType}, personCount: {personCount}");
-                Console.WriteLine($"Items count: {Items?.Count ?? 0}");
-                
                 if (Items == null || !Items.Any())
                     return Json(new { success = false, message = "No items in the order" });
 
                 // Get orderType from TempData if not in query string
                 string experienceType = orderType ?? TempData["ExperienceType"]?.ToString() ?? "AlaCarte";
 
-                // Validate quantity limit for Ala Carte orders (max 5 per item)
-                if (experienceType == "AlaCarte")
-                {
-                    var itemsExceedingLimit = Items.Where(i => i.Quantity > 5).ToList();
-                    if (itemsExceedingLimit.Any())
-                    {
-                        var itemNames = string.Join(", ", itemsExceedingLimit.Select(i => i.ItemName));
-                        return Json(new { success = false, message = $"Maximum quantity of 5 per item allowed. The following items exceed this limit: {itemNames}" });
-                    }
-                }
+                var isUnlimitedOrder = string.Equals(experienceType, "Unlimited", StringComparison.OrdinalIgnoreCase);
+                var validation = await ValidateSubmittedItemsAsync(Items, isUnlimitedOrder);
+                if (!validation.Success)
+                    return Json(new { success = false, message = validation.Message });
+
+                Items = validation.Items;
 
                 decimal subtotal;
                 decimal tax;
                 decimal total;
 
+                if (isUnlimitedOrder && (!personCount.HasValue || personCount.Value <= 0 || personCount.Value > 50))
+                    return Json(new { success = false, message = "Please enter a valid person count." });
+
                 // For Unlimited orders, calculate based on personCount * pricePerHead
-                if (experienceType == "Unlimited" && personCount.HasValue && personCount.Value > 0)
+                if (isUnlimitedOrder)
                 {
                     const decimal pricePerHead = 477m;
                     HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
-                    subtotal = personCount.Value * pricePerHead;
+                    var alaCarteAddOnSubtotal = Items.Sum(i => i.Price * i.Quantity);
+                    subtotal = (personCount.Value * pricePerHead) + alaCarteAddOnSubtotal;
                     tax = 0m;
                     total = subtotal;
                 }
@@ -546,7 +593,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     && !string.Equals(tableNumber, "0", StringComparison.OrdinalIgnoreCase);
                 SaveOrderingCookies(isRealQrTableOrder ? tableNumber : null, isRealQrTableOrder ? floor : null, personCount);
 
-                var isUnlimitedOrder = string.Equals(experienceType, "Unlimited", StringComparison.OrdinalIgnoreCase);
                 var tableGate = isRealQrTableOrder && isUnlimitedOrder
                     ? await CheckTableOrderingGateAsync(tableNumber)
                     : TableOrderingGateResult.Allowed();
@@ -590,6 +636,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 var order = new Order
                 {
                     OrderNumber = orderNumber,
+                    PublicAccessToken = CreatePublicAccessToken(),
                     OrderDate = DateTime.UtcNow,
                     Status = "Pending",
                     OrderType = experienceType,
@@ -606,21 +653,21 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 };
 
                 await _orderService.CreateAsync(order);
+                RememberOrderAccess(order);
 
-                return Json(new { success = true, orderNumber = order.OrderNumber });
+                return Json(new { success = true, orderNumber = order.OrderNumber, accessToken = order.PublicAccessToken });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error creating order");
-                return Json(new { success = false, message = $"Error creating order: {ex.Message}" });
+                return Json(new { success = false, message = "Error creating order. Please try again." });
             }
         }
 
         [HttpPost]
-        [IgnoreAntiforgeryToken]
         public IActionResult SaveOrderingSession([FromQuery] int personCount)
         {
-            if (personCount <= 0)
+            if (personCount <= 0 || personCount > 50)
                 return Json(new { success = false, message = "Person count must be greater than zero." });
 
             HttpContext.Session.SetInt32(SessionPersonCount, personCount);
@@ -633,7 +680,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> Confirmation(string orderNumber)
+        public async Task<IActionResult> Confirmation(string orderNumber, string accessToken = null)
         {
             if (string.IsNullOrEmpty(orderNumber))
                 return RedirectToAction("Index");
@@ -641,7 +688,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             var order = await _orderService.GetByOrderNumberAsync(orderNumber);
             if (order == null)
                 return RedirectToAction("Index");
+            var hasPrivateAccess = HasPrivateOrderAccess(order, accessToken);
+            ViewBag.HasPrivateOrderAccess = hasPrivateAccess;
+            ViewBag.PublicAccessToken = hasPrivateAccess ? order.PublicAccessToken : string.Empty;
 
+            if (hasPrivateAccess)
+                RememberOrderAccess(order);
             RestoreQrSessionFromOrder(order);
             await ApplyConfirmationSessionAsync(order);
 
@@ -671,7 +723,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         }
 
         [HttpGet]
-        [IgnoreAntiforgeryToken]
         public IActionResult GetSessionInfo()
         {
             var firstOrderTime = GetFirstOrderTimeUtc();
@@ -690,8 +741,9 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 timeRemainingSeconds = Math.Max(0, Math.Min(maxSeconds, (int)timeRemaining.TotalSeconds));
             }
 
-            // Calculate minutes and seconds for display
-            int minutes = timeRemainingSeconds / 60;
+            // Calculate hours, minutes, and seconds for display.
+            int hours = timeRemainingSeconds / 3600;
+            int minutes = (timeRemainingSeconds % 3600) / 60;
             int seconds = timeRemainingSeconds % 60;
 
             return Json(new
@@ -701,14 +753,15 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 sessionHours = (int)OrderingSessionLength.TotalHours,
                 sessionEndsAt = firstOrderTime.Value.Add(sessionLimit),
                 timeRemainingSeconds = timeRemainingSeconds,
+                timeRemainingHours = hours,
                 timeRemainingMinutes = minutes,
                 isExpired = isExpired,
-                timeRemainingFormatted = isExpired ? "00:00" : $"{minutes:D2}:{seconds:D2}"
+                timeRemainingFormatted = isExpired ? "00:00:00" : $"{hours:D2}:{minutes:D2}:{seconds:D2}"
             });
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetOrderStatus(string orderNumber)
+        public async Task<IActionResult> GetOrderStatus(string orderNumber, string accessToken = null)
         {
             if (string.IsNullOrEmpty(orderNumber))
                 return Json(new { status = "" });
@@ -736,14 +789,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return RedirectToAction("Index");
             }
 
-            // Order found, redirect to confirmation page
             return RedirectToAction("Confirmation", new { orderNumber = orderNumber });
         }
 
 
         [HttpPost]
-        [IgnoreAntiforgeryToken] // Allow API calls without CSRF token
-        public async Task<IActionResult> CancelOrder(string orderNumber)
+        public async Task<IActionResult> CancelOrder(string orderNumber, string accessToken = null)
         {
             try
             {
@@ -756,6 +807,14 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 if (order == null)
                 {
                     return Json(new { success = false, message = "Order not found" });
+                }
+                if (!HasPrivateOrderAccess(order, accessToken))
+                {
+                    return Json(new { success = false, message = "Please use the original confirmation link for this order." });
+                }
+                if (DateTime.UtcNow - order.OrderDate.ToUniversalTime() > CustomerCancelWindow)
+                {
+                    return Json(new { success = false, message = "The cancellation window has already closed." });
                 }
 
                 // Check if order can be cancelled (not in progress, completed, or already cancelled)
@@ -775,8 +834,71 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error cancelling order");
-                return Json(new { success = false, message = $"Error cancelling order: {ex.Message}" });
+                return Json(new { success = false, message = "Error cancelling order. Please try again." });
             }
+        }
+
+        private async Task<OrderItemValidationResult> ValidateSubmittedItemsAsync(List<OrderItem> submittedItems, bool isUnlimitedOrder)
+        {
+            var availableItems = await _menuItems.GetAvailableAsync() ?? new List<MenuItem>();
+            var byName = availableItems
+                .Where(i => !string.IsNullOrWhiteSpace(i.Item))
+                .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var validated = new List<OrderItem>();
+            foreach (var submitted in submittedItems)
+            {
+                var displayName = submitted.ItemName?.Trim();
+                var lookupName = NormalizeSubmittedItemName(displayName);
+                if (string.IsNullOrWhiteSpace(displayName) || string.IsNullOrWhiteSpace(lookupName))
+                    return OrderItemValidationResult.Fail("One or more order items are invalid.");
+
+                if (submitted.Quantity <= 0)
+                    return OrderItemValidationResult.Fail("Item quantities must be greater than zero.");
+
+                if (!byName.TryGetValue(lookupName, out var menuItem))
+                    return OrderItemValidationResult.Fail($"'{lookupName}' is not currently available.");
+
+                if (isUnlimitedOrder)
+                {
+                    var isIncluded = IsUnlimitedIncludedItem(menuItem);
+                    if (!isIncluded && !IsUnlimitedMenuItem(menuItem))
+                        return OrderItemValidationResult.Fail($"'{lookupName}' is not available in the unlimited menu.");
+                    if (isIncluded && submitted.Quantity > 20)
+                        return OrderItemValidationResult.Fail("One or more item quantities are too high.");
+                    if (!isIncluded && submitted.Quantity > 4)
+                        return OrderItemValidationResult.Fail("Maximum quantity of 4 per Ala Carte add-on allowed.");
+                }
+                else
+                {
+                    if (string.Equals(menuItem.Category, "Unlimited Inclusions", StringComparison.Ordinal))
+                        return OrderItemValidationResult.Fail($"'{lookupName}' is not available for ala carte orders.");
+                    if (submitted.Quantity > 4)
+                        return OrderItemValidationResult.Fail("Maximum quantity of 4 per item allowed.");
+                }
+
+                validated.Add(new OrderItem
+                {
+                    ItemName = displayName,
+                    Quantity = submitted.Quantity,
+                    Price = isUnlimitedOrder && IsUnlimitedIncludedItem(menuItem) ? 0m : menuItem.Price
+                });
+            }
+
+            return OrderItemValidationResult.Ok(validated);
+        }
+
+        private static string NormalizeSubmittedItemName(string itemName)
+        {
+            if (string.IsNullOrWhiteSpace(itemName))
+                return string.Empty;
+
+            const string flavorMarker = " (Flavors:";
+            var markerIndex = itemName.IndexOf(flavorMarker, StringComparison.OrdinalIgnoreCase);
+            return markerIndex >= 0
+                ? itemName[..markerIndex].Trim()
+                : itemName.Trim();
         }
     }
 
@@ -811,5 +933,24 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 SessionEndUtc = sessionEndUtc
             };
         }
+    }
+
+    internal class OrderItemValidationResult
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public List<OrderItem> Items { get; set; } = new();
+
+        public static OrderItemValidationResult Ok(List<OrderItem> items) => new()
+        {
+            Success = true,
+            Items = items
+        };
+
+        public static OrderItemValidationResult Fail(string message) => new()
+        {
+            Success = false,
+            Message = message
+        };
     }
 }

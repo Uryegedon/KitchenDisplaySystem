@@ -8,6 +8,10 @@
 **/node_modules
 **/.env
 **/.env.*
+**/appsettings.json
+**/appsettings.*.json
+!**/appsettings.example.json
+**/publish-test
 fly.toml
 README.md
 *.md

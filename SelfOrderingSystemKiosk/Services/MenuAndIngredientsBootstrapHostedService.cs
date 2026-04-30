@@ -87,6 +87,7 @@ namespace SelfOrderingSystemKiosk.Services
 
             if (missing.Count == 0)
             {
+                await RetireMenuSeedItemsAsync(coll, ct);
                 _logger.LogDebug("Menu board seed skipped; all {Count} default items already exist in {Coll}.", boardItems.Count, menuCollection);
                 return;
             }
@@ -95,7 +96,17 @@ namespace SelfOrderingSystemKiosk.Services
                 item.Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
 
             await coll.InsertManyAsync(missing, cancellationToken: ct);
+            await RetireMenuSeedItemsAsync(coll, ct);
             _logger.LogInformation("Seeded {Count} missing menu board items into {Coll}.", missing.Count, menuCollection);
+        }
+
+        private static Task RetireMenuSeedItemsAsync(IMongoCollection<MenuItem> coll, CancellationToken ct)
+        {
+            var filter = Builders<MenuItem>.Filter.And(
+                Builders<MenuItem>.Filter.Eq(x => x.Item, "Softdrinks"),
+                Builders<MenuItem>.Filter.Eq(x => x.Category, "Drinks"));
+
+            return coll.DeleteManyAsync(filter, ct);
         }
 
         private static List<MenuItem> BuildMenuBoardSeed() =>
@@ -153,15 +164,17 @@ namespace SelfOrderingSystemKiosk.Services
                 Menu("Iced Tea", "Drinks", 0m, 924, "/images/wings.png", "drink"),
                 Menu("Coffee", "Drinks", 0m, 923, "/images/wings.png", "drink"),
                 Menu("Hot Tea", "Drinks", 0m, 922, "/images/wings.png", "drink"),
-                Menu("Softdrinks", "Drinks", 0m, 921, "/images/wings.png", "drink"),
+                Menu("Softdrinks - Coke", "Drinks", 0m, 921, "/images/wings.png", "drink"),
+                Menu("Softdrinks - Sprite", "Drinks", 0m, 920, "/images/wings.png", "drink"),
+                Menu("Softdrinks - Royal", "Drinks", 0m, 919, "/images/wings.png", "drink"),
 
-                Menu("Red Iced Tea", "Unlimited Inclusions", 0m, 920, "/images/wings.png", "drink"),
-                Menu("Coffee", "Unlimited Inclusions", 0m, 919, "/images/wings.png", "drink"),
-                Menu("Tea", "Unlimited Inclusions", 0m, 918, "/images/wings.png", "drink"),
-                Menu("Unli Pasta Sardine", "Unlimited Inclusions", 0m, 917, "/images/Kp%20items/Kp%20pasta%20sardine.jpg", "pasta"),
-                Menu("Unli Pasta Manzo", "Unlimited Inclusions", 0m, 916, "/images/Kp%20items/Kp%20pasta%20manzo.jpg", "pasta"),
-                Menu("Unli Pasta Pomodoro", "Unlimited Inclusions", 0m, 915, "/images/Kp%20items/Kp%20pasta%20pomodoro.jpg", "pasta"),
-                Menu("Unli Pasta Salsiccia", "Unlimited Inclusions", 0m, 914, "/images/Kp%20items/Kp%20pasta%20salsiccia.jpg", "pasta"),
+                Menu("Red Iced Tea", "Unlimited Inclusions", 0m, 918, "/images/wings.png", "drink"),
+                Menu("Coffee", "Unlimited Inclusions", 0m, 917, "/images/wings.png", "drink"),
+                Menu("Tea", "Unlimited Inclusions", 0m, 916, "/images/wings.png", "drink"),
+                Menu("Unli Pasta Sardine", "Unlimited Inclusions", 0m, 915, "/images/Kp%20items/Kp%20pasta%20sardine.jpg", "pasta"),
+                Menu("Unli Pasta Manzo", "Unlimited Inclusions", 0m, 914, "/images/Kp%20items/Kp%20pasta%20manzo.jpg", "pasta"),
+                Menu("Unli Pasta Pomodoro", "Unlimited Inclusions", 0m, 913, "/images/Kp%20items/Kp%20pasta%20pomodoro.jpg", "pasta"),
+                Menu("Unli Pasta Salsiccia", "Unlimited Inclusions", 0m, 912, "/images/Kp%20items/Kp%20pasta%20salsiccia.jpg", "pasta"),
             };
 
         private static MenuItem Menu(string name, string category, decimal price, int order, string image, string? foodCategory = null) =>

@@ -111,7 +111,6 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
-        [IgnoreAntiforgeryToken]
         public async Task<IActionResult> RestockItem(string id, int quantity)
         {
             try
@@ -138,9 +137,9 @@ namespace SelfOrderingSystemKiosk.Controllers
 
                 return Json(new { success = false, message = "Item not found." });
             }
-            catch (Exception ex)
+            catch
             {
-                return Json(new { success = false, message = $"Error: {ex.Message}" });
+                return Json(new { success = false, message = "Could not restock item. Please try again." });
             }
         }
     }

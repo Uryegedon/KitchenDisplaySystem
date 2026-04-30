@@ -383,6 +383,7 @@
                     @if (!isPaid)
                     {
                         <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="UpdatePaymentStatus">
+                            @Html.AntiForgeryToken()
                             <input type="hidden" name="id" value="@Model.AnchorOrder?.Id" />
                             <input type="hidden" name="paymentStatus" value="Paid" />
                             <input type="hidden" name="returnUrl" value="@returnUrl" />
@@ -392,6 +393,7 @@
                     @if (Model.IsTableSession && !isSessionEnded)
                     {
                         <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="EndSession">
+                            @Html.AntiForgeryToken()
                             <input type="hidden" name="id" value="@Model.AnchorOrder?.Id" />
                             <input type="hidden" name="returnUrl" value="@returnUrl" />
                             <button class="payment-btn end-session" type="submit" @(isPaid ? "" : "disabled") title="@(isPaid ? "End this table session" : "Mark the bill as paid before ending the session")">

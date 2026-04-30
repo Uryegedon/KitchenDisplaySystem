@@ -6,6 +6,8 @@ using SelfOrderingSystemKiosk.Areas.Kitchen.Models;
 using SelfOrderingSystemKiosk.Services;
 using System;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 {
@@ -49,7 +51,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
         [HttpGet]
         [AllowAnonymous]
-        public async Task<IActionResult> Receipt(string? id = null, string? orderNumber = null, string? returnUrl = null)
+        public async Task<IActionResult> Receipt(string? id = null, string? orderNumber = null, string? accessToken = null, string? returnUrl = null)
         {
             await _orderService.ExpirePendingOrdersAsync();
 
@@ -68,10 +70,17 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
                 return RedirectToAction("Index", "Kiosk", new { area = "Customer" });
             }
+            if (!isSignedIn && !HasPublicReceiptAccess(anchorOrder, accessToken))
+                return RedirectToAction("Index", "Kiosk", new { area = "Customer" });
 
             ViewBag.ReturnUrl = GetSafeReturnUrl(returnUrl, anchorOrder, isSignedIn);
-            ViewBag.CanManagePayment = isSignedIn;
-            return View(await BuildReceiptViewModelAsync(anchorOrder));
+            ViewBag.CanManagePayment = isSignedIn
+                && !string.IsNullOrWhiteSpace(id)
+                && string.IsNullOrWhiteSpace(orderNumber);
+            var canViewTableSession = isSignedIn
+                && !string.IsNullOrWhiteSpace(id)
+                && string.IsNullOrWhiteSpace(orderNumber);
+            return View(await BuildReceiptViewModelAsync(anchorOrder, canViewTableSession));
         }
 
         [HttpGet]
@@ -169,11 +178,12 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             return RedirectToAction("Receipts");
         }
 
-        private async Task<SessionReceiptViewModel> BuildReceiptViewModelAsync(Order anchorOrder)
+        private async Task<SessionReceiptViewModel> BuildReceiptViewModelAsync(Order anchorOrder, bool includeTableSession = true)
         {
             var orders = new List<Order> { anchorOrder };
             var isAnchorCanceled = string.Equals(anchorOrder.Status, "Canceled", StringComparison.OrdinalIgnoreCase);
-            var isTableSession = !isAnchorCanceled
+            var isTableSession = includeTableSession
+                && !isAnchorCanceled
                 && !string.IsNullOrWhiteSpace(anchorOrder.TableNumber)
                 && string.Equals(anchorOrder.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase);
 
@@ -246,6 +256,18 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             return string.IsNullOrWhiteSpace(floor)
                 ? $"Table {table}"
                 : $"Floor {floor} - Table {table}";
+        }
+
+        private static bool HasPublicReceiptAccess(Order order, string? accessToken)
+        {
+            if (string.IsNullOrWhiteSpace(order.PublicAccessToken))
+                return false;
+            if (string.IsNullOrWhiteSpace(accessToken))
+                return false;
+
+            return CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(order.PublicAccessToken),
+                Encoding.UTF8.GetBytes(accessToken.Trim()));
         }
 
         private string GetSafeReturnUrl(string? returnUrl, Order? anchorOrder = null, bool isSignedIn = true)

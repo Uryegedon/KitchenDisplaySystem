@@ -14,6 +14,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
         [JsonPropertyName("orderNumber")]
         public string OrderNumber { get; set; }
 
+        [BsonElement("publicAccessToken")]
+        [JsonPropertyName("publicAccessToken")]
+        public string PublicAccessToken { get; set; }
+
         [BsonElement("orderDate")]
         [JsonPropertyName("orderDate")]
         public DateTime OrderDate { get; set; }
