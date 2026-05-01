@@ -139,6 +139,13 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task<bool> DecrementStockAsync(string itemName, int quantity, string? reason = null, string? referenceType = null, string? referenceId = null)
         {
             var item = await GetByNameAsync(itemName);
+            var stockItemName = itemName;
+            if (item == null && itemName.StartsWith("Coffee - ", StringComparison.OrdinalIgnoreCase))
+            {
+                stockItemName = "Coffee";
+                item = await GetByNameAsync(stockItemName);
+            }
+
             if (item == null)
             {
                 _logger.LogWarning("DecrementStock (menu): item '{Item}' not found.", itemName);
@@ -154,7 +161,7 @@ namespace SelfOrderingSystemKiosk.Services
                 .Set(x => x.Status, newStock <= item.ReorderLevel ? "Low Stock" : "In Stock")
                 .Set(x => x.Availability, availability);
 
-            var result = await _collection.UpdateOneAsync(x => x.Item == itemName, update);
+            var result = await _collection.UpdateOneAsync(x => x.Item == stockItemName, update);
             if (result.ModifiedCount == 0)
                 return false;
 

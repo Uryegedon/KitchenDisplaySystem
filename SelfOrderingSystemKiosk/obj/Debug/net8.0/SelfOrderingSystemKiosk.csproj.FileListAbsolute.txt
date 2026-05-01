@@ -384,4 +384,17 @@ E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\CodexBuildCheck\QRCoder.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\CodexBuildCheck\SharpCompress.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\CodexBuildCheck\Snappier.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\CodexBuildCheck\ZstdSharp.dll
+E:\KitchenDisplaySystem\artifacts\verify-build\publish-test\web.config
+E:\KitchenDisplaySystem\artifacts\verify-build\appsettings.json
+E:\KitchenDisplaySystem\artifacts\verify-build\publish-test\appsettings.json
+E:\KitchenDisplaySystem\artifacts\verify-build\publish-test\SelfOrderingSystemKiosk.deps.json
+E:\KitchenDisplaySystem\artifacts\verify-build\publish-test\SelfOrderingSystemKiosk.runtimeconfig.json
+E:\KitchenDisplaySystem\artifacts\verify-build\publish-test\SelfOrderingSystemKiosk.staticwebassets.endpoints.json
+E:\KitchenDisplaySystem\artifacts\verify-build\SelfOrderingSystemKiosk.staticwebassets.runtime.json
+E:\KitchenDisplaySystem\artifacts\verify-build\SelfOrderingSystemKiosk.staticwebassets.endpoints.json
+E:\KitchenDisplaySystem\artifacts\verify-build\SelfOrderingSystemKiosk.exe
+E:\KitchenDisplaySystem\artifacts\verify-build\SelfOrderingSystemKiosk.deps.json
+E:\KitchenDisplaySystem\artifacts\verify-build\SelfOrderingSystemKiosk.runtimeconfig.json
+E:\KitchenDisplaySystem\artifacts\verify-build\SelfOrderingSystemKiosk.dll
+E:\KitchenDisplaySystem\artifacts\verify-build\SelfOrderingSystemKiosk.pdb
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.pdb

@@ -495,6 +495,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return false;
 
             return !string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal)
+                && !string.Equals(item.Category, "Wings Ala Carte", StringComparison.Ordinal)
                 && !string.Equals(item.Category, "Unavailable", StringComparison.Ordinal);
         }
 
@@ -896,9 +897,14 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
             const string flavorMarker = " (Flavors:";
             var markerIndex = itemName.IndexOf(flavorMarker, StringComparison.OrdinalIgnoreCase);
-            return markerIndex >= 0
+            var normalized = markerIndex >= 0
                 ? itemName[..markerIndex].Trim()
                 : itemName.Trim();
+
+            if (normalized.StartsWith("Coffee - ", StringComparison.OrdinalIgnoreCase))
+                return "Coffee";
+
+            return normalized;
         }
     }
 

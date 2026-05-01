@@ -113,8 +113,46 @@ function escapeHtml(value) {
 
 function cartKey(item) {
     return [
-        item.name
+        item.name,
+        item.variantLabel || '',
+        Array.isArray(item.flavors) ? item.flavors.join('|') : ''
     ].join('::');
+}
+
+function savePersonCountToSession() {
+    const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+    return fetch(`/Customer/Kiosk/SaveOrderingSession?personCount=${personCount}`, {
+        method: 'POST',
+        headers: {
+            'RequestVerificationToken': token
+        }
+    });
+}
+
+function setPersonModalMode(mode) {
+    const modal = document.getElementById("personModal");
+    const title = document.getElementById("personModalTitle");
+    const text = document.getElementById("personModalText");
+    const input = document.getElementById("personCount");
+    const confirm = document.getElementById("confirmPersons");
+    const isAddMode = mode === "add";
+
+    if (modal) modal.dataset.mode = isAddMode ? "add" : "initial";
+    if (title) title.textContent = isAddMode ? "Someone just arrived?" : "Enter Number of Persons";
+    if (text) {
+        text.textContent = isAddMode
+            ? "Enter how many more people joined your table."
+            : "Please tell us how many people will be dining today.";
+    }
+    if (input) {
+        input.value = "";
+        input.placeholder = isAddMode ? "Number of additional persons" : "Enter number of persons";
+    }
+    if (confirm) {
+        confirm.innerHTML = isAddMode
+            ? '<i class="bi bi-person-plus"></i> Add People'
+            : '<i class="bi bi-check-circle"></i> Confirm';
+    }
 }
 
 function refreshVariantRow(row) {
@@ -166,6 +204,7 @@ function updateCardQuantity(control, quantity) {
 document.addEventListener("DOMContentLoaded", () => {
     refreshRememberedPersonCount();
     displayPersonCount();
+    setPersonModalMode("initial");
 
     if (personCount > 0) {
         closeModal("personModal");
@@ -177,23 +216,37 @@ document.addEventListener("DOMContentLoaded", () => {
     const confirmBtn = document.getElementById("confirmPersons");
     if (confirmBtn) {
         confirmBtn.addEventListener("click", function () {
-            const input = document.getElementById("personCount").value;
-            if (input < 1 || input === "") {
+            const personInput = document.getElementById("personCount");
+            const input = personInput?.value || "";
+            const enteredCount = parseInt(input, 10);
+            const modal = document.getElementById("personModal");
+            const isAddMode = modal?.dataset.mode === "add";
+
+            if (!Number.isFinite(enteredCount) || enteredCount < 1) {
                 showNotification("Please enter a valid number of persons.", 'error');
+                personInput?.focus();
                 return;
             }
 
-            personCount = parseInt(input);
+            const nextCount = isAddMode ? personCount + enteredCount : enteredCount;
+            if (nextCount > 50) {
+                showNotification("Person count cannot be more than 50.", 'error');
+                personInput?.focus();
+                return;
+            }
+
+            personCount = nextCount;
             document.querySelector(".person-count").textContent =
                 `${personCount} Person${personCount > 1 ? "s" : ""}`;
 
-            const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
-            fetch(`/Customer/Kiosk/SaveOrderingSession?personCount=${personCount}`, {
-                method: 'POST',
-                headers: {
-                    'RequestVerificationToken': token
-                }
-            }).catch(err => console.error('Error saving ordering session:', err));
+            savePersonCountToSession()
+                .then(response => response.json())
+                .then(data => {
+                    if (!data?.success) {
+                        showNotification(data?.message || "Unable to save person count.", 'error');
+                    }
+                })
+                .catch(err => console.error('Error saving ordering session:', err));
             
             // Update order summary with a small delay to ensure DOM is ready
             setTimeout(() => {
@@ -201,7 +254,30 @@ document.addEventListener("DOMContentLoaded", () => {
             }, 100);
 
             closeModal("personModal");
-            showRulesModal();
+            if (isAddMode) {
+                const noun = enteredCount === 1 ? "person" : "persons";
+                showNotification(`Added ${enteredCount} ${noun}. Total: ${personCount}`, 'success');
+                setPersonModalMode("initial");
+            } else {
+                showRulesModal();
+            }
+        });
+    }
+
+    const closePersonBtn = document.getElementById("closePersonModal");
+    if (closePersonBtn) {
+        closePersonBtn.addEventListener("click", function () {
+            closeModal("personModal");
+            setPersonModalMode("initial");
+        });
+    }
+
+    const addPersonBtn = document.querySelector(".add-person-btn");
+    if (addPersonBtn) {
+        addPersonBtn.addEventListener("click", function () {
+            setPersonModalMode("add");
+            openModal("personModal");
+            document.getElementById("personCount")?.focus();
         });
     }
 
@@ -241,6 +317,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const isWingFlavor = this.getAttribute('data-is-wing-flavor') !== 'false';
             const isAlaCarteAddOn = Number.isFinite(price) && price > 0;
             const requestedQuantity = isWingFlavor ? readCardQuantity(this.closest('.menu-row')) : 1;
+            const variants = JSON.parse(this.getAttribute('data-variants') || '[]');
+            const selectedVariant = variants.find(v => v.name === name);
 
             const newItem = {
                 name,
@@ -248,7 +326,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 price: Number.isFinite(price) ? price : 0,
                 quantity: requestedQuantity,
                 isWingFlavor,
-                isAlaCarteAddOn
+                isAlaCarteAddOn,
+                variantLabel: selectedVariant?.label || ''
             };
             const existingItem = cart.find(item => cartKey(item) === cartKey(newItem));
             const flavorLimit = getFlavorLimit();
@@ -393,6 +472,9 @@ function updateCartDisplay() {
         const priceLine = item.price > 0
             ? `<p style="margin:2px 0 0;color:#ff6b35;font-weight:700;">₱${item.price.toFixed(2)}</p>`
             : `<p style="margin:2px 0 0;color:#2e7d32;font-weight:700;">Included</p>`;
+        const selectionsLine = Array.isArray(item.flavors) && item.flavors.length > 0
+            ? `<p style="margin:2px 0 0;color:#666;font-size:0.78rem;">Selections: ${escapeHtml(item.flavors.join(', '))}</p>`
+            : '';
         const maxQuantityIndicator = isMaxQuantity
             ? `<small style="color:#e74c3c;font-size:0.75em;display:block;">Max: ${quantityLimit} pieces</small>`
             : '';
@@ -402,6 +484,7 @@ function updateCartDisplay() {
             <div style="flex:1;margin-left:10px;">
                 <h5 style="margin:0;font-size:14px;">${escapeHtml(item.name)}</h5>
                 ${priceLine}
+                ${selectionsLine}
                 ${wingOrderNote}
                 ${maxQuantityIndicator}
             </div>
@@ -466,4 +549,3 @@ function addCartEventListeners() {
         }
     });
 }
-

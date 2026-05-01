@@ -5,7 +5,7 @@
     ViewData["Title"] = "Ala Carte Menu";
     Layout = "~/Areas/Customer/Views/Shared/_Layout.cshtml";
     var allMenuItems = (Model ?? Enumerable.Empty<SelfOrderingSystemKiosk.Models.MenuItem>()).ToList();
-    var variantCategories = new HashSet<string>(StringComparer.Ordinal) { "Pasta", "Sulit Kap Meals", "Drinks" };
+    var variantCategories = new HashSet<string>(StringComparer.Ordinal) { "Pasta", "Drinks" };
     var variantGroups = allMenuItems
         .Where(i => !string.IsNullOrWhiteSpace(i.Item)
             && !string.IsNullOrWhiteSpace(i.Category)
@@ -18,6 +18,8 @@
         .ToDictionary(g => g.Key, g => g.OrderByDescending(i => i.MenuOrder).ToList(), StringComparer.OrdinalIgnoreCase);
     var variantMemberNames = variantGroups.Values.SelectMany(g => g).Select(i => i.Item).ToHashSet(StringComparer.OrdinalIgnoreCase);
     var renderedVariantBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var renderedSulitMealBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var renderedWingSetCard = false;
     var wingFlavors = allMenuItems
         .Where(i => string.Equals(i.Category, "Wings", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(i.Item))
         .OrderByDescending(i => i.MenuOrder)
@@ -74,6 +76,35 @@
             : itemName.Contains(" - ", StringComparison.Ordinal)
             ? itemName[(itemName.IndexOf(" - ", StringComparison.Ordinal) + 3)..].Trim()
             : itemName;
+
+    static bool IsCoffeeItem(string itemName) =>
+        itemName.Equals("Coffee", StringComparison.OrdinalIgnoreCase);
+
+    static bool IsSulitWingRiceMeal(SelfOrderingSystemKiosk.Models.MenuItem item) =>
+        string.Equals(item.Category, "Sulit Kap Meals", StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(item.Item)
+        && item.Item.Contains("Chicken Wings With Rice - ", StringComparison.OrdinalIgnoreCase);
+
+    static bool IsWingSet(SelfOrderingSystemKiosk.Models.MenuItem item) =>
+        string.Equals(item.Category, "Wings Ala Carte", StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(item.Item)
+        && item.Item.Contains("Chicken Wings", StringComparison.OrdinalIgnoreCase);
+
+    static int ExtractPieceCount(string itemName)
+    {
+        var marker = "Piece";
+        var markerIndex = itemName.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0) return 0;
+
+        var before = itemName[..markerIndex].Trim();
+        var digits = new string(before.Where(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var pieces) ? pieces : 0;
+    }
+
+    static string SulitMealBaseName(string itemName) =>
+        itemName.Contains(" - ", StringComparison.Ordinal)
+            ? itemName[..itemName.IndexOf(" - ", StringComparison.Ordinal)].Trim()
+            : itemName;
 }
 
 <link rel="stylesheet" href="~/css/Kiosk.css" asp-append-version="true" />
@@ -127,6 +158,90 @@
                 {
                     var menuLabel = item.Item ?? "";
                     var baseName = VariantBaseName(menuLabel);
+                    if (IsWingSet(item))
+                    {
+                        if (renderedWingSetCard)
+                        {
+                            continue;
+                        }
+
+                        renderedWingSetCard = true;
+                        var wingSetItems = allMenuItems
+                            .Where(IsWingSet)
+                            .OrderBy(i => ExtractPieceCount(i.Item))
+                            .ThenBy(i => i.Price)
+                            .ToList();
+                        var selectedWingSet = wingSetItems.First();
+                        var wingSetImage = KpImages.ResolveDisplayPath(selectedWingSet.Item, selectedWingSet.Image);
+                        var wingSetOptionsJson = JsonSerializer.Serialize(wingSetItems.Select(v => new
+                        {
+                            name = v.Item,
+                            pieces = ExtractPieceCount(v.Item),
+                            flavorLimit = ExtractFlavorLimit(v.Item),
+                            price = v.Price,
+                            image = Url.Content(KpImages.ResolveDisplayPath(v.Item, v.Image))
+                        }));
+                        var minWingSetPrice = wingSetItems.Min(i => i.Price);
+                        var maxWingSetPrice = wingSetItems.Max(i => i.Price);
+                        <div class="menu-row" data-category="@selectedWingSet.Category">
+                            <img src="@Url.Content(wingSetImage)" alt="Chicken Wings Set" />
+                            <div class="menu-details">
+                                <h4>CHICKEN WINGS SET</h4>
+                                <p class="wing-order-note">Choose pieces and flavors</p>
+                                <p>₱@(minWingSetPrice == maxWingSetPrice ? minWingSetPrice.ToString("0.00") : $"{minWingSetPrice:0.00} - ₱{maxWingSetPrice:0.00}")</p>
+                            </div>
+                            <button type="button"
+                                    class="customize-wing-set"
+                                    data-image="@Url.Content(wingSetImage)"
+                                    data-options='@wingSetOptionsJson'>
+                                Customize
+                            </button>
+                        </div>
+                        continue;
+                    }
+
+                    if (IsSulitWingRiceMeal(item))
+                    {
+                        var sulitBaseName = SulitMealBaseName(menuLabel);
+                        if (!renderedSulitMealBases.Add(sulitBaseName))
+                        {
+                            continue;
+                        }
+
+                        var sulitItems = allMenuItems
+                            .Where(IsSulitWingRiceMeal)
+                            .Where(i => string.Equals(SulitMealBaseName(i.Item), sulitBaseName, StringComparison.OrdinalIgnoreCase))
+                            .OrderBy(i => i.Price)
+                            .ToList();
+                        var selectedSulit = sulitItems.First();
+                        var sulitImage = KpImages.ResolveDisplayPath(selectedSulit.Item, selectedSulit.Image);
+                        var sulitVariantsJson = JsonSerializer.Serialize(sulitItems.Select(v => new
+                        {
+                            name = v.Item,
+                            label = VariantLabel(v.Item),
+                            price = v.Price,
+                            image = Url.Content(KpImages.ResolveDisplayPath(v.Item, v.Image))
+                        }));
+                        var minPrice = sulitItems.Min(i => i.Price);
+                        var maxPrice = sulitItems.Max(i => i.Price);
+                        <div class="menu-row" data-category="@selectedSulit.Category">
+                            <img src="@Url.Content(sulitImage)" alt="@sulitBaseName" />
+                            <div class="menu-details">
+                                <h4>@sulitBaseName.ToUpper()</h4>
+                                <p class="wing-order-note">Customize flavor, rice, and rice service</p>
+                                <p>₱@(minPrice == maxPrice ? minPrice.ToString("0.00") : $"{minPrice:0.00} - ₱{maxPrice:0.00}")</p>
+                            </div>
+                            <button type="button"
+                                    class="customize-sulit-meal"
+                                    data-base-name="@sulitBaseName"
+                                    data-image="@Url.Content(sulitImage)"
+                                    data-variants='@sulitVariantsJson'>
+                                Customize
+                            </button>
+                        </div>
+                        continue;
+                    }
+
                     if (variantMemberNames.Contains(menuLabel))
                     {
                         if (!renderedVariantBases.Add(baseName))
@@ -169,37 +284,47 @@
                     }
 
                     var displayImage = KpImages.ResolveDisplayPath(item.Item, item.Image);
-                    var isWingSet = string.Equals(item.Category, "Wings Ala Carte", StringComparison.Ordinal)
-                        || menuLabel.Contains("Chicken Wings", StringComparison.OrdinalIgnoreCase);
-                    var flavorLimit = isWingSet ? ExtractFlavorLimit(menuLabel) : 0;
+                    var isCoffee = IsCoffeeItem(menuLabel);
+                    var isWingFlavor = string.Equals(item.Category, "Wings", StringComparison.Ordinal);
+                    var coffeeVariantsJson = isCoffee
+                        ? JsonSerializer.Serialize(new[]
+                        {
+                            new { name = "Coffee - Black (Hot)", label = "Black - Hot", price = item.Price, image = Url.Content(displayImage) },
+                            new { name = "Coffee - White (Cold)", label = "White - Cold", price = item.Price, image = Url.Content(displayImage) }
+                        })
+                        : "[]";
                     <div class="menu-row" data-category="@item.Category">
                         <img src="@Url.Content(displayImage)" alt="@menuLabel" />
                         <div class="menu-details">
                             <h4>@menuLabel.ToUpper()</h4>
-                            @if (flavorLimit > 0 && wingFlavors.Count > 0)
+                            @if (isCoffee)
+                            {
+                                <select class="menu-option-select variant-select" aria-label="Choose coffee option">
+                                    <option value="Coffee - Black (Hot)" data-price="@item.Price" data-image="@Url.Content(displayImage)">Black - Hot - ₱@item.Price.ToString("0.00")</option>
+                                    <option value="Coffee - White (Cold)" data-price="@item.Price" data-image="@Url.Content(displayImage)">White - Cold - ₱@item.Price.ToString("0.00")</option>
+                                </select>
+                            }
+                            @if (isWingFlavor)
                             {
                                 <p class="wing-order-note">4 wings per order</p>
-                                <button type="button" class="flavor-toggle" aria-expanded="false">
-                                    <i class="bi bi-chevron-down"></i>
-                                    <span>Choose flavors</span>
-                                </button>
-                                <div class="flavor-chip-picker collapsed" data-flavor-limit="@flavorLimit">
-                                    <div class="flavor-chip-grid">
-                                    @foreach (var flavor in wingFlavors)
-                                    {
-                                        <button type="button" class="flavor-chip" data-flavor="@flavor">@flavor</button>
-                                    }
-                                    </div>
-                                    <small class="flavor-count" data-empty-text="Choose up to @flavorLimit flavor@(flavorLimit == 1 ? "" : "s")">Choose up to @flavorLimit flavor@(flavorLimit == 1 ? "" : "s")</small>
-                                </div>
                             }
                             <p>₱@item.Price.ToString("0.00")</p>
                         </div>
+                        @if (isWingFlavor)
+                        {
+                            <div class="menu-quantity-control" data-max-quantity="4">
+                                <button type="button" class="menu-qty-btn menu-qty-minus" aria-label="Decrease quantity">-</button>
+                                <span class="menu-qty-value">4</span>
+                                <button type="button" class="menu-qty-btn menu-qty-plus" aria-label="Increase quantity" disabled>+</button>
+                            </div>
+                        }
                         <button class="add-to-cart"
                                 data-name="@item.Item"
                                 data-price="@item.Price"
                                 data-image="@Url.Content(displayImage)"
-                                data-flavor-limit="@flavorLimit">
+                                data-variants='@coffeeVariantsJson'
+                                data-flavor-limit="0"
+                                data-is-wing-flavor="@(isWingFlavor ? "true" : "false")">
                             Add to cart
                         </button>
                     </div>
@@ -229,6 +354,95 @@
         </div>
     </div>
 </div>
+
+<section id="wingSetScreen" class="sulit-screen" aria-hidden="true">
+    <div class="sulit-screen-shell">
+        <div class="sulit-screen-topbar">
+            <button type="button" class="wing-set-back-btn sulit-back-btn" aria-label="Back to menu">
+                <i class="bi bi-arrow-left"></i>
+            </button>
+            <h2>Customize Wings Set</h2>
+        </div>
+
+        <div class="sulit-screen-grid">
+            <div class="sulit-preview">
+                <img id="wingSetImage" src="" alt="Chicken Wings Set" />
+                <h3 id="wingSetTitle">Chicken Wings Set</h3>
+                <p id="wingSetPrice">₱0.00</p>
+            </div>
+
+            <div class="sulit-options">
+                <div class="sulit-option-block">
+                    <h4>How many wings?</h4>
+                    <div id="wingPieceGrid" class="sulit-choice-grid compact"></div>
+                </div>
+
+                <div class="sulit-option-block">
+                    <h4>Chicken flavors</h4>
+                    <div id="wingSetFlavorGrid" class="sulit-choice-grid">
+                        @foreach (var flavor in wingFlavors)
+                        {
+                            <button type="button" class="sulit-choice" data-flavor="@flavor">@flavor</button>
+                        }
+                    </div>
+                    <small id="wingSetFlavorCount" class="flavor-count">Choose flavors</small>
+                </div>
+
+                <button type="button" id="addWingSetToCart" class="sulit-confirm-btn">
+                    <i class="bi bi-cart-plus"></i> Add to cart
+                </button>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="sulitMealScreen" class="sulit-screen" aria-hidden="true">
+    <div class="sulit-screen-shell">
+        <div class="sulit-screen-topbar">
+            <button type="button" class="sulit-meal-back-btn sulit-back-btn" aria-label="Back to menu">
+                <i class="bi bi-arrow-left"></i>
+            </button>
+            <h2>Customize Sulit Kap Meal</h2>
+        </div>
+
+        <div class="sulit-screen-grid">
+            <div class="sulit-preview">
+                <img id="sulitMealImage" src="" alt="Sulit Kap Meal" />
+                <h3 id="sulitMealTitle"></h3>
+                <p id="sulitMealPrice">₱0.00</p>
+            </div>
+
+            <div class="sulit-options">
+                <div class="sulit-option-block">
+                    <h4>Chicken flavor</h4>
+                    <div id="sulitFlavorGrid" class="sulit-choice-grid">
+                        @foreach (var flavor in wingFlavors)
+                        {
+                            <button type="button" class="sulit-choice" data-flavor="@flavor">@flavor</button>
+                        }
+                    </div>
+                </div>
+
+                <div class="sulit-option-block">
+                    <h4>Rice variant</h4>
+                    <div class="sulit-choice-grid compact">
+                        <button type="button" class="sulit-choice rice-choice selected" data-rice="Plain Rice">Plain Rice</button>
+                        <button type="button" class="sulit-choice rice-choice" data-rice="Garlic Rice">Garlic Rice</button>
+                    </div>
+                </div>
+
+                <div class="sulit-option-block">
+                    <h4>Rice service</h4>
+                    <div id="sulitServiceGrid" class="sulit-choice-grid compact"></div>
+                </div>
+
+                <button type="button" id="addSulitMealToCart" class="sulit-confirm-btn">
+                    <i class="bi bi-cart-plus"></i> Add to cart
+                </button>
+            </div>
+        </div>
+    </div>
+</section>
 
 <style>
     .menu-option-select {
@@ -328,7 +542,162 @@
         font-size: 0.85rem;
     }
 
+    .sulit-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 220;
+        display: none;
+        overflow-y: auto;
+        background: #fffaf4;
+        padding: 22px;
+    }
+
+    .sulit-screen.active {
+        display: block;
+    }
+
+    .sulit-screen-shell {
+        width: min(1120px, 100%);
+        margin: 0 auto;
+    }
+
+    .sulit-screen-topbar {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 20px;
+    }
+
+    .sulit-screen-topbar h2 {
+        margin: 0;
+        color: #d35400;
+        font-size: 1.45rem;
+    }
+
+    .sulit-back-btn {
+        width: 44px;
+        height: 44px;
+        border: 0;
+        border-radius: 50%;
+        background: #fff;
+        color: #d35400;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+        cursor: pointer;
+    }
+
+    .sulit-screen-grid {
+        display: grid;
+        grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);
+        gap: 28px;
+        align-items: start;
+    }
+
+    .sulit-preview {
+        position: sticky;
+        top: 18px;
+        background: #fff;
+        border: 1px solid #f2c094;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 10px 24px rgba(0,0,0,0.08);
+    }
+
+    .sulit-preview img {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        object-fit: cover;
+        border-radius: 10px;
+    }
+
+    .sulit-preview h3 {
+        margin: 14px 0 4px;
+        color: #d35400;
+        font-size: 1.25rem;
+    }
+
+    .sulit-preview p {
+        margin: 0;
+        color: #111827;
+        font-size: 1.1rem;
+        font-weight: 900;
+    }
+
+    .sulit-options {
+        display: grid;
+        gap: 18px;
+    }
+
+    .sulit-option-block {
+        background: #fff;
+        border: 1px solid #f2c094;
+        border-radius: 12px;
+        padding: 16px;
+    }
+
+    .sulit-option-block h4 {
+        margin: 0 0 12px;
+        color: #333;
+        font-size: 1rem;
+    }
+
+    .sulit-choice-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 9px;
+    }
+
+    .sulit-choice-grid.compact {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sulit-choice {
+        min-height: 42px;
+        padding: 9px 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fff;
+        color: #333;
+        font-size: 0.86rem;
+        font-weight: 800;
+        cursor: pointer;
+        line-height: 1.15;
+    }
+
+    .sulit-choice.selected {
+        background: #ff6b35;
+        border-color: #ff6b35;
+        color: #fff;
+    }
+
+    .sulit-confirm-btn {
+        min-height: 50px;
+        border: 0;
+        border-radius: 10px;
+        background: #e67e22;
+        color: #fff;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
     @@media (max-width: 768px) {
+        .sulit-screen {
+            padding: 14px;
+        }
+
+        .sulit-screen-grid {
+            grid-template-columns: 1fr;
+            gap: 14px;
+        }
+
+        .sulit-preview {
+            position: static;
+        }
+
+        .sulit-choice-grid,
+        .sulit-choice-grid.compact {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
         .flavor-chip-picker {
             position: fixed;
             left: 0;
@@ -473,6 +842,29 @@
         if (priceEl) priceEl.textContent = `₱${price.toFixed(2)}`;
     }
 
+    function readCardQuantity(row) {
+        const control = row?.querySelector('.menu-quantity-control');
+        const max = parseInt(control?.getAttribute('data-max-quantity') || '4', 10);
+        const value = parseInt(control?.querySelector('.menu-qty-value')?.textContent || '4', 10);
+        const limit = Number.isFinite(max) && max > 0 ? max : 4;
+        return Number.isFinite(value) ? Math.min(Math.max(value, 1), limit) : limit;
+    }
+
+    function updateCardQuantity(control, quantity) {
+        if (!control) return;
+
+        const max = parseInt(control.getAttribute('data-max-quantity') || '4', 10);
+        const limit = Number.isFinite(max) && max > 0 ? max : 4;
+        const nextQuantity = Math.min(Math.max(quantity, 1), limit);
+        const value = control.querySelector('.menu-qty-value');
+        const minus = control.querySelector('.menu-qty-minus');
+        const plus = control.querySelector('.menu-qty-plus');
+
+        if (value) value.textContent = nextQuantity;
+        if (minus) minus.disabled = nextQuantity <= 1;
+        if (plus) plus.disabled = nextQuantity >= limit;
+    }
+
     // Category filter functionality
     function applyMenuFilter(filter, activeButton) {
         document.querySelectorAll('.menu-tabs button').forEach(btn => btn.classList.remove('active'));
@@ -501,6 +893,19 @@
         });
     });
 
+    document.querySelectorAll('.menu-quantity-control').forEach(control => {
+        const initial = parseInt(control.querySelector('.menu-qty-value')?.textContent || '4', 10);
+        updateCardQuantity(control, Number.isFinite(initial) ? initial : 4);
+        control.addEventListener('click', function(e) {
+            const button = e.target.closest('.menu-qty-btn');
+            if (!button || button.disabled) return;
+
+            const current = parseInt(this.querySelector('.menu-qty-value')?.textContent || '4', 10);
+            const delta = button.classList.contains('menu-qty-plus') ? 1 : -1;
+            updateCardQuantity(this, current + delta);
+        });
+    });
+
     document.querySelectorAll('.flavor-chip-picker').forEach(picker => {
         picker.addEventListener('click', function(e) {
             const chip = e.target.closest('.flavor-chip');
@@ -520,6 +925,292 @@
         });
     });
 
+    let activeWingSet = null;
+    let activeSulitMeal = null;
+
+    function formatPeso(value) {
+        return `₱${Number(value || 0).toFixed(2)}`;
+    }
+
+    function setSingleChoice(button, selector) {
+        document.querySelectorAll(selector).forEach(choice => choice.classList.remove('selected'));
+        button.classList.add('selected');
+    }
+
+    function selectedChoiceValue(selector, attrName) {
+        return document.querySelector(`${selector}.selected`)?.getAttribute(attrName) || '';
+    }
+
+    function selectedWingSetOption() {
+        const selected = document.querySelector('#wingPieceGrid .sulit-choice.selected');
+        if (!selected || !activeWingSet) return null;
+        return activeWingSet.options.find(option => option.name === selected.getAttribute('data-name')) || null;
+    }
+
+    function selectedWingSetFlavors() {
+        return Array.from(document.querySelectorAll('#wingSetFlavorGrid .sulit-choice.selected'))
+            .map(button => button.getAttribute('data-flavor'))
+            .filter(Boolean);
+    }
+
+    function updateWingSetFlavorState() {
+        const option = selectedWingSetOption();
+        const limit = Number(option?.flavorLimit || 0);
+        const selected = selectedWingSetFlavors();
+        const atLimit = limit > 0 && selected.length >= limit;
+
+        document.querySelectorAll('#wingSetFlavorGrid .sulit-choice').forEach(button => {
+            button.disabled = atLimit && !button.classList.contains('selected');
+        });
+
+        const count = document.getElementById('wingSetFlavorCount');
+        if (count) {
+            count.textContent = selected.length === 0
+                ? `Choose up to ${limit} flavor${limit === 1 ? '' : 's'}`
+                : `${selected.length}/${limit} flavor${selected.length === 1 ? '' : 's'} selected`;
+        }
+    }
+
+    function updateWingSetPreview() {
+        const option = selectedWingSetOption();
+        if (!option) return;
+
+        const title = document.getElementById('wingSetTitle');
+        const price = document.getElementById('wingSetPrice');
+        const image = document.getElementById('wingSetImage');
+
+        if (title) title.textContent = `${option.pieces} Piece Chicken Wings`;
+        if (price) price.textContent = formatPeso(option.price);
+        if (image && option.image) image.src = option.image;
+        updateWingSetFlavorState();
+    }
+
+    function openWingSetScreen(button) {
+        const options = JSON.parse(button.getAttribute('data-options') || '[]');
+        if (options.length === 0) return;
+
+        activeWingSet = {
+            image: button.getAttribute('data-image') || '',
+            options
+        };
+
+        const screen = document.getElementById('wingSetScreen');
+        const image = document.getElementById('wingSetImage');
+        const pieceGrid = document.getElementById('wingPieceGrid');
+
+        if (image) image.src = activeWingSet.image;
+        if (pieceGrid) {
+            pieceGrid.innerHTML = options.map((option, index) => `
+                <button type="button"
+                        class="sulit-choice piece-choice ${index === 0 ? 'selected' : ''}"
+                        data-name="${escapeHtml(option.name)}">
+                    ${option.pieces} pcs - ${formatPeso(option.price)}
+                </button>
+            `).join('');
+        }
+
+        document.querySelectorAll('#wingSetFlavorGrid .sulit-choice').forEach(choice => {
+            choice.classList.remove('selected');
+            choice.disabled = false;
+        });
+        updateWingSetPreview();
+
+        screen?.classList.add('active');
+        screen?.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeWingSetScreen() {
+        const screen = document.getElementById('wingSetScreen');
+        screen?.classList.remove('active');
+        screen?.setAttribute('aria-hidden', 'true');
+        activeWingSet = null;
+    }
+
+    function updateSulitMealPrice() {
+        if (!activeSulitMeal) return;
+        const selectedService = document.querySelector('#sulitServiceGrid .sulit-choice.selected');
+        const price = Number(selectedService?.getAttribute('data-price') || '0');
+        const priceEl = document.getElementById('sulitMealPrice');
+        if (priceEl) priceEl.textContent = formatPeso(price);
+    }
+
+    function openSulitMealScreen(button) {
+        const variants = JSON.parse(button.getAttribute('data-variants') || '[]');
+        if (variants.length === 0) return;
+
+        activeSulitMeal = {
+            baseName: button.getAttribute('data-base-name') || 'Sulit Kap Meal',
+            image: button.getAttribute('data-image') || '',
+            variants
+        };
+
+        const screen = document.getElementById('sulitMealScreen');
+        const image = document.getElementById('sulitMealImage');
+        const title = document.getElementById('sulitMealTitle');
+        const serviceGrid = document.getElementById('sulitServiceGrid');
+
+        if (image) image.src = activeSulitMeal.image;
+        if (title) title.textContent = activeSulitMeal.baseName;
+        if (serviceGrid) {
+            serviceGrid.innerHTML = variants.map((variant, index) => `
+                <button type="button"
+                        class="sulit-choice service-choice ${index === 0 ? 'selected' : ''}"
+                        data-name="${escapeHtml(variant.name)}"
+                        data-label="${escapeHtml(variant.label)}"
+                        data-price="${variant.price}"
+                        data-image="${escapeHtml(variant.image || activeSulitMeal.image)}">
+                    ${escapeHtml(variant.label)} - ${formatPeso(variant.price)}
+                </button>
+            `).join('');
+        }
+
+        document.querySelectorAll('#sulitFlavorGrid .sulit-choice').forEach(choice => choice.classList.remove('selected'));
+        document.querySelector('#sulitFlavorGrid .sulit-choice')?.classList.add('selected');
+        document.querySelectorAll('.rice-choice').forEach(choice => choice.classList.remove('selected'));
+        document.querySelector('.rice-choice')?.classList.add('selected');
+        updateSulitMealPrice();
+
+        screen?.classList.add('active');
+        screen?.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeSulitMealScreen() {
+        const screen = document.getElementById('sulitMealScreen');
+        screen?.classList.remove('active');
+        screen?.setAttribute('aria-hidden', 'true');
+        activeSulitMeal = null;
+    }
+
+    document.querySelectorAll('.customize-sulit-meal').forEach(button => {
+        button.addEventListener('click', function() {
+            openSulitMealScreen(this);
+        });
+    });
+
+    document.querySelectorAll('.customize-wing-set').forEach(button => {
+        button.addEventListener('click', function() {
+            openWingSetScreen(this);
+        });
+    });
+
+    document.querySelector('.wing-set-back-btn')?.addEventListener('click', closeWingSetScreen);
+
+    document.getElementById('wingPieceGrid')?.addEventListener('click', function(e) {
+        const button = e.target.closest('.piece-choice');
+        if (!button) return;
+        setSingleChoice(button, '#wingPieceGrid .piece-choice');
+        document.querySelectorAll('#wingSetFlavorGrid .sulit-choice').forEach(choice => {
+            choice.classList.remove('selected');
+            choice.disabled = false;
+        });
+        updateWingSetPreview();
+    });
+
+    document.getElementById('wingSetFlavorGrid')?.addEventListener('click', function(e) {
+        const button = e.target.closest('.sulit-choice');
+        if (!button || button.disabled) return;
+
+        button.classList.toggle('selected');
+        updateWingSetFlavorState();
+    });
+
+    document.getElementById('addWingSetToCart')?.addEventListener('click', function() {
+        const option = selectedWingSetOption();
+        const flavors = selectedWingSetFlavors();
+        if (!option) return;
+
+        if (flavors.length === 0) {
+            alert('Please choose at least 1 wing flavor.');
+            return;
+        }
+
+        const newItem = {
+            name: option.name,
+            price: Number(option.price || 0),
+            image: option.image || activeWingSet?.image || '',
+            quantity: 1,
+            flavorLimit: Number(option.flavorLimit || 0),
+            flavors: flavors,
+            variants: [],
+            variantLabel: `${option.pieces} pcs`
+        };
+
+        const newKey = cartKey(newItem);
+        const existingItem = cart.find(item => cartKey(item) === newKey);
+        if (existingItem) {
+            if (existingItem.quantity >= 4) {
+                alert(`Maximum quantity of 4 per item allowed. You already have ${existingItem.quantity} of ${newItem.name} in your cart.`);
+                return;
+            }
+            existingItem.quantity += 1;
+        } else {
+            cart.push(newItem);
+        }
+
+        updateCartDisplay();
+        closeWingSetScreen();
+    });
+
+    document.querySelector('.sulit-meal-back-btn')?.addEventListener('click', closeSulitMealScreen);
+
+    document.getElementById('sulitFlavorGrid')?.addEventListener('click', function(e) {
+        const button = e.target.closest('.sulit-choice');
+        if (!button) return;
+        setSingleChoice(button, '#sulitFlavorGrid .sulit-choice');
+    });
+
+    document.querySelectorAll('.rice-choice').forEach(button => {
+        button.addEventListener('click', function() {
+            setSingleChoice(this, '.rice-choice');
+        });
+    });
+
+    document.getElementById('sulitServiceGrid')?.addEventListener('click', function(e) {
+        const button = e.target.closest('.service-choice');
+        if (!button) return;
+        setSingleChoice(button, '#sulitServiceGrid .service-choice');
+        updateSulitMealPrice();
+    });
+
+    document.getElementById('addSulitMealToCart')?.addEventListener('click', function() {
+        if (!activeSulitMeal) return;
+
+        const service = document.querySelector('#sulitServiceGrid .service-choice.selected');
+        const flavor = selectedChoiceValue('#sulitFlavorGrid .sulit-choice', 'data-flavor');
+        const rice = selectedChoiceValue('.rice-choice', 'data-rice');
+
+        if (!service || !flavor || !rice) {
+            alert('Please complete the meal selections.');
+            return;
+        }
+
+        const newItem = {
+            name: service.getAttribute('data-name'),
+            price: Number(service.getAttribute('data-price') || '0'),
+            image: service.getAttribute('data-image') || activeSulitMeal.image,
+            quantity: 1,
+            flavorLimit: 0,
+            flavors: [flavor, rice],
+            variants: [],
+            variantLabel: service.getAttribute('data-label') || ''
+        };
+
+        const newKey = cartKey(newItem);
+        const existingItem = cart.find(item => cartKey(item) === newKey);
+        if (existingItem) {
+            if (existingItem.quantity >= 4) {
+                alert(`Maximum quantity of 4 per item allowed. You already have ${existingItem.quantity} of ${newItem.name} in your cart.`);
+                return;
+            }
+            existingItem.quantity += 1;
+        } else {
+            cart.push(newItem);
+        }
+
+        updateCartDisplay();
+        closeSulitMealScreen();
+    });
+
     // Add to cart functionality
     document.querySelectorAll('.add-to-cart').forEach(button => {
         button.addEventListener('click', function (e) {
@@ -533,6 +1224,8 @@
             const variants = JSON.parse(this.getAttribute('data-variants') || '[]');
             const selectedVariant = variants.find(v => v.name === name);
             const flavors = selectedFlavorChips(row?.querySelector('.flavor-chip-picker'));
+            const isWingFlavor = this.getAttribute('data-is-wing-flavor') === 'true';
+            const requestedQuantity = isWingFlavor ? readCardQuantity(row) : 1;
 
             if (flavorLimit > 0) {
                 if (flavors.length === 0) {
@@ -548,7 +1241,7 @@
                 name: name,
                 price: price,
                 image: image,
-                quantity: 1,
+                quantity: requestedQuantity,
                 flavorLimit: flavorLimit,
                 flavors: flavors,
                 variants: variants,
@@ -561,11 +1254,11 @@
 
             if (existingItem) {
                 // Limit quantity to 4 per item for ala carte
-                if (existingItem.quantity >= 4) {
+                if (existingItem.quantity + requestedQuantity > 4) {
                     alert(`Maximum quantity of 4 per item allowed. You already have ${existingItem.quantity} of ${name} in your cart.`);
                     return;
                 }
-                existingItem.quantity += 1;
+                existingItem.quantity += requestedQuantity;
             } else {
                 cart.push(newItem);
             }
@@ -608,9 +1301,6 @@
             const isMaxQuantity = item.quantity >= 4;
             const plusButtonDisabled = isMaxQuantity ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : '';
             const maxQuantityIndicator = isMaxQuantity ? '<small style="color:#e74c3c;font-size:0.75em;display:block;">Max: 4</small>' : '';
-            const wingOrderNote = item.flavorLimit > 0
-                ? '<small style="color:#2e7d32;font-size:0.75em;display:block;">4 wings per order</small>'
-                : '';
             const variantEditor = item.variants && item.variants.length > 0
                 ? `<select class="cart-edit-field cart-variant" data-index="${index}">
                     ${item.variants.map(v => `<option value="${escapeHtml(v.name)}" data-price="${v.price}" data-label="${escapeHtml(v.label)}" data-image="${escapeHtml(v.image || '')}" ${v.name === item.name ? 'selected' : ''}>${escapeHtml(v.label)} - ₱${Number(v.price).toFixed(2)}</option>`).join('')}
@@ -629,7 +1319,6 @@
                     ${variantEditor}
                     ${flavorEditor}
                     ${flavorSummary}
-                    ${wingOrderNote}
                     <p style="margin:0;color:#666;">₱${item.price.toFixed(2)}</p>
                     ${maxQuantityIndicator}
                 </div>

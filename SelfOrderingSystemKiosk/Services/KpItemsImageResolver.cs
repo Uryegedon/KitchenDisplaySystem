@@ -4,18 +4,24 @@ using Microsoft.AspNetCore.Hosting;
 namespace SelfOrderingSystemKiosk.Services
 {
     /// <summary>
-    /// Maps menu items to photos under wwwroot/images/Kp items (filename pattern "Kp … .jpg").
+    /// Maps menu items to photos under wwwroot/images/Kp items and wwwroot/images/menu-items.
     /// When a file matches the DB item, the visible menu name comes from that filename (without the "Kp " prefix).
     /// </summary>
     public class KpItemsImageResolver
     {
         private const string FolderSegment = "Kp items";
+        private const string MenuItemsFolderSegment = "menu-items";
         private const double MinMatchScore = 0.38;
         private readonly List<(string StemNorm, string RelPath, string DisplayStem)> _entries = new();
 
         public KpItemsImageResolver(IWebHostEnvironment env)
         {
-            var dir = Path.Combine(env.WebRootPath, "images", FolderSegment);
+            LoadFolder(Path.Combine(env.WebRootPath, "images", FolderSegment), FolderSegment);
+            LoadFolder(Path.Combine(env.WebRootPath, "images", MenuItemsFolderSegment), MenuItemsFolderSegment);
+        }
+
+        private void LoadFolder(string dir, string folderSegment)
+        {
             if (!Directory.Exists(dir))
                 return;
 
@@ -41,7 +47,7 @@ namespace SelfOrderingSystemKiosk.Services
                     continue;
 
                 var encodedName = Uri.EscapeDataString(fileName);
-                var relPath = "/images/" + Uri.EscapeDataString(FolderSegment) + "/" + encodedName;
+                var relPath = "/images/" + Uri.EscapeDataString(folderSegment) + "/" + encodedName;
 
                 _entries.Add((stemNorm, relPath, stem));
             }
@@ -95,11 +101,25 @@ namespace SelfOrderingSystemKiosk.Services
 
         private MatchCandidate? FindBestMatch(string? menuItemName)
         {
-            if (string.IsNullOrWhiteSpace(menuItemName) || _entries.Count == 0)
+            if (string.IsNullOrWhiteSpace(menuItemName))
                 return null;
 
             var itemNorm = Normalize(menuItemName);
             if (string.IsNullOrEmpty(itemNorm))
+                return null;
+
+            var explicitPath = ResolveExplicitPath(itemNorm);
+            if (!string.IsNullOrEmpty(explicitPath))
+            {
+                return new MatchCandidate
+                {
+                    RelPath = explicitPath,
+                    DisplayStem = menuItemName.Trim(),
+                    Score = 1
+                };
+            }
+
+            if (_entries.Count == 0)
                 return null;
 
             MatchCandidate? best = null;
@@ -118,6 +138,82 @@ namespace SelfOrderingSystemKiosk.Services
 
             return best;
         }
+
+        private static string? ResolveExplicitPath(string itemNorm)
+        {
+            if (itemNorm.Contains("unli bisita", StringComparison.OrdinalIgnoreCase))
+                return "/images/logopakpak.png";
+
+            if (itemNorm.Contains("sulit kap", StringComparison.OrdinalIgnoreCase)
+                || (itemNorm.Contains("chicken wings", StringComparison.OrdinalIgnoreCase)
+                    && itemNorm.Contains("with rice", StringComparison.OrdinalIgnoreCase)))
+                return "/images/Kp%20items/Kp%20quarter%20chicken.jpg";
+
+            if (itemNorm.Contains("chicken wings", StringComparison.OrdinalIgnoreCase)
+                && itemNorm.Contains("piece", StringComparison.OrdinalIgnoreCase))
+                return MenuItemPath("Kp box of 2, 4, and 8 pcs.jpg");
+
+            if (itemNorm.Contains("gamberetto", StringComparison.OrdinalIgnoreCase)
+                || itemNorm.Contains("gambretto", StringComparison.OrdinalIgnoreCase))
+                return MenuItemPath("Gambretto.jpg");
+
+            if (itemNorm.Contains("pasta", StringComparison.OrdinalIgnoreCase)
+                && itemNorm.Contains("kapow", StringComparison.OrdinalIgnoreCase))
+                return MenuItemPath("Kapow.jpg");
+
+            if (itemNorm.Contains("chickings", StringComparison.OrdinalIgnoreCase)
+                || itemNorm.Contains("chicken tenders", StringComparison.OrdinalIgnoreCase))
+                return KpItemPath("chicken tenders.jpg");
+
+            if (itemNorm.Contains("pasta", StringComparison.OrdinalIgnoreCase)
+                && itemNorm.Contains("manzo", StringComparison.OrdinalIgnoreCase))
+                return KpItemPath("Manzo(Beefy Spaghetti).jpg");
+
+            if ((itemNorm.Contains("pasta", StringComparison.OrdinalIgnoreCase)
+                    || itemNorm.Contains("spanish", StringComparison.OrdinalIgnoreCase))
+                && (itemNorm.Contains("sardine", StringComparison.OrdinalIgnoreCase)
+                    || itemNorm.Contains("spardine", StringComparison.OrdinalIgnoreCase)))
+                return KpItemPath("Spanish Spardines.jpeg");
+
+            if (itemNorm.Contains("pasta", StringComparison.OrdinalIgnoreCase)
+                && itemNorm.Contains("pomodoro", StringComparison.OrdinalIgnoreCase))
+                return KpItemPath("Pomodoro(Tomato Basil).jpg");
+
+            if (itemNorm.Contains("extra mayo garlic", StringComparison.OrdinalIgnoreCase)
+                || itemNorm.Contains("garlic mayo", StringComparison.OrdinalIgnoreCase))
+                return MenuItemPath("Garlic Mayo.png");
+
+            if (itemNorm.Contains("garlic rice", StringComparison.OrdinalIgnoreCase))
+                return MenuItemPath("Garlic-Rice.png");
+
+            if (itemNorm.Equals("water", StringComparison.OrdinalIgnoreCase))
+                return MenuItemPath("Water.jpg");
+
+            if (itemNorm.Contains("red iced tea", StringComparison.OrdinalIgnoreCase)
+                || itemNorm.Equals("iced tea", StringComparison.OrdinalIgnoreCase))
+                return MenuItemPath("Red Iced Tea.png");
+
+            if (itemNorm.Equals("coffee", StringComparison.OrdinalIgnoreCase)
+                || itemNorm.Equals("tea", StringComparison.OrdinalIgnoreCase)
+                || itemNorm.Equals("hot tea", StringComparison.OrdinalIgnoreCase)
+                || itemNorm.StartsWith("coffee ", StringComparison.OrdinalIgnoreCase))
+                return MenuItemPath("Coffee and Tea.jpg");
+
+            if (itemNorm.Contains("coke zero", StringComparison.OrdinalIgnoreCase))
+                return MenuItemPath("Coke Zero.jpg");
+
+            if (itemNorm.Contains("softdrinks coke", StringComparison.OrdinalIgnoreCase)
+                || itemNorm.Equals("coke", StringComparison.OrdinalIgnoreCase))
+                return MenuItemPath("Coke Regular.jpg");
+
+            return null;
+        }
+
+        private static string MenuItemPath(string fileName) =>
+            "/images/" + Uri.EscapeDataString(MenuItemsFolderSegment) + "/" + Uri.EscapeDataString(fileName);
+
+        private static string KpItemPath(string fileName) =>
+            "/images/" + Uri.EscapeDataString(FolderSegment) + "/" + Uri.EscapeDataString(fileName);
 
         private static string ToMenuTitleWords(string stem)
         {

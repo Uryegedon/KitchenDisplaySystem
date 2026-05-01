@@ -7,14 +7,14 @@
 
         <div class="modal-header">
             <i class="bi bi-people-fill text-warning" style="font-size: 3rem;"></i>
-            <h3>Enter Number of Persons</h3>
+            <h3 id="personModalTitle">Enter Number of Persons</h3>
         </div>
 
-        <p>Please tell us how many people will be dining today.</p>
+        <p id="personModalText">Please tell us how many people will be dining today.</p>
 
         <input type="number" id="personCount" min="1" placeholder="Enter number of persons" />
 
-        <button id="confirmPersons">
+        <button id="confirmPersons" data-default-label="Confirm">
             <i class="bi bi-check-circle"></i> Confirm
         </button>
     </div>
