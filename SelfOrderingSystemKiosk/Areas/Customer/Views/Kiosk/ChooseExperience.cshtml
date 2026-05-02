@@ -8,18 +8,18 @@
 <div class="container">
     <div class="kiosk-page-actions">
         <form asp-action="Index" method="get" class="kiosk-back-form">
-            <button type="submit" class="back-btn" title="Back to Dining Options">
+            <button type="submit" class="back-btn" title="Back to Dining Options" data-i18n-title="backTitle">
                 <i class="bi bi-arrow-left-circle-fill"></i>
             </button>
         </form>
     </div>
 
-    <h1>Choose Your Wing Experience</h1>
+    <h1 data-i18n="title">Choose Your Wing Experience</h1>
     @if (ViewBag.IsQrFlow == true && ViewBag.LocationLabel != null)
     {
         <div style="max-width: 640px; margin: 0 auto 24px; padding: 14px 18px; background: rgba(255,255,255,0.95); border-radius: 14px; border: 2px solid #ff6b35; text-align: center;">
             <i class="bi bi-qr-code" style="font-size: 1.4rem; color: #ff6b35; vertical-align: middle;"></i>
-            <strong style="color: #333;"> Table order:</strong>
+            <strong style="color: #333;" data-i18n="tableOrder"> Table order:</strong>
             <span style="color: #ff6b35; font-weight: 700;">@ViewBag.LocationLabel</span>
         </div>
     }
@@ -29,8 +29,8 @@
             <input type="hidden" name="experienceType" value="Unlimited" />
             <div class="card" onclick="this.parentElement.submit()">
                 <img src="~/images/unlimited.png" alt="Unlimited Wings" />
-                <h3>Unlimited</h3>
-                <p>Endless wings with continuous service — our specialty!</p>
+                <h3 data-i18n="unlimited">Unlimited</h3>
+                <p data-i18n="unlimitedText">Endless wings with continuous service — our specialty!</p>
             </div>
         </form>
 
@@ -38,8 +38,8 @@
             <input type="hidden" name="experienceType" value="AlaCarte" />
             <div class="card" onclick="this.parentElement.submit()">
                 <img src="~/images/alacarte.png" alt="Ala Carte" />
-                <h3>Ala Carte</h3>
-                <p>Perfect for trying different flavors or smaller appetites.</p>
+                <h3 data-i18n="alaCarte">Ala Carte</h3>
+                <p data-i18n="alaCarteText">Perfect for trying different flavors or smaller appetites.</p>
             </div>
         </form>
     </div>
@@ -52,4 +52,45 @@
         const loader = document.getElementById("loader");
         if (loader) loader.classList.remove("hidden");
     }
+
+    (function () {
+        const key = 'kppLanguage';
+        const copy = {
+            en: {
+                title: 'Choose Your Wing Experience',
+                backTitle: 'Back to Dining Options',
+                tableOrder: ' Table order:',
+                unlimited: 'Unlimited',
+                unlimitedText: 'Endless wings with continuous service — our specialty!',
+                alaCarte: 'Ala Carte',
+                alaCarteText: 'Perfect for trying different flavors or smaller appetites.'
+            },
+            tl: {
+                title: 'Piliin ang Wing Experience',
+                backTitle: 'Bumalik sa Dining Options',
+                tableOrder: ' Order sa mesa:',
+                unlimited: 'Unlimited',
+                unlimitedText: 'Tuloy-tuloy na wings service — ang specialty namin!',
+                alaCarte: 'Ala Carte',
+                alaCarteText: 'Bagay kung gusto mong sumubok ng ibang flavors o mas maliit na order.'
+            }
+        };
+
+        function applyLanguage(language) {
+            const selected = copy[language] ? language : 'en';
+            localStorage.setItem(key, selected);
+            document.documentElement.setAttribute('data-kpp-language', selected);
+
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const text = copy[selected][el.dataset.i18n];
+                if (text) el.textContent = text;
+            });
+            document.querySelectorAll('[data-i18n-title]').forEach(el => {
+                const text = copy[selected][el.dataset.i18nTitle];
+                if (text) el.setAttribute('title', text);
+            });
+        }
+
+        applyLanguage(localStorage.getItem(key) || 'en');
+    })();
 </script>

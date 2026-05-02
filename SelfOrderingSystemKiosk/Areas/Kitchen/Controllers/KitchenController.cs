@@ -312,14 +312,14 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 return RedirectToAction("Index");
             }
 
-            // If status is being changed to "Completed", decrement stock
+            // If status is being changed to "Completed", deduct recipe ingredients
             if (status.Equals("Completed", StringComparison.OrdinalIgnoreCase))
             {
                 // Only decrement if order is not already completed (prevent double-decrementing)
                 if (!order.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase) &&
                     order.Items != null && order.Items.Any())
                 {
-                    // Decrement stock for each item in the order
+                    // Deduct ingredient stock for each menu item recipe in the order
                     foreach (var orderItem in order.Items)
                     {
                         if (!string.IsNullOrEmpty(orderItem.ItemName) && orderItem.Quantity > 0)
@@ -327,11 +327,11 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                             try
                             {
                                 await _menuItems.DecrementStockAsync(orderItem.ItemName, orderItem.Quantity, "Sale", "Order", order.Id);
-                                _logger.LogInformation("Decremented stock for {Item} by {Qty}", orderItem.ItemName, orderItem.Quantity);
+                                _logger.LogInformation("Deducted recipe ingredients for {Item} by {Qty}", orderItem.ItemName, orderItem.Quantity);
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogError(ex, "Error decrementing stock for {Item}", orderItem.ItemName);
+                                _logger.LogError(ex, "Error deducting recipe ingredients for {Item}", orderItem.ItemName);
                             }
                         }
                     }

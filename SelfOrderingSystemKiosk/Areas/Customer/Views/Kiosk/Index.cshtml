@@ -10,12 +10,20 @@
 
 
 <div class="container kiosk-home">
-    <h1>Welcome to Kapitak PakPak</h1>
-    <h2>How would you like to enjoy your wings?</h2>
-    <p>Choose your dining preference below</p>
+    <div class="language-selector" aria-label="Language selector">
+        <i class="bi bi-translate language-icon" aria-hidden="true"></i>
+        <select class="language-select" data-language-select aria-label="Language">
+            <option value="en">English</option>
+            <option value="tl">Tagalog</option>
+        </select>
+    </div>
+
+    <h1 data-i18n="welcome">Welcome to Kapitak PakPak</h1>
+    <h2 data-i18n="prompt">How would you like to enjoy your wings?</h2>
+    <p data-i18n="chooseDining">Choose your dining preference below</p>
     <p style="font-size: 0.95rem; color: #555; max-width: 520px; margin: 12px auto 0; line-height: 1.5;">
         <i class="bi bi-qr-code" style="color: #ff6b35;"></i>
-        <strong>At a table?</strong> Scan the QR code on your table to order from your phone—no kiosk line.
+        <strong data-i18n="qrHeading">At a table?</strong> <span data-i18n="qrText">Scan the QR code on your table to order from your phone—no kiosk line.</span>
     </p>
 
     <!-- Error Message Display -->
@@ -31,12 +39,13 @@
     <div style="text-align: center; margin: 30px 0; padding: 20px; background: rgba(255, 255, 255, 0.1); border-radius: 15px;">
         <p style="margin-bottom: 15px; font-size: 1.1rem; color: #333;">
             <i class="bi bi-search" style="margin-right: 8px;"></i>
-            <strong>Already placed an order?</strong>
+            <strong data-i18n="lookupHeading">Already placed an order?</strong>
         </p>
         <form method="get" asp-action="LookupOrder" style="display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; max-width: 500px; margin: 0 auto;">
             <input type="text" 
                    name="orderNumber" 
-                   placeholder="Enter your order number" 
+                   placeholder="Enter your order number"
+                   data-i18n-placeholder="orderPlaceholder"
                    required 
                    pattern="[0-9]{4,14}" 
                    maxlength="14"
@@ -46,10 +55,10 @@
                     style="padding: 12px 30px; background: #ff6b35; color: white; border: none; border-radius: 25px; font-size: 1.1rem; font-weight: bold; cursor: pointer; transition: all 0.3s;"
                     onmouseover="this.style.background='#e55a2b'; this.style.transform='scale(1.05)'"
                     onmouseout="this.style.background='#ff6b35'; this.style.transform='scale(1)'">
-                <i class="bi bi-arrow-right-circle"></i> Track Order
+                <i class="bi bi-arrow-right-circle"></i> <span data-i18n="trackOrder">Track Order</span>
             </button>
         </form>
-        <p style="margin-top: 10px; font-size: 0.9rem; color: #666;">
+        <p style="margin-top: 10px; font-size: 0.9rem; color: #666;" data-i18n="lookupHelp">
             Lost your order? Enter your order number (shown on your confirmation screen) to view status
         </p>
     </div>
@@ -60,8 +69,8 @@
             <input type="hidden" name="diningType" value="DineIn" />
             <div class="card" onclick="this.parentElement.submit()">
                 <img src="~/images/dinein.png" alt="Dine In Logo" />
-                <h3>Dine In</h3>
-                <p>Enjoy unlimited wings in our cozy restaurant atmosphere.</p>
+                <h3 data-i18n="dineIn">Dine In</h3>
+                <p data-i18n="dineInText">Enjoy unlimited wings in our cozy restaurant atmosphere.</p>
             </div>
         </form>
 
@@ -70,9 +79,71 @@
             <input type="hidden" name="diningType" value="TakeOut" />
             <div class="card" onclick="this.parentElement.submit()">
                 <img src="~/images/takeout.png" alt="Take Out Logo" />
-                <h3>Take Out</h3>
-                <p>Order your favorites to-go and enjoy them anywhere!</p>
+                <h3 data-i18n="takeOut">Take Out</h3>
+                <p data-i18n="takeOutText">Order your favorites to-go and enjoy them anywhere!</p>
             </div>
         </form>
     </div>
 </div>
+
+<script>
+    (function () {
+        const key = 'kppLanguage';
+        const copy = {
+            en: {
+                welcome: 'Welcome to Kapitak PakPak',
+                prompt: 'How would you like to enjoy your wings?',
+                chooseDining: 'Choose your dining preference below',
+                qrHeading: 'At a table?',
+                qrText: 'Scan the QR code on your table to order from your phone—no kiosk line.',
+                lookupHeading: 'Already placed an order?',
+                orderPlaceholder: 'Enter your order number',
+                trackOrder: 'Track Order',
+                lookupHelp: 'Lost your order? Enter your order number (shown on your confirmation screen) to view status',
+                dineIn: 'Dine In',
+                dineInText: 'Enjoy unlimited wings in our cozy restaurant atmosphere.',
+                takeOut: 'Take Out',
+                takeOutText: 'Order your favorites to-go and enjoy them anywhere!'
+            },
+            tl: {
+                welcome: 'Maligayang pagdating sa Kapitak PakPak',
+                prompt: 'Paano ninyo gustong i-enjoy ang wings?',
+                chooseDining: 'Pumili ng dining preference sa ibaba',
+                qrHeading: 'Nasa mesa?',
+                qrText: 'I-scan ang QR code sa mesa para maka-order gamit ang phone.',
+                lookupHeading: 'May order na?',
+                orderPlaceholder: 'Ilagay ang order number',
+                trackOrder: 'Tingnan ang Order',
+                lookupHelp: 'Nawala ang order? Ilagay ang order number mula sa confirmation screen para makita ang status.',
+                dineIn: 'Dine In',
+                dineInText: 'I-enjoy ang unlimited wings sa loob ng restaurant.',
+                takeOut: 'Take Out',
+                takeOutText: 'I-order ang favorites at i-enjoy kahit saan!'
+            }
+        };
+
+        function applyLanguage(language) {
+            const selected = copy[language] ? language : 'en';
+            localStorage.setItem(key, selected);
+            document.documentElement.setAttribute('data-kpp-language', selected);
+
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const text = copy[selected][el.dataset.i18n];
+                if (text) el.textContent = text;
+            });
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                const text = copy[selected][el.dataset.i18nPlaceholder];
+                if (text) el.setAttribute('placeholder', text);
+            });
+            document.querySelectorAll('[data-language-select]').forEach(select => {
+                select.value = selected;
+            });
+        }
+
+        document.querySelectorAll('[data-language-select]').forEach(select => {
+            select.addEventListener('change', () => applyLanguage(select.value));
+        });
+
+        applyLanguage(localStorage.getItem(key) || 'en');
+    })();
+</script>

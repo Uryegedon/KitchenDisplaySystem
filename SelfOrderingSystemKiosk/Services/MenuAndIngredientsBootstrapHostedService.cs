@@ -41,9 +41,10 @@ namespace SelfOrderingSystemKiosk.Services
                     ?? "Stock";
                 var menuName = config["KitchenDatabase:MenuItemsCollectionName"] ?? "MenuItems";
                 var ingName = config["KitchenDatabase:IngredientsCollectionName"] ?? "Ingredients";
+                var movementName = config["KitchenDatabase:StockMovementsCollectionName"] ?? "StockMovements";
 
                 await MigrateLegacyStockIfNeededAsync(db, legacyName, menuName, cancellationToken);
-                await SeedIngredientsIfNeededAsync(db, ingName, cancellationToken);
+                await SeedIngredientsIfNeededAsync(db, ingName, movementName, cancellationToken);
                 await SeedMenuBoardItemsAsync(db, menuName, ingName, cancellationToken);
             }
             catch (OperationCanceledException) { }
@@ -95,8 +96,9 @@ namespace SelfOrderingSystemKiosk.Services
             {
                 var existingItems = await coll.Find(_ => true).ToListAsync(ct);
                 var recipeUpdates = await SeedMenuRecipesAsync(coll, existingItems, seedByName, ingredientByName, ct);
+                var priceUpdates = await SyncMenuBoardPricesAsync(coll, existingItems, seedByName, ct);
                 await RetireMenuSeedItemsAsync(coll, ct);
-                _logger.LogDebug("Menu board seed skipped; all {Count} default items already exist in {Coll}; filled {Recipes} blank recipes.", boardItems.Count, menuCollection, recipeUpdates);
+                _logger.LogDebug("Menu board seed skipped; all {Count} default items already exist in {Coll}; filled {Recipes} blank recipes; synced {Prices} prices.", boardItems.Count, menuCollection, recipeUpdates, priceUpdates);
                 return;
             }
 
@@ -106,8 +108,9 @@ namespace SelfOrderingSystemKiosk.Services
             await coll.InsertManyAsync(missing, cancellationToken: ct);
             var allItems = await coll.Find(_ => true).ToListAsync(ct);
             var insertedRecipeUpdates = await SeedMenuRecipesAsync(coll, allItems, seedByName, ingredientByName, ct);
+            var insertedPriceUpdates = await SyncMenuBoardPricesAsync(coll, allItems, seedByName, ct);
             await RetireMenuSeedItemsAsync(coll, ct);
-            _logger.LogInformation("Seeded {Count} missing menu board items into {Coll}; filled {Recipes} blank recipes.", missing.Count, menuCollection, insertedRecipeUpdates);
+            _logger.LogInformation("Seeded {Count} missing menu board items into {Coll}; filled {Recipes} blank recipes; synced {Prices} prices.", missing.Count, menuCollection, insertedRecipeUpdates, insertedPriceUpdates);
         }
 
         private static async Task<Dictionary<string, IngredientItem>> LoadIngredientMapAsync(IMongoDatabase db, string ingCollection, CancellationToken ct)
@@ -140,7 +143,7 @@ namespace SelfOrderingSystemKiosk.Services
                 if (inferredRecipe is not { Count: > 0 })
                     continue;
 
-                var nextRecipe = BuildSeededRecipeUpdate(existing.Recipe, inferredRecipe);
+                var nextRecipe = BuildSeededRecipeUpdate(existing.Item, existing.Recipe, inferredRecipe, ingredientByName);
                 if (nextRecipe == null)
                     continue;
 
@@ -155,7 +158,66 @@ namespace SelfOrderingSystemKiosk.Services
             return updated;
         }
 
-        private static List<MenuRecipeLine>? BuildSeededRecipeUpdate(List<MenuRecipeLine>? existingRecipe, List<MenuRecipeLine> seedRecipe)
+        private static async Task<int> SyncMenuBoardPricesAsync(
+            IMongoCollection<MenuItem> coll,
+            IEnumerable<MenuItem> existingItems,
+            IReadOnlyDictionary<string, MenuItem> seedByName,
+            CancellationToken ct)
+        {
+            var prices = BuildMenuBoardPriceMap(seedByName);
+            var updated = 0;
+
+            foreach (var existing in existingItems)
+            {
+                if (string.IsNullOrWhiteSpace(existing.Id)
+                    || string.IsNullOrWhiteSpace(existing.Item)
+                    || !prices.TryGetValue(NormalizePriceKey(existing.Item), out var expectedPrice)
+                    || existing.Price == expectedPrice)
+                {
+                    continue;
+                }
+
+                var result = await coll.UpdateOneAsync(
+                    x => x.Id == existing.Id,
+                    Builders<MenuItem>.Update.Set(x => x.Price, expectedPrice),
+                    cancellationToken: ct);
+
+                updated += (int)result.ModifiedCount;
+            }
+
+            return updated;
+        }
+
+        private static Dictionary<string, decimal> BuildMenuBoardPriceMap(IReadOnlyDictionary<string, MenuItem> seedByName)
+        {
+            var prices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+            void Add(string name, decimal price) => prices[NormalizePriceKey(name)] = price;
+
+            foreach (var seed in seedByName.Values)
+                Add(seed.Item, seed.Price);
+
+            Add("Unli Wings Dine-In", 477m);
+            Add("Unli Wings Dine In", 477m);
+
+            Add("Chickitings (Chicken Tenders)", 77m);
+            Add("Chickitings", 77m);
+            Add("Chicken Tenders", 77m);
+
+            Add("6 Piece-Chicken Wings (2 Flavors Only)", 197m);
+            Add("12 Piece-Chicken Wings (3 Flavors Only)", 337m);
+            Add("24 Piece-Chicken Wings (6 Flavors Only)", 607m);
+            Add("50 Piece-Chicken Wings (6 Flavors Only)", 1157m);
+            Add("100 Piece-Chicken Wings (10 Flavors Only)", 2107m);
+
+            return prices;
+        }
+
+        private static List<MenuRecipeLine>? BuildSeededRecipeUpdate(
+            string? itemName,
+            List<MenuRecipeLine>? existingRecipe,
+            List<MenuRecipeLine> seedRecipe,
+            IReadOnlyDictionary<string, IngredientItem> ingredientByName)
         {
             if (existingRecipe is not { Count: > 0 })
                 return seedRecipe;
@@ -182,7 +244,28 @@ namespace SelfOrderingSystemKiosk.Services
                 }
             }
 
+            if (ShouldUseOnlyDryDrinkIngredients(itemName))
+            {
+                var bottleWaterIds = new[] { "Water", "Bottled Water", "Mineral Water" }
+                    .Select(name => ingredientByName.TryGetValue(name, out var ingredient) ? ingredient.Id : null)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                if (bottleWaterIds.Count > 0)
+                {
+                    var removed = next.RemoveAll(x => bottleWaterIds.Contains(x.IngredientId)) > 0;
+                    changed = changed || removed;
+                }
+            }
+
             return changed ? next : null;
+        }
+
+        private static bool ShouldUseOnlyDryDrinkIngredients(string? itemName)
+        {
+            var norm = Normalize(itemName ?? "");
+            return norm.Contains("coffee", StringComparison.OrdinalIgnoreCase)
+                || norm.Contains("tea", StringComparison.OrdinalIgnoreCase);
         }
 
         private static Task RetireMenuSeedItemsAsync(IMongoCollection<MenuItem> coll, CancellationToken ct)
@@ -269,11 +352,11 @@ namespace SelfOrderingSystemKiosk.Services
                 Category = category,
                 FoodCategory = foodCategory,
                 MenuOrder = order,
-                CurrentStock = 999,
+                CurrentStock = 0,
                 Unit = "pcs",
-                ReorderLevel = 10,
+                ReorderLevel = 0,
                 Price = price,
-                Status = "In Stock",
+                Status = "Available",
                 Availability = "Available",
                 Image = image,
                 Recipe = null
@@ -296,9 +379,10 @@ namespace SelfOrderingSystemKiosk.Services
             Recipe = null
         };
 
-        private async Task SeedIngredientsIfNeededAsync(IMongoDatabase db, string ingCollection, CancellationToken ct)
+        private async Task SeedIngredientsIfNeededAsync(IMongoDatabase db, string ingCollection, string movementCollection, CancellationToken ct)
         {
             var coll = db.GetCollection<IngredientItem>(ingCollection);
+            var movementColl = db.GetCollection<StockMovement>(movementCollection);
             var seed = BuildIngredientSeed();
             if (seed.Count == 0)
                 return;
@@ -318,14 +402,25 @@ namespace SelfOrderingSystemKiosk.Services
                     continue;
                 }
 
-                if (existing.IngredientCategory == item.IngredientCategory && existing.Unit == item.Unit)
+                var update = Builders<IngredientItem>.Update
+                    .Set(x => x.IngredientCategory, item.IngredientCategory)
+                    .Set(x => x.Unit, item.Unit);
+                var needsUpdate = existing.IngredientCategory != item.IngredientCategory || existing.Unit != item.Unit;
+
+                if (existing.CurrentStock == 0 && !await HasStockMovementAsync(movementColl, existing, ct))
+                {
+                    update = update
+                        .Set(x => x.CurrentStock, item.CurrentStock)
+                        .Set(x => x.Status, item.Status);
+                    needsUpdate = true;
+                }
+
+                if (!needsUpdate)
                     continue;
 
                 await coll.UpdateOneAsync(
                     x => x.Id == existing.Id,
-                    Builders<IngredientItem>.Update
-                        .Set(x => x.IngredientCategory, item.IngredientCategory)
-                        .Set(x => x.Unit, item.Unit),
+                    update,
                     cancellationToken: ct);
             }
 
@@ -340,6 +435,20 @@ namespace SelfOrderingSystemKiosk.Services
             }
 
             _logger.LogInformation("Ingredient catalog synced with {Count} spreadsheet items in {Coll}; inserted {Missing}.", seed.Count, ingCollection, missing.Count);
+        }
+
+        private static async Task<bool> HasStockMovementAsync(
+            IMongoCollection<StockMovement> movementColl,
+            IngredientItem ingredient,
+            CancellationToken ct)
+        {
+            var filter = Builders<StockMovement>.Filter.Or(
+                Builders<StockMovement>.Filter.Eq(x => x.InventoryItemId, ingredient.Id),
+                Builders<StockMovement>.Filter.And(
+                    Builders<StockMovement>.Filter.Eq(x => x.ItemName, ingredient.Item ?? ""),
+                    Builders<StockMovement>.Filter.Eq(x => x.ReferenceType, "Ingredient")));
+
+            return await movementColl.Find(filter).Limit(1).AnyAsync(ct);
         }
 
         private static List<MenuRecipeLine> BuildRecipeForMenuItem(string? itemName, IReadOnlyDictionary<string, IngredientItem> ingredients)
@@ -752,15 +861,25 @@ namespace SelfOrderingSystemKiosk.Services
             return collapsed.Trim();
         }
 
+        private static string NormalizePriceKey(string s)
+        {
+            var lower = s.ToLowerInvariant().Trim();
+            var chars = lower.Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray();
+            var collapsed = new string(chars);
+            while (collapsed.Contains("  ", StringComparison.Ordinal))
+                collapsed = collapsed.Replace("  ", " ", StringComparison.Ordinal);
+            return collapsed.Trim();
+        }
+
         private static IngredientItem Ing(string name, string category, string unit) => new()
         {
             Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
             Item = name,
             IngredientCategory = category,
-            CurrentStock = 0,
+            CurrentStock = 100,
             Unit = unit,
             ReorderLevel = 10,
-            Status = "Low Stock"
+            Status = "In Stock"
         };
 
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

@@ -1,7 +1,7 @@
 ﻿<div id="rulesModal" class="modal-overlay">
     <div class="modal-content">
         <button class="modal-close" onclick="closeModal('rulesModal')">&times;</button>
-        <h3><i class="bi bi-clipboard-check-fill text-warning"></i> Rules & Regulations</h3>
+        <h3 id="rulesTitle"><i class="bi bi-clipboard-check-fill text-warning"></i> Rules & Regulations</h3>
 
         <!-- Add this container for JS -->
         <p id="rulesBody" style="margin-top:10px;">
@@ -9,11 +9,19 @@
         </p>
 
         <!-- Optional: keep your static list if you want -->
-        <ul style="text-align:left; padding-left:20px;">
+        <ul id="rulesListEnglish" style="text-align:left; padding-left:20px;">
             <li><i class="bi bi-hourglass-split text-danger"></i> 2-hour time limit for Orders per table.</li>
             <li><i class="bi bi-stopwatch text-warning"></i> Serving time is approximately 8 - 12 minutes.</li>
             <li><i class="bi bi-person-bounding-box text-success"></i> Sharing with non-unli customers is not allowed.</li>
             <li><i class="bi bi-emoji-smile text-primary"></i> Enjoy responsibly and have fun!</li>
         </ul>
+        <ol id="rulesListTagalog" class="tagalog-rules-list" style="display:none;">
+            <li>Bawal magtira. May naka-abang na multa.</li>
+            <li>Curfew hours ng mga Ka-pakpak: 2 hours maximum.</li>
+            <li>Responde ng mga Ka-tropa: 8 to 12 minutes.</li>
+            <li>Bawal manigarilyo sa kalagitnaan ng kainan.</li>
+            <li>Maximum of 4 flavors per round of order.</li>
+            <li>Mag-enjoy lang!</li>
+        </ol>
     </div>
 </div>

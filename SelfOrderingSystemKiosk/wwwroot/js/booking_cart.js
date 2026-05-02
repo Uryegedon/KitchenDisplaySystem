@@ -366,8 +366,32 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // 📋 Show the rules modal dynamically
+function getKppLanguage() {
+    if (typeof window === 'undefined') return 'en';
+    return window.localStorage?.getItem('kppLanguage') === 'tl' ? 'tl' : 'en';
+}
+
 function showRulesModal() {
     const rulesBody = document.getElementById("rulesBody");
+    const rulesTitle = document.getElementById("rulesTitle");
+    const englishList = document.getElementById("rulesListEnglish");
+    const tagalogList = document.getElementById("rulesListTagalog");
+    const language = getKppLanguage();
+
+    if (rulesTitle) {
+        rulesTitle.innerHTML = language === 'tl'
+            ? '<i class="bi bi-clipboard-check-fill text-warning"></i> Mga Ordinansa'
+            : '<i class="bi bi-clipboard-check-fill text-warning"></i> Rules & Regulations';
+    }
+
+    if (englishList) englishList.style.display = language === 'tl' ? 'none' : '';
+    if (tagalogList) tagalogList.style.display = language === 'tl' ? '' : 'none';
+
+    if (language === 'tl') {
+        rulesBody.innerHTML = 'Pakibasa muna ang mga ordinansa bago mag-order.';
+        openModal("rulesModal");
+        return;
+    }
 
     let message = "";
     if (personCount <= 2) {

@@ -90,6 +90,55 @@ p {
     flex-wrap: wrap;
 }
 
+.language-selector {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 12px;
+    margin-bottom: 18px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(211, 84, 0, 0.24);
+    border-radius: 999px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    color: #444;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.language-icon {
+    color: #d35400;
+    font-size: 1.15rem;
+    line-height: 1;
+}
+
+.language-select {
+    min-width: 104px;
+    padding: 7px 26px 7px 8px;
+    border: 0;
+    background: transparent;
+    color: #6a4a35;
+    font: inherit;
+    cursor: pointer;
+    outline: none;
+}
+
+.language-select:focus {
+    color: #d35400;
+}
+
+.tagalog-rules-list {
+    text-align: left;
+    padding-left: 24px;
+    margin: 14px 0 0;
+    color: #333;
+    line-height: 1.55;
+    font-size: 1rem;
+}
+
+.tagalog-rules-list li {
+    margin-bottom: 8px;
+}
+
 /* Card styles */
 .card {
     width: 260px;
@@ -221,6 +270,19 @@ p {
         font-size: 0.78rem;
         line-height: 1.28;
         max-width: 140px;
+    }
+
+    .language-selector {
+        margin-bottom: 10px;
+        gap: 5px;
+        font-size: 0.8rem;
+        padding: 7px 10px;
+    }
+
+    .language-select {
+        min-width: 92px;
+        padding-top: 5px;
+        padding-bottom: 5px;
     }
 }
 

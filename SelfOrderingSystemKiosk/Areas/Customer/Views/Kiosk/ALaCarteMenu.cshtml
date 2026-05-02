@@ -156,6 +156,11 @@
             <div class="menu-scroll">
                 @foreach (var item in allMenuItems)
                 {
+                    if (string.Equals(item.Category, "Wings", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
                     var menuLabel = item.Item ?? "";
                     var baseName = VariantBaseName(menuLabel);
                     if (IsWingSet(item))
@@ -882,7 +887,7 @@
     });
 
     const defaultAlaCarteFilter = Array.from(document.querySelectorAll('.menu-tabs button'))
-        .find(button => ['Wings Ala Carte', 'Wings'].includes(button.getAttribute('data-filter')));
+        .find(button => button.getAttribute('data-filter') === 'Sulit Kap Meals');
     if (defaultAlaCarteFilter) {
         applyMenuFilter(defaultAlaCarteFilter.getAttribute('data-filter'), defaultAlaCarteFilter);
     }

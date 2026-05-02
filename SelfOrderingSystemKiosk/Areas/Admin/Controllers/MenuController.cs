@@ -80,11 +80,11 @@ namespace SelfOrderingSystemKiosk.Controllers
                 imagePath = _menuCategories.GetDefaultImage(category);
 
             const int currentStock = 0;
-            const int reorderLevel = 10;
+            const int reorderLevel = 0;
             const int menuOrder = 0;
             var effectiveAvailability = string.Equals(category, "Unavailable", StringComparison.Ordinal)
                 ? "Unavailable"
-                : (currentStock == 0 ? "Unavailable" : "Available");
+                : "Available";
 
             var newItem = new MenuItem
             {
@@ -98,7 +98,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 Unit = "pcs",
                 ReorderLevel = reorderLevel,
                 MenuOrder = menuOrder,
-                Status = currentStock <= reorderLevel ? "Low Stock" : "In Stock",
+                Status = "Available",
                 Recipe = ParseRecipeLines(Request.Form)
             };
 
@@ -146,9 +146,8 @@ namespace SelfOrderingSystemKiosk.Controllers
 
                 if (string.Equals(existing.Category, "Unavailable", StringComparison.Ordinal))
                     existing.Availability = "Unavailable";
-                // else: keep existing Avail/Stock/Unit/Reorder/MenuOrder/FoodCategory
+                // else: keep existing Availability/MenuOrder/FoodCategory
 
-                existing.Status = existing.CurrentStock <= existing.ReorderLevel ? "Low Stock" : "In Stock";
                 var updated = await _menuItems.UpdateAsync(existing);
                 if (!updated)
                     return RedirectToAction("Index", new { message = "Menu item was not updated because no database row matched it.", categoryFilter = categoryFilter ?? "all" });

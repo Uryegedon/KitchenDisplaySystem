@@ -31,20 +31,6 @@ namespace SelfOrderingSystemKiosk.Controllers
             ViewBag.TotalInventoryItems = ingredientList?.Count ?? 0;
 
             var lowRows = new List<LowStockDashboardRow>();
-            if (menuList != null)
-            {
-                lowRows.AddRange(menuList
-                    .Where(i => i.CurrentStock <= i.ReorderLevel)
-                    .Select(m => new LowStockDashboardRow
-                    {
-                        Id = m.Id,
-                        Name = m.Item ?? "",
-                        Kind = "Menu",
-                        CurrentStock = m.CurrentStock,
-                        ReorderLevel = m.ReorderLevel
-                    }));
-            }
-
             if (ingredientList != null)
             {
                 lowRows.AddRange(ingredientList
@@ -115,16 +101,6 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             try
             {
-                var menu = await _menuItems.GetByIdAsync(id);
-                if (menu != null)
-                {
-                    var ok = await _menuItems.IncreaseStockAsync(id, quantity, "Dashboard", null, "Dashboard restock");
-                    if (!ok)
-                        return Json(new { success = false, message = "Could not restock menu item." });
-                    var updated = await _menuItems.GetByIdAsync(id);
-                    return Json(new { success = true, message = $"Restocked {updated?.Item} by {quantity}. New stock: {updated?.CurrentStock}" });
-                }
-
                 var ing = await _ingredients.GetByIdAsync(id);
                 if (ing != null)
                 {

@@ -727,7 +727,7 @@
 
             <div class="form-group" style="border-top:1px solid #eee; padding-top:16px; margin-top:8px;">
                 <label style="font-weight:700; color:#d35400;">Recipe (ingredients per 1 sold)</label>
-                <p style="font-size:0.85em; color:#666; margin:4px 0 10px;">When the kitchen completes an order: <code>quantityPerUnit × order qty</code> per ingredient. New items start at 0 stock; use the table availability toggle to show on the kiosk after restocking.</p>
+                <p style="font-size:0.85em; color:#666; margin:4px 0 10px;">When the kitchen completes an order: <code>quantityPerUnit × order qty</code> per ingredient. Use the table availability toggle to show or hide this menu item on the kiosk.</p>
                 <div id="recipeLinesAdd"></div>
                 <button type="button" class="btn-cancel" style="margin-top:6px;" onclick="addRecipeRow('recipeLinesAdd')">+ Add ingredient line</button>
             </div>
@@ -798,7 +798,7 @@
 
             <div class="form-group" style="border-top:1px solid #eee; padding-top:16px; margin-top:8px;">
                 <label style="font-weight:700; color:#d35400;">Recipe (ingredients per 1 sold)</label>
-                <p style="font-size:0.85em; color:#666; margin:4px 0 10px;">Stock, unit, reorder, and kiosk availability stay unchanged here; edit them from the dashboard restock or the table toggle.</p>
+                <p style="font-size:0.85em; color:#666; margin:4px 0 10px;">Kitchen/supplies stock is handled by the linked ingredients; use the table availability toggle to show or hide this menu item on the kiosk.</p>
                 <div id="recipeLinesEdit"></div>
                 <button type="button" class="btn-cancel" style="margin-top:6px;" onclick="addRecipeRow('recipeLinesEdit')">+ Add ingredient line</button>
             </div>

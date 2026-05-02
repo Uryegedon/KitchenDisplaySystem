@@ -272,6 +272,7 @@
             <button type="button" class="inv-close" onclick="closeAddIngredientModal()" aria-label="Close">&times;</button>
         </div>
         <form method="post" asp-action="Add" id="addIngredientForm">
+            @Html.AntiForgeryToken()
             <div class="inv-form-grid" id="ingredientRows">
                 <div class="ingredient-add-row">
                     <label>Ingredient name<br />
@@ -378,6 +379,7 @@
                                     </button>
                                 </div>
                                 <form method="post" asp-area="Admin" asp-controller="Inventory" asp-action="ClearStock" style="display:inline; margin:0;">
+                                    @Html.AntiForgeryToken()
                                     <input type="hidden" name="id" value="@i.Id" />
                                     <button type="submit" class="btn-clear-stock" onclick="return confirm('Set @JavaScriptEncoder.Default.Encode(i.Item ?? "this ingredient") stock quantity to 0?');">
                                         Clear
@@ -403,6 +405,7 @@
             <button type="button" class="inv-close" onclick="closeInvEditModal()" aria-label="Close">&times;</button>
         </div>
         <form asp-area="Admin" asp-controller="Inventory" asp-action="Edit" method="post" class="inv-form-grid" id="invEditForm">
+            @Html.AntiForgeryToken()
             <input type="hidden" name="id" id="invEditId" />
             <label>Name<br />
                 <input type="text" name="item" id="invEditItem" required />
@@ -741,6 +744,15 @@
             form.method = 'post';
             form.action = '/Admin/Inventory/Restock';
             form.style.display = 'none';
+
+            const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+            if (token) {
+                const tokenInput = document.createElement('input');
+                tokenInput.type = 'hidden';
+                tokenInput.name = '__RequestVerificationToken';
+                tokenInput.value = token;
+                form.appendChild(tokenInput);
+            }
             
             const idInput = document.createElement('input');
             idInput.type = 'hidden';

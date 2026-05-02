@@ -721,6 +721,11 @@
         });
     });
 
+    const defaultUnlimitedFilter = document.querySelector('.menu-tabs button.active');
+    if (defaultUnlimitedFilter) {
+        defaultUnlimitedFilter.click();
+    }
+
     // Confirm Order
     document.querySelector('.confirm-btn').addEventListener('click', function() {
         if(cart.length === 0){

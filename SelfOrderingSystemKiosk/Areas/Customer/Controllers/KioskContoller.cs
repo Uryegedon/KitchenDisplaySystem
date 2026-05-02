@@ -425,7 +425,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             items = items
                 .Where(i => !string.Equals(i.Category, "Unlimited Inclusions", StringComparison.Ordinal))
                 .ToList();
-            ViewBag.MenuCategories = _menuCategories.KioskTabs;
+            ViewBag.MenuCategories = _menuCategories.KioskTabs
+                .Where(c => !string.Equals(c.Key, "Wings", StringComparison.Ordinal))
+                .ToList();
+            ViewBag.DefaultMenuCategory = "Sulit Kap Meals";
             RestoreOrderingCookiesToSession();
             var channel = HttpContext.Session.GetString(SessionOrderChannel) ?? OrderChannelKiosk;
             ViewBag.OrderChannel = channel;
@@ -485,6 +488,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 .Where(c => unlimitedTabKeys.Contains(c.Key))
                 .OrderBy(c => c.SortOrder)
                 .ToList();
+            ViewBag.DefaultMenuCategory = "Wings";
             ApplyOrderingSessionToViewBag();
             return View(items);
         }

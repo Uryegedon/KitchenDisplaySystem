@@ -1,9 +1,14 @@
 @model IReadOnlyList<SelfOrderingSystemKiosk.Models.MenuCategoryOption>
+@{
+    var defaultCategory = ViewBag.DefaultMenuCategory as string;
+    var hasDefaultCategory = Model.Any(c => string.Equals(c.Key, defaultCategory, StringComparison.Ordinal));
+}
 <div class="menu-tabs">
-    <button type="button" class="active" data-filter="all"><i class="bi bi-grid-1x2-fill"></i> All Items</button>
+    <button type="button" class="@(hasDefaultCategory ? "" : "active")" data-filter="all"><i class="bi bi-grid-1x2-fill"></i> All Items</button>
     @foreach (var cat in Model)
     {
-        <button type="button" data-filter="@cat.Key">
+        var isActive = string.Equals(cat.Key, defaultCategory, StringComparison.Ordinal);
+        <button type="button" class="@(isActive ? "active" : "")" data-filter="@cat.Key">
             @if (!string.IsNullOrEmpty(cat.TabImageUrl))
             {
                 <img src="@Url.Content(cat.TabImageUrl)" alt="@cat.DisplayName" />

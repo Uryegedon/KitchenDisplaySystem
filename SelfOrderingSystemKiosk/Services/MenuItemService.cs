@@ -7,21 +7,18 @@ namespace SelfOrderingSystemKiosk.Services
     public class MenuItemService
     {
         private readonly IMongoCollection<MenuItem> _collection;
-        private readonly StockMovementService _movements;
         private readonly IngredientStockService _ingredients;
         private readonly ILogger<MenuItemService> _logger;
 
         public MenuItemService(
             IMongoClient mongoClient,
             IConfiguration config,
-            StockMovementService movements,
             IngredientStockService ingredients,
             ILogger<MenuItemService> logger)
         {
             var dbName = config["KitchenDatabase:DatabaseName"] ?? "Kitchen";
             var collectionName = config["KitchenDatabase:MenuItemsCollectionName"] ?? "MenuItems";
             _collection = mongoClient.GetDatabase(dbName).GetCollection<MenuItem>(collectionName);
-            _movements = movements;
             _ingredients = ingredients;
             _logger = logger;
         }
@@ -73,35 +70,15 @@ namespace SelfOrderingSystemKiosk.Services
         {
             if (string.Equals(item.Category, "Unavailable", StringComparison.Ordinal))
                 item.Availability = "Unavailable";
-            else if (item.CurrentStock == 0)
-                item.Availability = "Unavailable";
             else if (string.IsNullOrEmpty(item.Availability))
                 item.Availability = "Available";
 
             await _collection.InsertOneAsync(item);
-
-            if (item.CurrentStock > 0)
-            {
-                await _movements.InsertAsync(new StockMovement
-                {
-                    InventoryItemId = item.Id,
-                    ItemName = item.Item ?? "",
-                    QuantityDelta = item.CurrentStock,
-                    StockBefore = 0,
-                    StockAfter = item.CurrentStock,
-                    Reason = "Initial",
-                    ReferenceType = "Menu",
-                    ReferenceId = item.Id,
-                    Note = "New menu item"
-                });
-            }
         }
 
         public async Task<bool> UpdateAsync(MenuItem item)
         {
             if (string.Equals(item.Category, "Unavailable", StringComparison.Ordinal))
-                item.Availability = "Unavailable";
-            else if (item.CurrentStock == 0)
                 item.Availability = "Unavailable";
             else if (string.IsNullOrEmpty(item.Availability))
                 item.Availability = "Available";
@@ -139,47 +116,15 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task<bool> DecrementStockAsync(string itemName, int quantity, string? reason = null, string? referenceType = null, string? referenceId = null)
         {
             var item = await GetByNameAsync(itemName);
-            var stockItemName = itemName;
             if (item == null && itemName.StartsWith("Coffee - ", StringComparison.OrdinalIgnoreCase))
             {
-                stockItemName = "Coffee";
-                item = await GetByNameAsync(stockItemName);
+                item = await GetByNameAsync("Coffee");
             }
 
             if (item == null)
             {
                 _logger.LogWarning("DecrementStock (menu): item '{Item}' not found.", itemName);
                 return false;
-            }
-
-            var oldStock = item.CurrentStock;
-            var newStock = Math.Max(0, oldStock - quantity);
-            var availability = newStock == 0 ? "Unavailable" : "Available";
-
-            var update = Builders<MenuItem>.Update
-                .Set(x => x.CurrentStock, newStock)
-                .Set(x => x.Status, newStock <= item.ReorderLevel ? "Low Stock" : "In Stock")
-                .Set(x => x.Availability, availability);
-
-            var result = await _collection.UpdateOneAsync(x => x.Item == stockItemName, update);
-            if (result.ModifiedCount == 0)
-                return false;
-
-            var delta = newStock - oldStock;
-            if (delta != 0)
-            {
-                await _movements.InsertAsync(new StockMovement
-                {
-                    InventoryItemId = item.Id,
-                    ItemName = item.Item ?? itemName,
-                    QuantityDelta = delta,
-                    StockBefore = oldStock,
-                    StockAfter = newStock,
-                    Reason = reason ?? "Sale",
-                    ReferenceType = referenceType ?? "Order",
-                    ReferenceId = referenceId,
-                    Note = null
-                });
             }
 
             if (item.Recipe is { Count: > 0 })
@@ -213,50 +158,15 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task<bool> IncreaseStockAsync(string menuItemId, int quantityAdded, string referenceType, string? referenceId, string? note = null)
         {
-            if (quantityAdded <= 0)
-                return false;
-
-            var item = await GetByIdAsync(menuItemId);
-            if (item == null)
-                return false;
-
-            var oldStock = item.CurrentStock;
-            item.CurrentStock += quantityAdded;
-            item.Status = item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
-            item.Availability = item.CurrentStock == 0 ? "Unavailable" : "Available";
-
-            await UpdateAsync(item);
-
-            await _movements.InsertAsync(new StockMovement
-            {
-                InventoryItemId = item.Id,
-                ItemName = item.Item ?? "",
-                QuantityDelta = quantityAdded,
-                StockBefore = oldStock,
-                StockAfter = item.CurrentStock,
-                Reason = "Restock",
-                ReferenceType = referenceType,
-                ReferenceId = referenceId,
-                Note = note
-            });
-
-            return true;
+            _logger.LogWarning("Menu item stock adjustment ignored for {MenuItemId}; stock is tracked through ingredients.", menuItemId);
+            await Task.CompletedTask;
+            return false;
         }
 
         public async Task RecordAdjustmentAsync(string menuItemId, string itemName, int stockBefore, int stockAfter, string note)
         {
-            await _movements.InsertAsync(new StockMovement
-            {
-                InventoryItemId = menuItemId,
-                ItemName = itemName,
-                QuantityDelta = stockAfter - stockBefore,
-                StockBefore = stockBefore,
-                StockAfter = stockAfter,
-                Reason = "Adjustment",
-                ReferenceType = "Menu",
-                ReferenceId = menuItemId,
-                Note = note
-            });
+            _logger.LogWarning("Menu item stock adjustment ignored for {MenuItem}; stock is tracked through ingredients.", itemName);
+            await Task.CompletedTask;
         }
     }
 }
