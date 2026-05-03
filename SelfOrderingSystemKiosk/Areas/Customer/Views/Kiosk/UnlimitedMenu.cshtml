@@ -8,6 +8,9 @@
     var rememberedPersonCount = ViewBag.PersonCount is int count && count > 0
         ? count.ToString(System.Globalization.CultureInfo.InvariantCulture)
         : "null";
+    var orderingSessionKey = ViewBag.IsQrFlow == true && ViewBag.ServiceTable != null
+        ? $"qr:{ViewBag.ServiceFloor ?? ""}:{ViewBag.ServiceTable}"
+        : "kiosk-unlimited";
     var variantGroups = allMenuItems
         .Where(i => !string.IsNullOrWhiteSpace(i.Item)
             && !IsSulitWingRiceMeal(i)
@@ -25,6 +28,7 @@
     var variantMemberNames = variantGroups.Values.SelectMany(g => g).Select(i => i.Item).ToHashSet(StringComparer.OrdinalIgnoreCase);
     var renderedVariantBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     var renderedSulitMealBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var renderedUnlimitedIncludedBoard = false;
     var wingFlavors = allMenuItems
         .Where(i => string.Equals(i.Category, "Wings", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(i.Item))
         .OrderByDescending(i => i.MenuOrder)
@@ -81,6 +85,67 @@
         && !string.IsNullOrWhiteSpace(item.Item)
         && item.Item.Contains("Chicken Wings With Rice - ", StringComparison.OrdinalIgnoreCase);
 
+    static bool IsUnlimitedIncludedMenuItem(SelfOrderingSystemKiosk.Models.MenuItem item)
+    {
+        if (item == null || string.IsNullOrWhiteSpace(item.Item))
+            return false;
+
+        var name = item.Item.Trim();
+        if (string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal))
+            return true;
+
+        if (string.Equals(item.Category, "Wings", StringComparison.Ordinal))
+            return true;
+
+        if (string.Equals(item.Category, "Drinks", StringComparison.Ordinal))
+            return true;
+
+        if (string.Equals(item.Category, "Add Ons", StringComparison.Ordinal))
+        {
+            return name.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("Extra Gravy", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (string.Equals(item.Category, "Appetizer", StringComparison.Ordinal))
+        {
+            return name.Equals("Nachos", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("Potato Thins", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    static bool IsUnlimitedRice(SelfOrderingSystemKiosk.Models.MenuItem item) =>
+        string.Equals(item.Category, "Add Ons", StringComparison.Ordinal)
+        && (item.Item.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)
+            || item.Item.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase));
+
+    static bool IsUnlimitedSauce(SelfOrderingSystemKiosk.Models.MenuItem item) =>
+        string.Equals(item.Category, "Add Ons", StringComparison.Ordinal)
+        && item.Item.Equals("Extra Gravy", StringComparison.OrdinalIgnoreCase);
+
+    static bool IsUnlimitedSide(SelfOrderingSystemKiosk.Models.MenuItem item) =>
+        string.Equals(item.Category, "Appetizer", StringComparison.Ordinal)
+        && (item.Item.Equals("Nachos", StringComparison.OrdinalIgnoreCase)
+            || item.Item.StartsWith("Potato Thins", StringComparison.OrdinalIgnoreCase));
+
+    static bool IsUnlimitedPasta(SelfOrderingSystemKiosk.Models.MenuItem item) =>
+        string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal)
+        && (string.Equals(item.FoodCategory, "pasta", StringComparison.OrdinalIgnoreCase)
+            || item.Item.Contains("Pasta", StringComparison.OrdinalIgnoreCase));
+
+    static bool IsUnlimitedDrink(SelfOrderingSystemKiosk.Models.MenuItem item) =>
+        (string.Equals(item.Category, "Drinks", StringComparison.Ordinal)
+            || string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal))
+        && !IsUnlimitedPasta(item)
+        && (string.Equals(item.FoodCategory, "drink", StringComparison.OrdinalIgnoreCase)
+            || item.Item.Contains("Tea", StringComparison.OrdinalIgnoreCase)
+            || item.Item.Contains("Coffee", StringComparison.OrdinalIgnoreCase)
+            || item.Item.Contains("Drink", StringComparison.OrdinalIgnoreCase)
+            || item.Item.Contains("Softdrinks", StringComparison.OrdinalIgnoreCase)
+            || item.Item.Equals("Water", StringComparison.OrdinalIgnoreCase));
+
     static string SulitMealBaseName(string itemName) =>
         itemName.Contains(" - ", StringComparison.Ordinal)
             ? itemName[..itemName.IndexOf(" - ", StringComparison.Ordinal)].Trim()
@@ -134,19 +199,10 @@
                 </div>
             </div>
 
-            @{
-                var kioskCats = ViewBag.MenuCategories as IReadOnlyList<SelfOrderingSystemKiosk.Models.MenuCategoryOption>;
-            }
-            @if (kioskCats != null && kioskCats.Count > 0)
-            {
-                @await Html.PartialAsync("_MenuCategoryTabs", kioskCats)
-            }
-            else
-            {
-                <div class="menu-tabs">
-                    <button type="button" class="active" data-filter="all"><i class="bi bi-grid-1x2-fill"></i> All Items</button>
-                </div>
-            }
+            <div class="menu-tabs">
+                <button type="button" class="active" data-filter="Unlimited"><i class="bi bi-infinity"></i> Unlimited</button>
+                <button type="button" data-filter="Ala Carte"><i class="bi bi-menu-button-wide"></i> Ala Carte</button>
+            </div>
 
             <!-- Scrollable Menu Items -->
             <div class="menu-scroll">
@@ -154,6 +210,153 @@
                 {
                     var menuLabel = item.Item ?? "";
                     var baseName = VariantBaseName(menuLabel);
+                    if (IsUnlimitedIncludedMenuItem(item))
+                    {
+                        if (renderedUnlimitedIncludedBoard)
+                        {
+                            continue;
+                        }
+
+                        renderedUnlimitedIncludedBoard = true;
+                        var includedItems = allMenuItems
+                            .Where(IsUnlimitedIncludedMenuItem)
+                            .Where(i => !string.IsNullOrWhiteSpace(i.Item))
+                            .ToList();
+                        var unlimitedGroups = new[]
+                        {
+                            new
+                            {
+                                key = "wings",
+                                title = "Chicken flavors",
+                                hint = "4 pcs each",
+                                maxSelections = 4,
+                                defaultQuantity = 4,
+                                options = includedItems
+                                    .Where(i => string.Equals(i.Category, "Wings", StringComparison.Ordinal))
+                                    .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                                    .Select(g => g.OrderByDescending(i => i.MenuOrder).First())
+                                    .OrderByDescending(i => i.MenuOrder)
+                                    .ThenBy(i => i.Item)
+                                    .Select(i => new
+                                    {
+                                        name = i.Item,
+                                        label = i.Item,
+                                        image = Url.Content(KpImages.ResolveDisplayPath(i.Item, i.Image))
+                                    })
+                                    .ToList()
+                            },
+                            new
+                            {
+                                key = "rice",
+                                title = "Rice",
+                                hint = "Included",
+                                maxSelections = 0,
+                                defaultQuantity = 1,
+                                options = includedItems
+                                    .Where(IsUnlimitedRice)
+                                    .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                                    .Select(g => g.OrderByDescending(i => i.MenuOrder).First())
+                                    .OrderByDescending(i => i.MenuOrder)
+                                    .ThenBy(i => i.Item)
+                                    .Select(i => new
+                                    {
+                                        name = i.Item,
+                                        label = i.Item,
+                                        image = Url.Content(KpImages.ResolveDisplayPath(i.Item, i.Image))
+                                    })
+                                    .ToList()
+                            },
+                            new
+                            {
+                                key = "sides",
+                                title = "Sides and gravy",
+                                hint = "Included",
+                                maxSelections = 0,
+                                defaultQuantity = 1,
+                                options = includedItems
+                                    .Where(i => IsUnlimitedSide(i) || IsUnlimitedSauce(i))
+                                    .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                                    .Select(g => g.OrderByDescending(i => i.MenuOrder).First())
+                                    .OrderByDescending(i => i.MenuOrder)
+                                    .ThenBy(i => i.Item)
+                                    .Select(i => new
+                                    {
+                                        name = i.Item,
+                                        label = VariantLabel(i.Item),
+                                        image = Url.Content(KpImages.ResolveDisplayPath(i.Item, i.Image))
+                                    })
+                                    .ToList()
+                            },
+                            new
+                            {
+                                key = "pasta",
+                                title = "Pasta",
+                                hint = "Included",
+                                maxSelections = 0,
+                                defaultQuantity = 1,
+                                options = includedItems
+                                    .Where(IsUnlimitedPasta)
+                                    .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                                    .Select(g => g.OrderByDescending(i => i.MenuOrder).First())
+                                    .OrderByDescending(i => i.MenuOrder)
+                                    .ThenBy(i => i.Item)
+                                    .Select(i => new
+                                    {
+                                        name = i.Item,
+                                        label = i.Item.StartsWith("Unli Pasta ", StringComparison.OrdinalIgnoreCase)
+                                            ? i.Item["Unli Pasta ".Length..].Trim()
+                                            : i.Item,
+                                        image = Url.Content(KpImages.ResolveDisplayPath(i.Item, i.Image))
+                                    })
+                                    .ToList()
+                            },
+                            new
+                            {
+                                key = "drinks",
+                                title = "Drinks",
+                                hint = "Included",
+                                maxSelections = 0,
+                                defaultQuantity = 1,
+                                options = includedItems
+                                    .Where(IsUnlimitedDrink)
+                                    .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                                    .Select(g => g.OrderByDescending(i => i.MenuOrder).First())
+                                    .OrderByDescending(i => i.MenuOrder)
+                                    .ThenBy(i => i.Item)
+                                    .Select(i => new
+                                    {
+                                        name = i.Item,
+                                        label = i.Item,
+                                        image = Url.Content(KpImages.ResolveDisplayPath(i.Item, i.Image))
+                                    })
+                                    .ToList()
+                            }
+                        }
+                        .Where(g => g.options.Count > 0)
+                        .ToList();
+
+                        if (unlimitedGroups.Count > 0)
+                        {
+                            var featuredImage = unlimitedGroups.SelectMany(g => g.options).FirstOrDefault()?.image ?? Url.Content("~/images/unlimited.png");
+                            var includedOptionsJson = JsonSerializer.Serialize(unlimitedGroups);
+                            <div class="menu-row" data-category="Unlimited">
+                                <img src="@featuredImage" alt="Unlimited selections" />
+                                <div class="menu-details">
+                                    <h4>UNLIMITED SELECTIONS</h4>
+                                    <p class="wing-order-note">Customize all included items in one order</p>
+                                    <p style="color:#2e7d32;font-weight:700;margin:4px 0 0;">Included</p>
+                                </div>
+                                <button type="button"
+                                        class="customize-unlimited-included"
+                                        data-image="@featuredImage"
+                                        data-groups='@includedOptionsJson'>
+                                    Customize
+                                </button>
+                            </div>
+                        }
+                        continue;
+                    }
+
                     if (IsSulitWingRiceMeal(item))
                     {
                         var sulitBaseName = SulitMealBaseName(menuLabel);
@@ -178,7 +381,7 @@
                         }));
                         var minPrice = sulitItems.Min(i => i.Price);
                         var maxPrice = sulitItems.Max(i => i.Price);
-                        <div class="menu-row" data-category="@selectedSulit.Category">
+                        <div class="menu-row" data-category="Ala Carte">
                             <img src="@Url.Content(sulitImage)" alt="@sulitBaseName" />
                             <div class="menu-details">
                                 <h4>@sulitBaseName.ToUpper()</h4>
@@ -206,7 +409,7 @@
                         var groupItems = variantGroups[baseName];
                         var selected = groupItems.First();
                         var groupImage = KpImages.ResolveDisplayPath(selected.Item, selected.Image);
-                        <div class="menu-row" data-category="@selected.Category">
+                        <div class="menu-row" data-category="Ala Carte">
                             <img src="@Url.Content(groupImage)" alt="@baseName" />
                             <div class="menu-details">
                                 <h4>@baseName.ToUpper()</h4>
@@ -240,7 +443,7 @@
                             new { name = "Coffee - White (Cold)", label = "White - Cold", price = item.Price, image = Url.Content(displayImage) }
                         })
                         : "[]";
-                    <div class="menu-row" data-category="@item.Category">
+                    <div class="menu-row" data-category="Ala Carte">
                         <img src="@Url.Content(displayImage)" alt="@menuLabel" />
                         <div class="menu-details">
                             <h4>@menuLabel.ToUpper()</h4>
@@ -327,6 +530,33 @@
     flex-direction: column;
     gap: 10px;
 "></div>
+
+<section id="unlimitedIncludedScreen" class="sulit-screen" aria-hidden="true">
+    <div class="sulit-screen-shell">
+        <div class="sulit-screen-topbar">
+            <button type="button" class="unlimited-included-back-btn sulit-back-btn" aria-label="Back to menu">
+                <i class="bi bi-arrow-left"></i>
+            </button>
+            <h2>Customize Unlimited Selections</h2>
+        </div>
+
+        <div class="sulit-screen-grid">
+            <div class="sulit-preview">
+                <img id="unlimitedIncludedImage" src="" alt="Unlimited selections" />
+                <h3>Unlimited Selections</h3>
+                <p>Included</p>
+            </div>
+
+            <div class="sulit-options">
+                <div id="unlimitedIncludedGroups" class="unlimited-included-groups"></div>
+
+                <button type="button" id="addUnlimitedIncludedToCart" class="sulit-confirm-btn">
+                    <i class="bi bi-cart-plus"></i> Add selections
+                </button>
+            </div>
+        </div>
+    </div>
+</section>
 
 <section id="sulitMealScreen" class="sulit-screen" aria-hidden="true">
     <div class="sulit-screen-shell">
@@ -462,6 +692,11 @@
         gap: 18px;
     }
 
+    .unlimited-included-groups {
+        display: grid;
+        gap: 18px;
+    }
+
     .sulit-option-block {
         background: #fff;
         border: 1px solid #f2c094;
@@ -504,6 +739,33 @@
         color: #fff;
     }
 
+    .sulit-choice:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .unlimited-choice {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 54px;
+        text-align: left;
+    }
+
+    .unlimited-choice img {
+        width: 38px;
+        height: 38px;
+        flex: 0 0 38px;
+        border-radius: 7px;
+        object-fit: cover;
+        background: #fff4ec;
+    }
+
+    .unlimited-choice span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
     .sulit-confirm-btn {
         min-height: 50px;
         border: 0;
@@ -543,11 +805,13 @@
     window.isReorder = @(ViewBag.IsReorder != null && (bool)ViewBag.IsReorder ? "true" : "false");
     window.reorderPersonCount = @rememberedPersonCount;
     window.orderingSessionPersonCount = @rememberedPersonCount;
+    window.orderingSessionKey = @Html.Raw(JsonSerializer.Serialize(orderingSessionKey));
 </script>
 <script src="~/js/booking_cart.js"></script>
 <script src="~/js/mobile_order_summary.js" asp-append-version="true"></script>
 
 <script>
+    let activeUnlimitedIncluded = null;
     let activeSulitMeal = null;
 
     function formatPeso(value) {
@@ -561,6 +825,93 @@
 
     function selectedChoiceValue(selector, attrName) {
         return document.querySelector(`${selector}.selected`)?.getAttribute(attrName) || '';
+    }
+
+    function renderUnlimitedIncludedGroups(groups) {
+        const container = document.getElementById('unlimitedIncludedGroups');
+        if (!container) return;
+
+        container.innerHTML = groups.map(group => {
+            const limitText = group.maxSelections > 0
+                ? `<small class="flavor-count" data-group-key="${escapeHtml(group.key)}">Choose up to ${group.maxSelections}</small>`
+                : '';
+            const choices = (group.options || []).map(option => `
+                <button type="button"
+                        class="sulit-choice unlimited-choice"
+                        data-group-key="${escapeHtml(group.key)}"
+                        data-group-title="${escapeHtml(group.title)}"
+                        data-name="${escapeHtml(option.name)}"
+                        data-label="${escapeHtml(option.label || option.name)}"
+                        data-image="${escapeHtml(option.image || '')}"
+                        data-quantity="${Number(group.defaultQuantity || 1)}">
+                    ${option.image ? `<img src="${escapeHtml(option.image)}" alt="">` : ''}
+                    <span>${escapeHtml(option.label || option.name)}</span>
+                </button>
+            `).join('');
+
+            return `
+                <div class="sulit-option-block" data-group-key="${escapeHtml(group.key)}" data-max-selections="${Number(group.maxSelections || 0)}">
+                    <h4>${escapeHtml(group.title)} <span style="color:#777;font-size:0.82rem;font-weight:700;">${escapeHtml(group.hint || '')}</span></h4>
+                    <div class="sulit-choice-grid">${choices}</div>
+                    ${limitText}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function selectedUnlimitedChoices() {
+        return Array.from(document.querySelectorAll('#unlimitedIncludedGroups .unlimited-choice.selected'));
+    }
+
+    function updateUnlimitedChoiceState(groupBlock) {
+        if (!groupBlock) return;
+
+        const maxSelections = Number(groupBlock.getAttribute('data-max-selections') || '0');
+        const selected = Array.from(groupBlock.querySelectorAll('.unlimited-choice.selected'));
+        const atLimit = maxSelections > 0 && selected.length >= maxSelections;
+        groupBlock.querySelectorAll('.unlimited-choice').forEach(button => {
+            button.disabled = atLimit && !button.classList.contains('selected');
+        });
+
+        const count = groupBlock.querySelector('.flavor-count');
+        if (count && maxSelections > 0) {
+            count.textContent = selected.length === 0
+                ? `Choose up to ${maxSelections}`
+                : `${selected.length}/${maxSelections} selected`;
+        }
+    }
+
+    function openUnlimitedIncludedScreen(button) {
+        if (personCount === 0) {
+            showNotification("Please enter the number of persons first.", 'error');
+            openModal("personModal");
+            return;
+        }
+
+        const groups = JSON.parse(button.getAttribute('data-groups') || '[]');
+        if (groups.length === 0) return;
+
+        activeUnlimitedIncluded = {
+            image: button.getAttribute('data-image') || '',
+            groups
+        };
+
+        const image = document.getElementById('unlimitedIncludedImage');
+        if (image) image.src = activeUnlimitedIncluded.image;
+
+        renderUnlimitedIncludedGroups(groups);
+        document.querySelectorAll('#unlimitedIncludedGroups .sulit-option-block').forEach(updateUnlimitedChoiceState);
+
+        const screen = document.getElementById('unlimitedIncludedScreen');
+        screen?.classList.add('active');
+        screen?.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeUnlimitedIncludedScreen() {
+        const screen = document.getElementById('unlimitedIncludedScreen');
+        screen?.classList.remove('active');
+        screen?.setAttribute('aria-hidden', 'true');
+        activeUnlimitedIncluded = null;
     }
 
     function updateSulitMealPrice() {
@@ -623,6 +974,81 @@
         screen?.setAttribute('aria-hidden', 'true');
         activeSulitMeal = null;
     }
+
+    document.querySelectorAll('.customize-unlimited-included').forEach(button => {
+        button.addEventListener('click', function() {
+            openUnlimitedIncludedScreen(this);
+        });
+    });
+
+    document.querySelector('.unlimited-included-back-btn')?.addEventListener('click', closeUnlimitedIncludedScreen);
+
+    document.getElementById('unlimitedIncludedGroups')?.addEventListener('click', function(e) {
+        const button = e.target.closest('.unlimited-choice');
+        if (!button || button.disabled) return;
+
+        button.classList.toggle('selected');
+        updateUnlimitedChoiceState(button.closest('.sulit-option-block'));
+    });
+
+    document.getElementById('addUnlimitedIncludedToCart')?.addEventListener('click', function() {
+        if (!activeUnlimitedIncluded) return;
+
+        const selected = selectedUnlimitedChoices();
+        if (selected.length === 0) {
+            showNotification('Please choose at least one unlimited item.', 'error');
+            return;
+        }
+
+        const quantityLimit = getQuantityLimit();
+        const flavorLimit = getFlavorLimit();
+        const selectedWingChoices = selected.filter(choice => choice.getAttribute('data-group-key') === 'wings');
+        const existingWingNames = new Set(
+            cart
+                .filter(item => item.isWingFlavor !== false)
+                .map(item => String(item.name || '').toLowerCase())
+        );
+        const newWingNames = selectedWingChoices
+            .map(choice => String(choice.getAttribute('data-name') || '').toLowerCase())
+            .filter(name => name && !existingWingNames.has(name));
+
+        if (existingWingNames.size + new Set(newWingNames).size > flavorLimit) {
+            showNotification(`You can only choose up to ${flavorLimit} wing flavors per order.`, 'error');
+            return;
+        }
+
+        for (const choice of selected) {
+            const name = choice.getAttribute('data-name');
+            const groupKey = choice.getAttribute('data-group-key');
+            const quantity = Number(choice.getAttribute('data-quantity') || '1');
+            const isWingFlavor = groupKey === 'wings';
+            const newItem = {
+                name,
+                image: choice.getAttribute('data-image') || activeUnlimitedIncluded.image,
+                price: 0,
+                quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+                isWingFlavor,
+                isAlaCarteAddOn: false,
+                variantLabel: choice.getAttribute('data-group-title') || ''
+            };
+
+            const existingItem = cart.find(item => cartKey(item) === cartKey(newItem));
+            if (existingItem) {
+                if (isWingFlavor && existingItem.quantity + newItem.quantity > quantityLimit) {
+                    showNotification(`You can only add up to ${quantityLimit} pieces per wing flavor.`, 'error');
+                    return;
+                }
+
+                existingItem.quantity += newItem.quantity;
+            } else {
+                cart.push(newItem);
+            }
+        }
+
+        updateCartDisplay();
+        closeUnlimitedIncludedScreen();
+        showNotification('Added unlimited selections to cart.', 'success');
+    });
 
     document.querySelectorAll('.customize-sulit-meal').forEach(button => {
         button.addEventListener('click', function() {
@@ -696,27 +1122,12 @@
     // Category filter functionality
     document.querySelectorAll('.menu-tabs button').forEach(button => {
         button.addEventListener('click', function() {
-            // Remove active class from all buttons
             document.querySelectorAll('.menu-tabs button').forEach(btn => btn.classList.remove('active'));
-            // Add active class to clicked button
             this.classList.add('active');
-            
-            // Get filter value
+
             const filter = this.getAttribute('data-filter');
-            const menuRows = document.querySelectorAll('.menu-row');
-            
-            // Filter menu items
-            menuRows.forEach(row => {
-                if (filter === 'all') {
-                    row.style.display = '';
-                } else {
-                    const category = row.getAttribute('data-category');
-                    if (category === filter) {
-                        row.style.display = '';
-                    } else {
-                        row.style.display = 'none';
-                    }
-                }
+            document.querySelectorAll('.menu-row').forEach(row => {
+                row.style.display = row.getAttribute('data-category') === filter ? '' : 'none';
             });
         });
     });
@@ -777,17 +1188,20 @@
         })
         .then(data => {
             if(data && data.success){
+                clearDeviceOrderState();
                 // Redirect to order tracking page
                 window.location.href = '/Customer/Kiosk/Confirmation?orderNumber=' + encodeURIComponent(data.orderNumber) + '&accessToken=' + encodeURIComponent(data.accessToken || '');
             } else {
                 if (data?.resetPersonCount) {
                     personCount = 0;
+                    cart = [];
+                    clearDeviceOrderState();
                     window.isReorder = false;
                     window.reorderPersonCount = 0;
                     window.orderingSessionPersonCount = 0;
                     const personCountLabel = document.querySelector(".person-count");
                     if (personCountLabel) personCountLabel.textContent = "0 Persons";
-                    updateOrderSummary();
+                    updateCartDisplay();
                     setPersonModalMode("initial");
                     openModal("personModal");
                 }
@@ -825,6 +1239,7 @@
                         endedSessionHandled = true;
                         personCount = 0;
                         cart = [];
+                        clearDeviceOrderState();
                         window.isReorder = false;
                         window.reorderPersonCount = 0;
                         window.orderingSessionPersonCount = 0;

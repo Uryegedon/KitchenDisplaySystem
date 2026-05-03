@@ -1,8 +1,8 @@
 @model SelfOrderingSystemKiosk.Areas.Kitchen.Models.SessionReceiptViewModel
 @{
-    ViewData["Title"] = "Session Receipt";
+    ViewData["Title"] = "Table Bill";
     var firstOrder = Model.Orders.FirstOrDefault();
-    var sessionLabel = Model.IsTableSession ? "Table Session" : "Single Order";
+    var sessionLabel = Model.IsTableSession ? "Table Bill" : "Order Bill";
     var returnUrl = ViewBag.ReturnUrl as string ?? Url.Action("Receipts", "Kitchen", new { area = "Kitchen" });
     var canManagePayment = ViewBag.CanManagePayment is bool canPay && canPay;
     var isCanceled = Model.Orders.Any() && Model.Orders.All(o => string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase));
@@ -343,7 +343,7 @@
     <div class="page">
         <div class="toolbar">
             <a href="@returnUrl">
-                <i class="bi bi-arrow-left"></i> Back
+                <i class="bi bi-arrow-left"></i> Back to Tables
             </a>
         </div>
 
@@ -351,7 +351,7 @@
             <div class="receipt-header">
                 <div class="brand">
                     <h1>Kapitak PakPak</h1>
-                    <p>Unified receipt and bill</p>
+                    <p>@(Model.IsTableSession ? "Current table bill" : "Order bill")</p>
                     <span class="pill"><i class="bi bi-receipt"></i> @sessionLabel</span>
                     <span class="pill @(isCanceled ? "expired" : isPaid ? "paid" : "pending")"><i class="bi bi-cash-coin"></i> @paymentStatusLabel</span>
                     @if (isSessionEnded)
@@ -368,7 +368,7 @@
                     }
                 </div>
                 <div class="receipt-meta">
-                    <p><strong>Receipt:</strong> @Model.ReceiptNumber</p>
+                    <p><strong>Bill:</strong> @Model.ReceiptNumber</p>
                     <p><strong>Generated:</strong> @DateTime.Now.ToString("MMM dd, yyyy h:mm tt")</p>
                     <p><strong>Orders:</strong> @Model.Orders.Count</p>
                 </div>
@@ -490,7 +490,7 @@
 
             @if (showStaffDetails)
             {
-                <h2 class="section-title">Orders Included</h2>
+                <h2 class="section-title">Orders In This Bill</h2>
                 <table>
                     <thead>
                         <tr>
@@ -516,7 +516,7 @@
                 </table>
 
                 <p class="muted">
-                    This receipt groups table orders inside the same two-hour ordering window. Canceled orders are excluded from the bill.
+                    This bill groups table orders inside the same two-hour ordering window. Canceled orders are excluded from the total.
                 </p>
             }
         </main>

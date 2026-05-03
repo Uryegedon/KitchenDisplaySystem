@@ -218,6 +218,22 @@ namespace SelfOrderingSystemKiosk.Services
             await _orders.UpdateManyAsync(o => validIds.Contains(o.Id), update);
         }
 
+        public async Task<long> UpdateOpenUnlimitedPersonCountForTableAsync(string tableNumber, int personCount)
+        {
+            if (string.IsNullOrWhiteSpace(tableNumber) || personCount <= 0)
+                return 0;
+
+            var filter = Builders<Order>.Filter.And(
+                Builders<Order>.Filter.Eq(o => o.TableNumber, tableNumber),
+                Builders<Order>.Filter.Eq(o => o.DiningType, "DineIn"),
+                Builders<Order>.Filter.Eq(o => o.OrderType, "Unlimited"),
+                Builders<Order>.Filter.Ne(o => o.Status, "Canceled"),
+                Builders<Order>.Filter.Eq(o => o.BillArchived, false));
+            var update = Builders<Order>.Update.Set(o => o.PersonCount, personCount);
+            var result = await _orders.UpdateManyAsync(filter, update);
+            return result.ModifiedCount;
+        }
+
         // Delete order
         public async Task DeleteAsync(string id)
         {

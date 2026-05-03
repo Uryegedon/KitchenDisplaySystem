@@ -42,6 +42,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
         [JsonPropertyName("items")]
         public List<OrderItem> Items { get; set; }
 
+        [BsonElement("personCount")]
+        [JsonPropertyName("personCount")]
+        public int? PersonCount { get; set; }
+
         [BsonElement("subtotal")]
         [JsonPropertyName("subtotal")]
         public decimal Subtotal { get; set; }

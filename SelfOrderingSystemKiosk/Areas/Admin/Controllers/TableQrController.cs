@@ -18,11 +18,16 @@ namespace SelfOrderingSystemKiosk.Controllers
     {
         private readonly QrCodeService _qrCodeService;
         private readonly IOptions<QrOrderingSettings> _qrSettings;
+        private readonly TableRegistryService _tableRegistry;
 
-        public TableQrController(QrCodeService qrCodeService, IOptions<QrOrderingSettings> qrSettings)
+        public TableQrController(
+            QrCodeService qrCodeService,
+            IOptions<QrOrderingSettings> qrSettings,
+            TableRegistryService tableRegistry)
         {
             _qrCodeService = qrCodeService;
             _qrSettings = qrSettings;
+            _tableRegistry = tableRegistry;
         }
 
         [HttpGet]
@@ -31,7 +36,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             var vm = new TableQrIndexViewModel
             {
                 PublicSiteUrl = _qrSettings.Value.PublicSiteUrl,
-                TablesBulk = "1\n2\n3\n4\n5",
+                TablesBulk = "1\n2\n3\n4\n5\n6\n7",
                 Floor = ""
             };
             vm.ResolvedBaseUrlPreview = ResolvePublicBaseUrl(vm.PublicSiteUrl);
@@ -40,7 +45,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         /// <summary>PNG for one table (for download or embedding).</summary>
         [HttpGet]
-        public IActionResult Download(string table, string? floor = null, string? publicSiteUrl = null)
+        public async Task<IActionResult> Download(string table, string? floor = null, string? publicSiteUrl = null)
         {
             if (string.IsNullOrWhiteSpace(table))
                 return BadRequest("Table is required.");
@@ -48,6 +53,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             table = table.Trim();
             if (table.Length > 64)
                 return BadRequest("Table value is too long.");
+
+            await _tableRegistry.UpsertAsync(table, floor);
 
             var baseUrl = ResolvePublicBaseUrl(publicSiteUrl);
             var payload = BuildOrderUrl(baseUrl, table, floor);
@@ -58,7 +65,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult Print(TableQrIndexViewModel model)
+        public async Task<IActionResult> Print(TableQrIndexViewModel model)
         {
             var tables = ParseTableList(model.TablesBulk);
             if (tables.Count == 0)
@@ -70,6 +77,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             var baseUrl = ResolvePublicBaseUrl(model.PublicSiteUrl);
             var floor = string.IsNullOrWhiteSpace(model.Floor) ? null : model.Floor.Trim();
+            await _tableRegistry.UpsertManyAsync(tables, floor);
 
             var items = new List<QrPrintItemViewModel>();
             foreach (var t in tables)

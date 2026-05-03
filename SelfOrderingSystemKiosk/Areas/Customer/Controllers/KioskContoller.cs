@@ -12,6 +12,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
     public class KioskController : Controller
     {
         private readonly OrderService _orderService;
+        private readonly TableOrderingSessionService _tableOrderingSessions;
         private readonly MenuItemService _menuItems;
         private readonly MenuCategoryRegistry _menuCategories;
         private readonly ILogger<KioskController> _logger;
@@ -33,9 +34,15 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private static readonly TimeSpan OrderingSessionLength = TimeSpan.FromHours(2);
         private static readonly TimeSpan CustomerCancelWindow = TimeSpan.FromSeconds(5);
 
-        public KioskController(OrderService orderService, MenuItemService menuItems, MenuCategoryRegistry menuCategories, ILogger<KioskController> logger)
+        public KioskController(
+            OrderService orderService,
+            TableOrderingSessionService tableOrderingSessions,
+            MenuItemService menuItems,
+            MenuCategoryRegistry menuCategories,
+            ILogger<KioskController> logger)
         {
             _orderService = orderService;
+            _tableOrderingSessions = tableOrderingSessions;
             _menuItems = menuItems;
             _menuCategories = menuCategories;
             _logger = logger;
@@ -62,6 +69,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 {
                     await ResetEndedTableSessionPersonCountAsync(table);
                     await CheckTableOrderingGateAsync(table);
+                    await RestoreSharedTablePersonCountAsync(table);
                 }
 
                 ViewBag.PersonCount = GetSessionInt(SessionPersonCount);
@@ -102,14 +110,17 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 Response.Cookies.Append(CookiePersonCount, personCount.Value.ToString(), options);
         }
 
-        private void ClearRememberedPersonCount(string tableNumber = null)
+        private async Task ClearRememberedPersonCountAsync(string tableNumber = null)
         {
             _skipRememberedPersonCountRestore = true;
             HttpContext.Session.Remove(SessionPersonCount);
             HttpContext.Session.Remove(SessionFirstOrderTime);
             Response.Cookies.Delete(CookiePersonCount);
             if (!string.IsNullOrWhiteSpace(tableNumber))
+            {
+                await _tableOrderingSessions.ClearAsync(tableNumber);
                 HttpContext.Session.SetString(SessionEndedTableReset, tableNumber);
+            }
         }
 
         private async Task ResetEndedTableSessionPersonCountAsync(string tableNumber)
@@ -118,7 +129,118 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return;
 
             if (await HasEndedTableSessionReadyForNewSessionAsync(tableNumber))
-                ClearRememberedPersonCount(tableNumber);
+                await ClearRememberedPersonCountAsync(tableNumber);
+        }
+
+        private async Task RestoreSharedTablePersonCountAsync(string tableNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tableNumber))
+                return;
+
+            if (GetSessionInt(SessionPersonCount) is > 0)
+                return;
+
+            var tableSession = await _tableOrderingSessions.GetAsync(tableNumber);
+            if (tableSession?.PersonCount > 0)
+            {
+                HttpContext.Session.SetInt32(SessionPersonCount, tableSession.PersonCount);
+                return;
+            }
+
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            var sharedCount = tableOrders
+                .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
+                .OrderByDescending(o => o.OrderDate)
+                .Select(GetOrderPersonCount)
+                .FirstOrDefault(count => count.HasValue && count.Value > 0);
+
+            if (sharedCount.HasValue)
+                HttpContext.Session.SetInt32(SessionPersonCount, sharedCount.Value);
+        }
+
+        private async Task<int> GetSharedTablePersonCountAsync(string tableNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tableNumber))
+                return 0;
+
+            var tableSession = await _tableOrderingSessions.GetAsync(tableNumber);
+            if (tableSession?.PersonCount > 0)
+                return tableSession.PersonCount;
+
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            return tableOrders
+                .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
+                .Select(GetOrderPersonCount)
+                .Where(count => count.HasValue && count.Value > 0)
+                .Select(count => count!.Value)
+                .DefaultIfEmpty(0)
+                .Max();
+        }
+
+        private async Task SeedSharedTableSessionFromOrdersAsync(string tableNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tableNumber))
+                return;
+
+            if (await _tableOrderingSessions.GetAsync(tableNumber) != null)
+                return;
+
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            var openUnlimitedOrders = tableOrders
+                .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
+                .ToList();
+            if (!openUnlimitedOrders.Any())
+                return;
+
+            var personCount = openUnlimitedOrders
+                .Select(GetOrderPersonCount)
+                .Where(count => count.HasValue && count.Value > 0)
+                .Select(count => count!.Value)
+                .DefaultIfEmpty(0)
+                .Max();
+            var wingFlavors = await ExtractUnlimitedWingFlavorsAsync(
+                openUnlimitedOrders.SelectMany(o => o.Items ?? new List<OrderItem>()));
+
+            await _tableOrderingSessions.SeedFromExistingOrdersAsync(tableNumber, personCount, wingFlavors);
+        }
+
+        private async Task RebuildSharedTableSessionFromOrdersAsync(string tableNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tableNumber))
+                return;
+
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            var openUnlimitedOrders = tableOrders
+                .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
+                .ToList();
+            if (!openUnlimitedOrders.Any())
+            {
+                await _tableOrderingSessions.ClearAsync(tableNumber);
+                return;
+            }
+
+            var personCount = openUnlimitedOrders
+                .Select(GetOrderPersonCount)
+                .Where(count => count.HasValue && count.Value > 0)
+                .Select(count => count!.Value)
+                .DefaultIfEmpty(0)
+                .Max();
+            var wingFlavors = await ExtractUnlimitedWingFlavorsAsync(
+                openUnlimitedOrders.SelectMany(o => o.Items ?? new List<OrderItem>()));
+
+            await _tableOrderingSessions.ReplaceFromExistingOrdersAsync(tableNumber, personCount, wingFlavors);
+        }
+
+        private static int? GetOrderPersonCount(Order order)
+        {
+            if (order?.PersonCount is > 0)
+                return order.PersonCount.Value;
+
+            const decimal pricePerHead = 477m;
+            if (order != null && IsUnlimitedOrder(order) && order.Subtotal >= pricePerHead)
+                return Math.Max(1, (int)Math.Floor(order.Subtotal / pricePerHead));
+
+            return null;
         }
 
         private async Task<bool> HasEndedTableSessionReadyForNewSessionAsync(string tableNumber)
@@ -491,7 +613,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             RestoreOrderingCookiesToSession();
             var table = HttpContext.Session.GetString(SessionServiceTable);
             if (startNewSession)
-                ClearRememberedPersonCount(table);
+                await ClearRememberedPersonCountAsync(table);
 
             if (!string.IsNullOrWhiteSpace(table))
                 await ResetEndedTableSessionPersonCountAsync(table);
@@ -516,6 +638,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (floor != null && floor.Length > 32)
                 floor = floor[..32];
 
+            if (!await _tableOrderingSessions.IsOrderingOpenAsync(table))
+            {
+                TempData["ErrorMessage"] = "Ordering for this table is not available yet. Please ask staff to seat/open your table.";
+                return RedirectToAction("Index");
+            }
+
             HttpContext.Session.SetString(SessionOrderChannel, OrderChannelQr);
             HttpContext.Session.SetString(SessionServiceTable, table);
             if (floor != null)
@@ -525,6 +653,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
             HttpContext.Session.SetString(SessionDiningType, "DineIn");
             await ResetEndedTableSessionPersonCountAsync(table);
+            await RestoreSharedTablePersonCountAsync(table);
             SaveOrderingCookies(table, floor, GetSessionInt(SessionPersonCount));
             TempData["DiningType"] = "DineIn";
             return RedirectToAction("ChooseExperience");
@@ -617,19 +746,19 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                         isReorder = false;
                         ViewBag.IsReorder = false;
                         RestoreQrSessionFromOrder(previousOrder);
-                        ClearRememberedPersonCount(previousOrder.TableNumber);
+                        await ClearRememberedPersonCountAsync(previousOrder.TableNumber);
                     }
                     else
                     {
-                        const decimal pricePerHead = 477m;
-                        personCount = (int)Math.Round(previousOrder.Subtotal / pricePerHead);
+                        personCount = GetOrderPersonCount(previousOrder);
                         ViewBag.PersonCount = personCount;
-                        HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
+                        if (personCount.HasValue)
+                            HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
                     }
                 }
             }
             
-            // Unlimited orders show the unlimited board plus paid Ala Carte add-ons.
+            // Unlimited orders show one included-selection board plus paid Ala Carte add-ons.
             var items = await _menuItems.GetAvailableAsync() ?? new List<MenuItem>();
             items = items
                 .Where(IsUnlimitedMenuItem)
@@ -645,12 +774,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 .OrderByDescending(i => i.MenuOrder)
                 .ThenBy(i => i.Item)
                 .ToList();
-            var unlimitedTabKeys = new HashSet<string>(items.Select(i => i.Category), StringComparer.Ordinal);
-            ViewBag.MenuCategories = _menuCategories.All
-                .Where(c => unlimitedTabKeys.Contains(c.Key))
-                .OrderBy(c => c.SortOrder)
-                .ToList();
-            ViewBag.DefaultMenuCategory = "Wings";
             await ApplyOrderingSessionToViewBagAsync();
             return View(items);
         }
@@ -660,8 +783,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (item == null || string.IsNullOrWhiteSpace(item.Item))
                 return false;
 
-            return !string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal)
-                && !string.Equals(item.Category, "Wings Ala Carte", StringComparison.Ordinal)
+            return !string.Equals(item.Category, "Wings Ala Carte", StringComparison.Ordinal)
                 && !string.Equals(item.Category, "Unavailable", StringComparison.Ordinal);
         }
 
@@ -671,6 +793,9 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return false;
 
             var name = item.Item.Trim();
+            if (string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal))
+                return true;
+
             if (string.Equals(item.Category, "Wings", StringComparison.Ordinal))
                 return true;
 
@@ -712,27 +837,23 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 Items = validation.Items;
 
                 decimal subtotal;
-                decimal tax;
+                decimal tax = 0m;
                 decimal total;
+                var alaCarteAddOnSubtotal = Items.Sum(i => i.Price * i.Quantity);
 
                 if (isUnlimitedOrder && (!personCount.HasValue || personCount.Value <= 0 || personCount.Value > 50))
                     return Json(new { success = false, message = "Please enter a valid person count." });
 
-                // For Unlimited orders, calculate based on personCount * pricePerHead
                 if (isUnlimitedOrder)
                 {
-                    const decimal pricePerHead = 477m;
                     HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
-                    var alaCarteAddOnSubtotal = Items.Sum(i => i.Price * i.Quantity);
-                    subtotal = (personCount.Value * pricePerHead) + alaCarteAddOnSubtotal;
-                    tax = 0m;
+                    subtotal = alaCarteAddOnSubtotal;
                     total = subtotal;
                 }
                 else
                 {
                     // For Ala Carte orders, calculate based on item prices
-                    subtotal = Items.Sum(i => i.Price * i.Quantity);
-                    tax = 0m;
+                    subtotal = alaCarteAddOnSubtotal;
                     total = subtotal;
                 }
 
@@ -759,12 +880,21 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     && string.Equals(diningType, "DineIn", StringComparison.OrdinalIgnoreCase)
                     && !string.Equals(tableNumber, "0", StringComparison.OrdinalIgnoreCase);
 
+                if (isRealQrTableOrder && !await _tableOrderingSessions.IsOrderingOpenAsync(tableNumber))
+                {
+                    return Json(new
+                    {
+                        success = false,
+                        message = "Ordering for this table is not available. Please ask staff to seat/open your table."
+                    });
+                }
+
                 if (isRealQrTableOrder &&
                     isUnlimitedOrder &&
                     await HasEndedTableSessionReadyForNewSessionAsync(tableNumber) &&
                     !WasEndedTableSessionReset(tableNumber))
                 {
-                    ClearRememberedPersonCount(tableNumber);
+                    await ClearRememberedPersonCountAsync(tableNumber);
                     return Json(new
                     {
                         success = false,
@@ -785,6 +915,32 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                         success = false,
                         message = tableGate.Message
                     });
+                }
+
+                if (isRealQrTableOrder && isUnlimitedOrder)
+                    await SeedSharedTableSessionFromOrdersAsync(tableNumber);
+
+                if (isUnlimitedOrder)
+                {
+                    const decimal pricePerHead = 477m;
+                    var chargeablePersonCount = personCount!.Value;
+                    if (isRealQrTableOrder)
+                    {
+                        var reservation = await _tableOrderingSessions.ReserveUnlimitedOrderAsync(
+                            tableNumber,
+                            personCount.Value,
+                            validation.UnlimitedWingFlavors);
+                        if (!reservation.Success)
+                            return Json(new { success = false, message = reservation.Message });
+
+                        personCount = reservation.PersonCount;
+                        chargeablePersonCount = reservation.ChargeablePersonCount;
+                        HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
+                        SaveOrderingCookies(tableNumber, floor, personCount);
+                    }
+
+                    subtotal = (chargeablePersonCount * pricePerHead) + alaCarteAddOnSubtotal;
+                    total = subtotal;
                 }
 
                 var orderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber);
@@ -824,6 +980,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     Floor = floor,
                     PaymentMethod = "Cash",
                     PaymentStatus = "Pending",
+                    PersonCount = isUnlimitedOrder ? personCount : null,
                     Subtotal = subtotal,
                     Tax = tax,
                     Total = total,
@@ -831,6 +988,9 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 };
 
                 await _orderService.CreateAsync(order);
+                if (isRealQrTableOrder && isUnlimitedOrder)
+                    await _orderService.UpdateOpenUnlimitedPersonCountForTableAsync(tableNumber, personCount!.Value);
+
                 HttpContext.Session.Remove(SessionEndedTableReset);
                 RememberOrderAccess(order);
 
@@ -851,11 +1011,20 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
             RestoreOrderingCookiesToSession();
             var table = HttpContext.Session.GetString(SessionServiceTable);
+            if (!string.IsNullOrWhiteSpace(table) && !await _tableOrderingSessions.IsOrderingOpenAsync(table))
+            {
+                return Json(new
+                {
+                    success = false,
+                    message = "Ordering for this table is not available. Please ask staff to seat/open your table."
+                });
+            }
+
             if (!string.IsNullOrWhiteSpace(table) &&
                 await HasEndedTableSessionReadyForNewSessionAsync(table) &&
                 !WasEndedTableSessionReset(table))
             {
-                ClearRememberedPersonCount(table);
+                await ClearRememberedPersonCountAsync(table);
                 return Json(new
                 {
                     success = false,
@@ -864,13 +1033,23 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 });
             }
 
+            if (!string.IsNullOrWhiteSpace(table))
+            {
+                var tableSession = await _tableOrderingSessions.SavePersonCountAsync(table, personCount);
+                if (tableSession?.PersonCount > 0)
+                    personCount = tableSession.PersonCount;
+
+                await _orderService.UpdateOpenUnlimitedPersonCountForTableAsync(table, personCount);
+            }
+
             HttpContext.Session.SetInt32(SessionPersonCount, personCount);
+
             SaveOrderingCookies(
                 table,
                 HttpContext.Session.GetString(SessionServiceFloor),
                 personCount);
 
-            return Json(new { success = true });
+            return Json(new { success = true, personCount });
         }
 
         [HttpGet]
@@ -933,7 +1112,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 if (order.BillArchived)
                 {
                     HttpContext.Session.Remove(SessionFirstOrderTime);
-                    ClearRememberedPersonCount(order.TableNumber);
+                    await ClearRememberedPersonCountAsync(order.TableNumber);
                     return Json(new
                     {
                         hasSession = false,
@@ -969,7 +1148,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 if (!string.IsNullOrWhiteSpace(table) &&
                     await HasEndedTableSessionReadyForNewSessionAsync(table))
                 {
-                    ClearRememberedPersonCount(table);
+                    await ClearRememberedPersonCountAsync(table);
                     return Json(new
                     {
                         hasSession = false,
@@ -980,12 +1159,20 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 }
 
                 if (!string.IsNullOrWhiteSpace(table))
+                {
                     await CheckTableOrderingGateAsync(table);
+                    await RestoreSharedTablePersonCountAsync(table);
+                }
             }
 
             var firstOrderTime = GetFirstOrderTimeUtc();
             if (!firstOrderTime.HasValue)
-                return Json(new { hasSession = false, sessionHours = (int)OrderingSessionLength.TotalHours });
+                return Json(new
+                {
+                    hasSession = false,
+                    sessionHours = (int)OrderingSessionLength.TotalHours,
+                    personCount = GetSessionInt(SessionPersonCount) ?? 0
+                });
 
             var sessionLimit = OrderingSessionLength;
             var timeSinceFirstOrder = DateTime.UtcNow - firstOrderTime.Value;
@@ -1014,6 +1201,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 timeRemainingHours = hours,
                 timeRemainingMinutes = minutes,
                 isExpired = isExpired,
+                personCount = GetSessionInt(SessionPersonCount) ?? 0,
                 timeRemainingFormatted = isExpired ? "00:00:00" : $"{hours:D2}:{minutes:D2}:{seconds:D2}"
             });
         }
@@ -1086,6 +1274,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
                 // Cancel the order
                 await _orderService.CancelOrderAsync(order.Id);
+                if (IsUnlimitedOrder(order) &&
+                    string.Equals(order.OrderChannel, OrderChannelQr, StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(order.TableNumber))
+                {
+                    await RebuildSharedTableSessionFromOrdersAsync(order.TableNumber);
+                }
 
                 return Json(new { success = true, message = "Order cancelled successfully" });
             }
@@ -1105,6 +1299,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
             var validated = new List<OrderItem>();
+            var submittedUnlimitedWingFlavors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var submitted in submittedItems)
             {
                 var displayName = submitted.ItemName?.Trim();
@@ -1127,6 +1322,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                         return OrderItemValidationResult.Fail("One or more item quantities are too high.");
                     if (!isIncluded && submitted.Quantity > 4)
                         return OrderItemValidationResult.Fail("Maximum quantity of 4 per Ala Carte add-on allowed.");
+                    if (isIncluded && string.Equals(menuItem.Category, "Wings", StringComparison.Ordinal))
+                    {
+                        submittedUnlimitedWingFlavors.Add(menuItem.Item.Trim());
+                        if (submittedUnlimitedWingFlavors.Count > 4)
+                            return OrderItemValidationResult.Fail("You can only choose up to 4 wing flavors per unlimited order.");
+                    }
                 }
                 else
                 {
@@ -1144,7 +1345,32 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 });
             }
 
-            return OrderItemValidationResult.Ok(validated);
+            return OrderItemValidationResult.Ok(validated, submittedUnlimitedWingFlavors);
+        }
+
+        private async Task<HashSet<string>> ExtractUnlimitedWingFlavorsAsync(IEnumerable<OrderItem> orderItems)
+        {
+            var availableItems = await _menuItems.GetAvailableAsync() ?? new List<MenuItem>();
+            var byName = availableItems
+                .Where(i => !string.IsNullOrWhiteSpace(i.Item))
+                .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            var wingFlavors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var item in orderItems ?? Enumerable.Empty<OrderItem>())
+            {
+                var lookupName = NormalizeSubmittedItemName(item.ItemName);
+                if (string.IsNullOrWhiteSpace(lookupName))
+                    continue;
+
+                if (byName.TryGetValue(lookupName, out var menuItem) &&
+                    string.Equals(menuItem.Category, "Wings", StringComparison.Ordinal))
+                {
+                    wingFlavors.Add(menuItem.Item.Trim());
+                }
+            }
+
+            return wingFlavors;
         }
 
         private static string NormalizeSubmittedItemName(string itemName)
@@ -1203,11 +1429,13 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         public bool Success { get; set; }
         public string Message { get; set; } = string.Empty;
         public List<OrderItem> Items { get; set; } = new();
+        public HashSet<string> UnlimitedWingFlavors { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-        public static OrderItemValidationResult Ok(List<OrderItem> items) => new()
+        public static OrderItemValidationResult Ok(List<OrderItem> items, HashSet<string> unlimitedWingFlavors) => new()
         {
             Success = true,
-            Items = items
+            Items = items,
+            UnlimitedWingFlavors = unlimitedWingFlavors
         };
 
         public static OrderItemValidationResult Fail(string message) => new()

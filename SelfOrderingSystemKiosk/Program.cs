@@ -92,6 +92,8 @@ builder.Services.AddSingleton<AuthService>();
 // Other services
 builder.Services.AddSingleton<KitchenDatabase>();
 builder.Services.AddSingleton<OrderService>();
+builder.Services.AddSingleton<TableOrderingSessionService>();
+builder.Services.AddSingleton<TableRegistryService>();
 builder.Services.AddSingleton<QrCodeService>();
 builder.Services.AddScoped<ChickenService>();
 

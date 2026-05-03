@@ -119,6 +119,65 @@ function cartKey(item) {
     ].join('::');
 }
 
+function getDeviceOrderStateKey() {
+    const sessionKey = typeof window !== 'undefined' && window.orderingSessionKey
+        ? String(window.orderingSessionKey)
+        : 'kiosk-unlimited';
+    return `kds-unlimited-order:${sessionKey}`;
+}
+
+function loadDeviceOrderState() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+
+    try {
+        const raw = window.localStorage.getItem(getDeviceOrderStateKey());
+        if (!raw) return;
+
+        const state = JSON.parse(raw);
+        const savedAt = Number(state?.savedAt || 0);
+        const maxAgeMs = 2 * 60 * 60 * 1000;
+        if (!Number.isFinite(savedAt) || Date.now() - savedAt > maxAgeMs) {
+            window.localStorage.removeItem(getDeviceOrderStateKey());
+            return;
+        }
+
+        const savedPersonCount = readPositiveCount(state?.personCount);
+        if (personCount === 0 && savedPersonCount > 0) {
+            personCount = savedPersonCount;
+        }
+
+        if (Array.isArray(state?.cart)) {
+            cart = state.cart.filter(item => item && item.name && Number(item.quantity) > 0);
+        }
+    } catch (err) {
+        console.warn('Unable to restore device order state.', err);
+    }
+}
+
+function saveDeviceOrderState() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+
+    try {
+        window.localStorage.setItem(getDeviceOrderStateKey(), JSON.stringify({
+            personCount,
+            cart,
+            savedAt: Date.now()
+        }));
+    } catch (err) {
+        console.warn('Unable to save device order state.', err);
+    }
+}
+
+function clearDeviceOrderState() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+
+    try {
+        window.localStorage.removeItem(getDeviceOrderStateKey());
+    } catch (err) {
+        console.warn('Unable to clear device order state.', err);
+    }
+}
+
 function savePersonCountToSession() {
     const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
     return fetch(`/Customer/Kiosk/SaveOrderingSession?personCount=${personCount}`, {
@@ -202,6 +261,7 @@ function updateCardQuantity(control, quantity) {
 
 // ✅ Confirm persons
 document.addEventListener("DOMContentLoaded", () => {
+    loadDeviceOrderState();
     refreshRememberedPersonCount();
     displayPersonCount();
     setPersonModalMode("initial");
@@ -212,6 +272,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
         openModal("personModal");
     }
+    updateCartDisplay();
 
     const confirmBtn = document.getElementById("confirmPersons");
     if (confirmBtn) {
@@ -244,6 +305,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         : "0 Persons";
                 }
                 updateOrderSummary();
+                saveDeviceOrderState();
             }
 
             function resetPersonSelection(message) {
@@ -254,6 +316,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     window.orderingSessionPersonCount = 0;
                 }
                 cart = [];
+                clearDeviceOrderState();
                 updateCartDisplay();
                 syncPersonCountLabel();
                 setPersonModalMode("initial");
@@ -295,6 +358,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (!data?.success) {
                         restorePreviousPersonSelection(data?.message);
                         return;
+                    }
+
+                    const savedCount = readPositiveCount(data.personCount);
+                    if (savedCount > 0) {
+                        personCount = savedCount;
                     }
 
                     finishPersonSelection();
@@ -522,6 +590,7 @@ function updateCartDisplay() {
         `;
         itemCount.textContent = '0 Items';
         updateOrderSummary();
+        saveDeviceOrderState();
         return;
     }
 
@@ -569,6 +638,7 @@ function updateCartDisplay() {
     const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
     itemCount.textContent = `${totalItems} Item${totalItems !== 1 ? 's' : ''}`;
     updateOrderSummary();
+    saveDeviceOrderState();
 
     addCartEventListeners();
 }

@@ -16,13 +16,23 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
     [Authorize(Roles = "Kitchen,Admin")]
     public class KitchenController : Controller
     {
+        private static readonly string[] DiningTableNumbers = { "1", "2", "3", "4", "5", "6", "7" };
         private readonly OrderService _orderService;
+        private readonly TableOrderingSessionService _tableOrderingSessions;
+        private readonly TableRegistryService _tableRegistry;
         private readonly MenuItemService _menuItems;
         private readonly ILogger<KitchenController> _logger;
 
-        public KitchenController(OrderService orderService, MenuItemService menuItems, ILogger<KitchenController> logger)
+        public KitchenController(
+            OrderService orderService,
+            TableOrderingSessionService tableOrderingSessions,
+            TableRegistryService tableRegistry,
+            MenuItemService menuItems,
+            ILogger<KitchenController> logger)
         {
             _orderService = orderService;
+            _tableOrderingSessions = tableOrderingSessions;
+            _tableRegistry = tableRegistry;
             _menuItems = menuItems;
             _logger = logger;
         }
@@ -84,9 +94,86 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> Receipts([FromQuery] string? dateFilter = "day", [FromQuery] bool showArchived = false)
+        public async Task<IActionResult> Receipts([FromQuery] string? dateFilter = "all", [FromQuery] bool showArchived = false)
         {
-            var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter);
+            var orders = await _orderService.GetOrdersForKitchenAsync("all");
+            var receipts = await BuildReceiptsAsync(orders);
+            var tableSessions = await _tableOrderingSessions.GetAllAsync();
+            var knownTables = await _tableRegistry.GetAllAsync();
+            var tables = BuildTableOverviews(receipts, tableSessions, knownTables, showArchived);
+
+            ViewBag.DateFilter = dateFilter;
+            ViewBag.ShowArchived = showArchived;
+            return View(tables);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> OpenTable(string table, string? dateFilter = "all", bool showArchived = false)
+        {
+            if (string.IsNullOrWhiteSpace(table))
+            {
+                TempData["ErrorMessage"] = "Choose a table to seat/open.";
+                return RedirectToAction("Receipts", new { dateFilter, showArchived });
+            }
+
+            table = table.Trim();
+            if (!IsDiningTable(table))
+            {
+                TempData["ErrorMessage"] = $"Table {table} is not part of the 7 dine-in tables.";
+                return RedirectToAction("Receipts", new { dateFilter, showArchived });
+            }
+
+            if (table.Length > 32)
+                table = table[..32];
+
+            await _tableRegistry.UpsertAsync(table);
+            await _tableOrderingSessions.OpenOrderingAsync(table);
+            var activeOrders = (await _orderService.GetOrdersByTableAsync(table))
+                .Where(o => !o.BillArchived)
+                .ToList();
+            var activeUnlimitedOrders = activeOrders
+                .Where(o => string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (activeUnlimitedOrders.Any())
+            {
+                var personCount = activeUnlimitedOrders
+                    .Select(GetOrderPersonCount)
+                    .DefaultIfEmpty(0)
+                    .Max();
+                var wingFlavors = await ExtractUnlimitedWingFlavorsAsync(
+                    activeUnlimitedOrders.SelectMany(o => o.Items ?? new List<OrderItem>()));
+                await _tableOrderingSessions.ReplaceFromExistingOrdersAsync(table, personCount, wingFlavors);
+            }
+
+            TempData["SuccessMessage"] = $"Table {table} is now occupied and QR ordering is enabled.";
+            return RedirectToAction("Receipts", new { dateFilter, showArchived });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CloseTable(string table, string? dateFilter = "all", bool showArchived = false)
+        {
+            if (string.IsNullOrWhiteSpace(table))
+            {
+                TempData["ErrorMessage"] = "Choose a table to close.";
+                return RedirectToAction("Receipts", new { dateFilter, showArchived });
+            }
+
+            table = table.Trim();
+            if (!IsDiningTable(table))
+            {
+                TempData["ErrorMessage"] = $"Table {table} is not part of the 7 dine-in tables.";
+                return RedirectToAction("Receipts", new { dateFilter, showArchived });
+            }
+
+            await _tableOrderingSessions.CloseOrderingAsync(table);
+            TempData["SuccessMessage"] = $"Table {table} is now available and QR ordering is disabled.";
+            return RedirectToAction("Receipts", new { dateFilter, showArchived });
+        }
+
+        private async Task<List<SessionReceiptViewModel>> BuildReceiptsAsync(IEnumerable<Order> orders)
+        {
             var receipts = new List<SessionReceiptViewModel>();
             var coveredOrderIds = new HashSet<string>();
 
@@ -104,15 +191,91 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                         coveredOrderIds.Add(included.Id);
                 }
 
-                if (!showArchived && ShouldHideClosedReceipt(receipt))
-                    continue;
-
                 receipts.Add(receipt);
             }
 
-            ViewBag.DateFilter = dateFilter;
-            ViewBag.ShowArchived = showArchived;
-            return View(receipts.OrderByDescending(r => r.SessionStartUtc).ToList());
+            return receipts.OrderByDescending(r => r.SessionStartUtc).ToList();
+        }
+
+        private List<TableOverviewViewModel> BuildTableOverviews(
+            List<SessionReceiptViewModel> receipts,
+            List<TableOrderingSession> tableSessions,
+            List<SelfOrderingSystemKiosk.Models.RestaurantTable> knownTables,
+            bool showArchived)
+        {
+            var byKey = new Dictionary<string, TableOverviewViewModel>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var tableNumber in DiningTableNumbers)
+            {
+                var key = NormalizeTableKey(tableNumber);
+                byKey[key] = new TableOverviewViewModel
+                {
+                    TableNumber = tableNumber,
+                    LocationLabel = BuildLocationLabel(string.Empty, tableNumber)
+                };
+            }
+
+            foreach (var knownTable in knownTables)
+            {
+                if (string.IsNullOrWhiteSpace(knownTable.TableNumber))
+                    continue;
+
+                var key = NormalizeTableKey(knownTable.TableNumber);
+                if (!byKey.TryGetValue(key, out var table))
+                    continue;
+
+                table.TableNumber = knownTable.TableNumber;
+                table.Floor = knownTable.Floor;
+                table.LocationLabel = BuildLocationLabel(knownTable.Floor, knownTable.TableNumber);
+                table.LastActivityUtc = knownTable.UpdatedAtUtc;
+            }
+
+            foreach (var session in tableSessions)
+            {
+                if (string.IsNullOrWhiteSpace(session.TableNumber))
+                    continue;
+
+                var key = NormalizeTableKey(session.TableNumber);
+                if (!byKey.TryGetValue(key, out var table))
+                    continue;
+
+                table.IsOccupied = session.IsOrderingOpen;
+                table.OrderingSession = session;
+                table.LastActivityUtc = session.UpdatedAtUtc;
+                if (string.IsNullOrWhiteSpace(table.LocationLabel))
+                {
+                    table.LocationLabel = BuildLocationLabel(table.Floor, session.TableNumber);
+                }
+            }
+
+            foreach (var receipt in receipts)
+            {
+                if (!showArchived && ShouldHideClosedReceipt(receipt))
+                    continue;
+
+                var key = string.IsNullOrWhiteSpace(receipt.TableNumber)
+                    ? "counter"
+                    : NormalizeTableKey(receipt.TableNumber);
+                if (!byKey.TryGetValue(key, out var table))
+                    continue;
+
+                var currentReceiptDate = table.Receipt?.Orders.Select(o => o.OrderDate).DefaultIfEmpty().Max() ?? DateTime.MinValue;
+                var nextReceiptDate = receipt.Orders.Select(o => o.OrderDate).DefaultIfEmpty().Max();
+                if (table.Receipt == null || nextReceiptDate >= currentReceiptDate)
+                    table.Receipt = receipt;
+
+                if (string.IsNullOrWhiteSpace(table.Floor))
+                    table.Floor = receipt.Floor;
+                if (string.IsNullOrWhiteSpace(table.LocationLabel))
+                    table.LocationLabel = receipt.LocationLabel;
+                table.LastActivityUtc = new[] { table.LastActivityUtc ?? DateTime.MinValue, nextReceiptDate }.Max();
+            }
+
+            return byKey.Values
+                .Where(t => IsDiningTable(t.TableNumber))
+                .OrderBy(t => GetTableSortValue(t.TableNumber))
+                .ThenBy(t => t.LocationLabel, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         [HttpPost]
@@ -175,6 +338,9 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             }
 
             await _orderService.ArchiveBillsAsync(receipt.Orders.Select(o => o.Id));
+            if (!string.IsNullOrWhiteSpace(anchorOrder.TableNumber))
+                await _tableOrderingSessions.CloseOrderingAsync(anchorOrder.TableNumber);
+
             return RedirectToAction("Receipts");
         }
 
@@ -292,6 +458,68 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             return string.IsNullOrWhiteSpace(floor)
                 ? $"Table {table}"
                 : $"Floor {floor} - Table {table}";
+        }
+
+        private static string NormalizeTableKey(string table)
+        {
+            return string.IsNullOrWhiteSpace(table)
+                ? string.Empty
+                : table.Trim().ToUpperInvariant();
+        }
+
+        private static bool IsDiningTable(string? table)
+        {
+            return !string.IsNullOrWhiteSpace(table)
+                && DiningTableNumbers.Contains(table.Trim(), StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static int GetTableSortValue(string? table)
+        {
+            if (!string.IsNullOrWhiteSpace(table) && int.TryParse(table.Trim(), out var value))
+                return value;
+
+            return int.MaxValue;
+        }
+
+        private static int GetOrderPersonCount(Order order)
+        {
+            if (order?.PersonCount is > 0)
+                return order.PersonCount.Value;
+
+            const decimal pricePerHead = 477m;
+            if (order != null &&
+                string.Equals(order.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase) &&
+                order.Subtotal >= pricePerHead)
+            {
+                return Math.Max(1, (int)Math.Floor(order.Subtotal / pricePerHead));
+            }
+
+            return 0;
+        }
+
+        private async Task<HashSet<string>> ExtractUnlimitedWingFlavorsAsync(IEnumerable<OrderItem> orderItems)
+        {
+            var availableItems = await _menuItems.GetAvailableAsync() ?? new List<SelfOrderingSystemKiosk.Models.MenuItem>();
+            var byName = availableItems
+                .Where(i => !string.IsNullOrWhiteSpace(i.Item))
+                .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            var wingFlavors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var item in orderItems ?? Enumerable.Empty<OrderItem>())
+            {
+                var lookupName = item.ItemName?.Trim();
+                if (string.IsNullOrWhiteSpace(lookupName))
+                    continue;
+
+                if (byName.TryGetValue(lookupName, out var menuItem) &&
+                    string.Equals(menuItem.Category, "Wings", StringComparison.Ordinal))
+                {
+                    wingFlavors.Add(menuItem.Item.Trim());
+                }
+            }
+
+            return wingFlavors;
         }
 
         private static bool HasPublicReceiptAccess(Order order, string? accessToken)

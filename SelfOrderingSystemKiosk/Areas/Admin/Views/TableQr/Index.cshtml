@@ -22,7 +22,7 @@
     </p>
 
     <div class="qr-help">
-        <strong>What you’ll do:</strong> type your table numbers → (optional) add a floor → click the orange button → use your browser’s <strong>Print</strong> (or <strong>Save as PDF</strong>) → cut out each code and place it on the matching table.
+        <strong>What you’ll do:</strong> type your table numbers → (optional) add a floor → click the orange button → use your browser’s <strong>Print</strong> (or <strong>Save as PDF</strong>) → cut out each code and place it on the matching table. Open and close active table ordering from the kitchen <strong>Receipts / Tables</strong> screen.
     </div>
 
     <form asp-action="Print" method="post" id="printForm">
@@ -31,7 +31,7 @@
         <div class="qr-step">
             <h3><span class="qr-step-num">1</span> List your table numbers</h3>
             <p class="hint" style="margin-top: 0;">Put <strong>one number on each line</strong>. You can use numbers or names (e.g. <em>A1</em>, <em>Patio-3</em>). Skip empty lines.</p>
-            <textarea asp-for="TablesBulk" rows="10" aria-label="Table numbers, one per line" style="width: 100%; max-width: 100%; padding: 14px 16px; border: 2px solid #ddd; border-radius: 10px; font-size: 1.1rem; line-height: 1.5;" placeholder="Example:&#10;1&#10;2&#10;3&#10;4&#10;5"></textarea>
+            <textarea asp-for="TablesBulk" rows="10" aria-label="Table numbers, one per line" style="width: 100%; max-width: 100%; padding: 14px 16px; border: 2px solid #ddd; border-radius: 10px; font-size: 1.1rem; line-height: 1.5;" placeholder="Example:&#10;1&#10;2&#10;3&#10;4&#10;5&#10;6&#10;7"></textarea>
             <span asp-validation-for="TablesBulk" style="color: #c0392b; display: block; margin-top: 10px; font-weight: 600;"></span>
             <p class="hint">You can also separate tables with commas on one line (e.g. 1, 2, 3) if you prefer.</p>
         </div>

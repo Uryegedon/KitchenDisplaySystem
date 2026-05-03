@@ -44,4 +44,20 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
         public decimal Price { get; set; }
         public decimal LineTotal => Price * Quantity;
     }
+
+    public class TableOverviewViewModel
+    {
+        public string TableNumber { get; set; } = string.Empty;
+        public string Floor { get; set; } = string.Empty;
+        public string LocationLabel { get; set; } = string.Empty;
+        public bool IsOccupied { get; set; }
+        public TableOrderingSession? OrderingSession { get; set; }
+        public SessionReceiptViewModel? Receipt { get; set; }
+        public bool HasBill => Receipt?.Orders.Any() == true;
+        public bool IsPaid => HasBill && Receipt!.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+        public decimal Total => Receipt?.Total ?? 0m;
+        public int OrderCount => Receipt?.Orders.Count ?? 0;
+        public int PersonCount => OrderingSession?.PersonCount ?? Receipt?.Orders.Select(o => o.PersonCount ?? 0).DefaultIfEmpty(0).Max() ?? 0;
+        public DateTime? LastActivityUtc { get; set; }
+    }
 }

@@ -1,9 +1,12 @@
-@model IEnumerable<SelfOrderingSystemKiosk.Areas.Kitchen.Models.SessionReceiptViewModel>
+@model IEnumerable<SelfOrderingSystemKiosk.Areas.Kitchen.Models.TableOverviewViewModel>
 @{
-    ViewData["Title"] = "Receipts / Bills";
+    ViewData["Title"] = "Receipts / Tables";
     var currentReturnUrl = Context.Request.Path + Context.Request.QueryString;
-    var dateFilter = ViewBag.DateFilter as string ?? "day";
+    var dateFilter = ViewBag.DateFilter as string ?? "all";
     var showArchived = ViewBag.ShowArchived is bool archived && archived;
+    var tables = Model.ToList();
+    var occupiedCount = tables.Count(t => t.IsOccupied);
+    var pendingBillCount = tables.Count(t => t.HasBill && !t.IsPaid);
 }
 
 <!DOCTYPE html>
@@ -74,11 +77,24 @@
             justify-content: flex-end;
         }
 
-        .filters {
+        .summary-row {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
             margin-bottom: 20px;
+        }
+
+        .summary-pill {
+            border: 0;
+            background: rgba(255, 255, 255, 0.9);
+            color: #555;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-weight: 800;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
         }
 
         .search-bar {
@@ -108,29 +124,6 @@
 
         .search-bar input:focus {
             box-shadow: 0 0 0 3px rgba(255, 87, 34, 0.22), 0 4px 15px rgba(0,0,0,0.12);
-        }
-
-        .filter {
-            border: 0;
-            background: rgba(255, 255, 255, 0.9);
-            color: #555;
-            padding: 10px 20px;
-            border-radius: 999px;
-            text-decoration: none;
-            font-weight: 800;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            transition: all 0.25s;
-        }
-
-        .filter:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        }
-
-        .filter.active {
-            background: white;
-            color: #FF5722;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
 
         .grid {
@@ -211,6 +204,12 @@
             margin-top: 14px;
             display: flex;
             justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .card-actions form {
+            margin: 0;
         }
 
         .empty {
@@ -222,6 +221,18 @@
             box-shadow: 0 6px 20px rgba(0,0,0,0.12);
         }
 
+        .flash {
+            background: rgba(255, 255, 255, 0.96);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 14px;
+            font-weight: 800;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+        }
+
+        .flash.ok { color: #155724; }
+        .flash.err { color: #721c24; }
+
         @@media (max-width: 640px) {
             body { padding: 14px; }
             .header { flex-direction: column; align-items: stretch; }
@@ -230,10 +241,10 @@
 </head>
 <body>
     <div class="header">
-        <h1><i class="bi bi-receipt"></i> Receipts / Bills</h1>
+        <h1><i class="bi bi-table"></i> Receipts / Tables</h1>
         <div class="header-actions">
-            <a class="btn subtle" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-dateFilter="@dateFilter" asp-route-showArchived="@(!showArchived)">
-                <i class="bi @(showArchived ? "bi-eye-slash" : "bi-eye")"></i> @(showArchived ? "Hide closed" : "Show closed")
+            <a class="btn subtle" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-showArchived="@(!showArchived)">
+                <i class="bi @(showArchived ? "bi-eye-slash" : "bi-eye")"></i> @(showArchived ? "Hide closed bills" : "Show closed bills")
             </a>
             <a class="btn" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Index">
                 <i class="bi bi-arrow-left"></i> Kitchen
@@ -241,88 +252,130 @@
         </div>
     </div>
 
-    <div class="filters">
-        <a class="filter @(dateFilter == "day" ? "active" : "")" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-dateFilter="day" asp-route-showArchived="@showArchived">Today</a>
-        <a class="filter @(dateFilter == "week" ? "active" : "")" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-dateFilter="week" asp-route-showArchived="@showArchived">This Week</a>
-        <a class="filter @(dateFilter == "month" ? "active" : "")" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-dateFilter="month" asp-route-showArchived="@showArchived">This Month</a>
-        <a class="filter @(dateFilter == "all" ? "active" : "")" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" asp-route-dateFilter="all" asp-route-showArchived="@showArchived">All Time</a>
+    <div class="summary-row">
+        <span class="summary-pill"><i class="bi bi-grid-3x3-gap"></i> 7 dine-in tables</span>
+        <span class="summary-pill"><i class="bi bi-person-check"></i> @occupiedCount occupied</span>
+        <span class="summary-pill"><i class="bi bi-receipt"></i> @pendingBillCount pending bill@(pendingBillCount == 1 ? "" : "s")</span>
     </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="flash ok"><i class="bi bi-check-circle"></i> @TempData["SuccessMessage"]</div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="flash err"><i class="bi bi-exclamation-triangle"></i> @TempData["ErrorMessage"]</div>
+    }
 
     <div class="search-bar">
         <i class="bi bi-search"></i>
-        <input id="receiptSearch" type="search" placeholder="Search order, receipt, table, status, or item..." autocomplete="off" />
+        <input id="receiptSearch" type="search" placeholder="Search table, bill, status, or item..." autocomplete="off" />
     </div>
 
-    @if (Model.Any())
+    @if (tables.Any())
     {
         <div class="empty" id="receiptSearchEmpty" style="display:none;">
             <i class="bi bi-search" style="font-size: 2rem;"></i>
             <p>No bills match your search.</p>
         </div>
         <div class="grid">
-            @foreach (var receipt in Model)
+            @foreach (var table in tables)
             {
-                var isPaid = receipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
-                var isExpired = receipt.HasSessionStarted && receipt.SessionEndUtc <= DateTime.UtcNow;
-                var isClosed = isPaid && isExpired;
-                var endIso = receipt.SessionEndUtc.ToUniversalTime().ToString("O");
+                var receipt = table.Receipt;
+                var isPaid = table.IsPaid;
+                var isClosed = !table.IsOccupied && table.HasBill && (isPaid || receipt?.Orders.All(o => o.BillArchived) == true);
+                var needsPayment = !table.IsOccupied && table.HasBill && !isPaid;
+                var endIso = receipt?.SessionEndUtc.ToUniversalTime().ToString("O") ?? "";
+                var stateLabel = table.IsOccupied ? "Occupied" : needsPayment ? "Needs Payment" : isClosed ? "Closed" : "Available";
+                var stateIcon = table.IsOccupied ? "bi-person-check" : needsPayment ? "bi-cash-coin" : isClosed ? "bi-check-circle" : "bi-door-open";
                 var searchText = string.Join(" ", new[]
                 {
-                    receipt.ReceiptNumber,
-                    receipt.LocationLabel,
-                    receipt.TableNumber,
-                    receipt.Floor,
+                    table.LocationLabel,
+                    table.TableNumber,
+                    table.Floor,
+                    stateLabel,
                     isPaid ? "Paid" : "Pending",
-                    isClosed ? "Closed" : "Open",
-                    string.Join(" ", receipt.Orders.Select(o => $"{o.OrderNumber} {o.OrderType} {o.Status}")),
-                    string.Join(" ", receipt.LineItems.Select(i => i.ItemName))
+                    receipt?.ReceiptNumber ?? "",
+                    receipt == null ? "" : string.Join(" ", receipt.Orders.Select(o => $"{o.OrderNumber} {o.OrderType} {o.Status}")),
+                    receipt == null ? "" : string.Join(" ", receipt.LineItems.Select(i => i.ItemName))
                 });
                 <div class="bill-card" data-search="@searchText.ToLowerInvariant()">
                     <div class="bill-head">
                         <div>
-                            <div class="receipt-number">@receipt.ReceiptNumber</div>
-                            <div class="meta">@receipt.LocationLabel</div>
-                            <span class="pill">
-                                <i class="bi @(receipt.IsTableSession ? "bi-table" : "bi-receipt")"></i>
-                                @(receipt.IsTableSession ? "Table session" : "Single order")
+                            <div class="receipt-number">@table.LocationLabel</div>
+                            <div class="meta">@(receipt?.ReceiptNumber != null ? $"Bill #{receipt.ReceiptNumber}" : "No active bill")</div>
+                            <span class="pill @(table.IsOccupied ? "pending" : isClosed ? "paid" : "")">
+                                <i class="bi @stateIcon"></i> @stateLabel
                             </span>
-                            <span class="pill @(isPaid ? "paid" : "pending")">
-                                <i class="bi bi-cash-coin"></i> @(isPaid ? "Paid" : "Pending")
-                            </span>
-                            @if (isClosed)
+                            @if (table.PersonCount > 0)
                             {
-                                <span class="pill expired">
-                                    <i class="bi bi-check-circle"></i> Closed
+                                <span class="pill">
+                                    <i class="bi bi-people"></i> @table.PersonCount pax
                                 </span>
                             }
-                            @if (receipt.HasSessionStarted)
+                            @if (table.HasBill)
+                            {
+                                <span class="pill @(isPaid ? "paid" : "pending")">
+                                    <i class="bi bi-cash-coin"></i> @(isPaid ? "Paid" : "Pending")
+                                </span>
+                            }
+                            @if (receipt?.HasSessionStarted == true)
                             {
                                 <span class="pill session-timer" data-session-end="@endIso">
                                     <i class="bi bi-hourglass-split"></i> <span>Checking</span>
                                 </span>
                             }
-                            else if (receipt.Orders.Any(o => string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase)))
+                            else if (receipt?.Orders.Any(o => string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase)) == true)
                             {
                                 <span class="pill pending">
                                     <i class="bi bi-hourglass"></i> Starts when staff starts order
                                 </span>
                             }
                         </div>
-                        <div class="total">₱@receipt.Total.ToString("N2")</div>
+                        <div class="total">₱@table.Total.ToString("N2")</div>
                     </div>
                     <div class="meta">
-                        @receipt.Orders.Count order@(receipt.Orders.Count == 1 ? "" : "s") ·
-                        @receipt.TotalItems item@(receipt.TotalItems == 1 ? "" : "s")<br>
-                        @(receipt.HasSessionStarted ? receipt.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt") : "Session not started")
-                        @if (receipt.IsTableSession && receipt.HasSessionStarted)
+                        @table.OrderCount order@(table.OrderCount == 1 ? "" : "s")
+                        @if (receipt != null)
                         {
-                            <span> - @receipt.SessionEndUtc.ToLocalTime().ToString("h:mm tt")</span>
+                            <span> · @receipt.TotalItems item@(receipt.TotalItems == 1 ? "" : "s")</span><br>
+                            <span>@(receipt.HasSessionStarted ? receipt.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt") : "Session not started")</span>
+                            @if (receipt.IsTableSession && receipt.HasSessionStarted)
+                            {
+                                <span> - @receipt.SessionEndUtc.ToLocalTime().ToString("h:mm tt")</span>
+                            }
                         }
                     </div>
                     <div class="card-actions">
-                        <a class="btn" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipt" asp-route-id="@receipt.AnchorOrder?.Id" asp-route-returnUrl="@currentReturnUrl">
-                            <i class="bi bi-box-arrow-up-right"></i> Open Bill
-                        </a>
+                        @if (!string.IsNullOrWhiteSpace(table.TableNumber))
+                        {
+                            @if (table.IsOccupied)
+                            {
+                                <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="CloseTable">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="table" value="@table.TableNumber" />
+                                    <input type="hidden" name="dateFilter" value="@dateFilter" />
+                                    <input type="hidden" name="showArchived" value="@showArchived.ToString().ToLowerInvariant()" />
+                                    <button class="btn subtle" type="submit"><i class="bi bi-door-open"></i> Close Table</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="OpenTable">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="table" value="@table.TableNumber" />
+                                    <input type="hidden" name="dateFilter" value="@dateFilter" />
+                                    <input type="hidden" name="showArchived" value="@showArchived.ToString().ToLowerInvariant()" />
+                                    <button class="btn" type="submit"><i class="bi bi-person-check"></i> Seat Table</button>
+                                </form>
+                            }
+                        }
+                        @if (receipt?.AnchorOrder != null)
+                        {
+                            <a class="btn" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipt" asp-route-id="@receipt.AnchorOrder.Id" asp-route-returnUrl="@currentReturnUrl">
+                                <i class="bi bi-box-arrow-up-right"></i> Open Bill
+                            </a>
+                        }
                     </div>
                 </div>
             }
@@ -331,8 +384,8 @@
     else
     {
         <div class="empty">
-            <i class="bi bi-receipt" style="font-size: 2rem;"></i>
-            <p>No receipts found for this filter.</p>
+            <i class="bi bi-table" style="font-size: 2rem;"></i>
+            <p>No tables found for this filter.</p>
         </div>
     }
     <script>
@@ -346,14 +399,6 @@
                     if (remainingMs <= 0) {
                         timer.classList.add('expired');
                         if (label) label.textContent = 'Expired';
-
-                        const card = timer.closest('.bill-card');
-                        const paidPill = card ? card.querySelector('.pill.paid') : null;
-                        const closedPill = card ? card.querySelector('.pill .bi-check-circle') : null;
-                        const showingClosed = @showArchived.ToString().ToLowerInvariant();
-                        if (card && paidPill && !closedPill && !showingClosed) {
-                            card.style.display = 'none';
-                        }
                         return;
                     }
 
