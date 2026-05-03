@@ -123,10 +123,58 @@ namespace SelfOrderingSystemKiosk.Services
         }
 
         // Update order status
-        public async Task UpdateStatusAsync(string id, string status)
+        public async Task UpdateStatusAsync(string id, string status, DateTime? sessionStartedAtUtc = null)
         {
+            var order = await GetByIdAsync(id);
             var update = Builders<Order>.Update.Set(o => o.Status, status);
+            if (string.Equals(status, "In Progress", StringComparison.OrdinalIgnoreCase) &&
+                order != null &&
+                order.SessionStartedAtUtc == null &&
+                string.Equals(order.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase))
+            {
+                var sessionStart = sessionStartedAtUtc ?? await GetSessionStartForStaffStartAsync(order);
+                update = update.Set(o => o.SessionStartedAtUtc, sessionStart.ToUniversalTime());
+            }
+
             await _orders.UpdateOneAsync(o => o.Id == id, update);
+        }
+
+        private async Task<DateTime> GetSessionStartForStaffStartAsync(Order order)
+        {
+            var existingSessionStart = GetSessionStartedAtUtc(order);
+            if (existingSessionStart.HasValue)
+                return existingSessionStart.Value;
+
+            if (!string.IsNullOrWhiteSpace(order.TableNumber) &&
+                string.Equals(order.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase))
+            {
+                var tableOrders = await GetOrdersByTableAsync(order.TableNumber);
+                var now = DateTime.UtcNow;
+                var activeSessionStart = tableOrders
+                    .Where(o => !o.BillArchived
+                        && string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase))
+                    .Select(GetSessionStartedAtUtc)
+                    .Where(start => start.HasValue && now < start.Value.AddHours(2))
+                    .Select(start => start!.Value)
+                    .OrderByDescending(start => start)
+                    .FirstOrDefault();
+
+                if (activeSessionStart != default)
+                    return activeSessionStart;
+            }
+
+            return DateTime.UtcNow;
+        }
+
+        private static DateTime? GetSessionStartedAtUtc(Order existingOrder)
+        {
+            if (existingOrder?.SessionStartedAtUtc == null)
+                return null;
+
+            var value = existingOrder.SessionStartedAtUtc.Value;
+            return value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+                : value.ToUniversalTime();
         }
 
         public async Task<long> ExpirePendingOrdersAsync(CancellationToken cancellationToken = default)

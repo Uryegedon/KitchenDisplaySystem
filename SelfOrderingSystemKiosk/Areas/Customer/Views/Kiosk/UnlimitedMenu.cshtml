@@ -118,7 +118,7 @@
                 <p>Choose wings, rice, sides, regular pasta, and drinks</p>
                 <div style="background: rgba(255,255,255,0.95); border: 1px solid rgba(255,107,53,0.35); border-radius: 10px; padding: 9px 13px; margin: 12px auto; max-width: 360px; font-size: 0.92rem;">
                     <i class="bi bi-hourglass-split" style="color:#ff6b35;"></i>
-                    Ordering session: @ViewBag.OrderingSessionHours hours after the first confirmed order.
+                    Ordering session: @ViewBag.OrderingSessionHours hours after staff starts your first Unlimited order.
                 </div>
                 <div style="background: rgba(255,255,255,0.95); border: 1px solid rgba(255,107,53,0.4); border-radius: 10px; padding: 12px 14px; margin: 14px auto; max-width: 520px; text-align: left; font-size: 0.92rem;">
                     <strong style="color:#ff6b35; display:block; margin-bottom:6px;">Ala Carte add-ons</strong>
@@ -780,6 +780,17 @@
                 // Redirect to order tracking page
                 window.location.href = '/Customer/Kiosk/Confirmation?orderNumber=' + encodeURIComponent(data.orderNumber) + '&accessToken=' + encodeURIComponent(data.accessToken || '');
             } else {
+                if (data?.resetPersonCount) {
+                    personCount = 0;
+                    window.isReorder = false;
+                    window.reorderPersonCount = 0;
+                    window.orderingSessionPersonCount = 0;
+                    const personCountLabel = document.querySelector(".person-count");
+                    if (personCountLabel) personCountLabel.textContent = "0 Persons";
+                    updateOrderSummary();
+                    setPersonModalMode("initial");
+                    openModal("personModal");
+                }
                 alert(data?.message || 'Error creating order. Please try again.');
             }
         })
@@ -792,6 +803,7 @@
     // Session timer
     (function() {
         let timerInterval = null;
+        let endedSessionHandled = false;
 
         function formatSessionTime(totalSeconds) {
             const safeSeconds = Math.max(0, Number(totalSeconds) || 0);
@@ -808,6 +820,20 @@
                     const timerDisplay = document.getElementById('timer-display');
                     const timerContainer = document.getElementById('session-timer');
                     const expiredContainer = document.getElementById('session-timer-expired');
+
+                    if ((data.sessionEnded || data.resetPersonCount) && !endedSessionHandled) {
+                        endedSessionHandled = true;
+                        personCount = 0;
+                        cart = [];
+                        window.isReorder = false;
+                        window.reorderPersonCount = 0;
+                        window.orderingSessionPersonCount = 0;
+                        const personCountLabel = document.querySelector(".person-count");
+                        if (personCountLabel) personCountLabel.textContent = "0 Persons";
+                        updateCartDisplay();
+                        setPersonModalMode("initial");
+                        openModal("personModal");
+                    }
 
                     if (data.hasSession) {
                         const submitBtn = document.querySelector('button[type="submit"]') || 

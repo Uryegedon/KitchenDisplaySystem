@@ -263,7 +263,7 @@
             @foreach (var receipt in Model)
             {
                 var isPaid = receipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
-                var isExpired = receipt.SessionEndUtc <= DateTime.UtcNow;
+                var isExpired = receipt.HasSessionStarted && receipt.SessionEndUtc <= DateTime.UtcNow;
                 var isClosed = isPaid && isExpired;
                 var endIso = receipt.SessionEndUtc.ToUniversalTime().ToString("O");
                 var searchText = string.Join(" ", new[]
@@ -295,17 +295,26 @@
                                     <i class="bi bi-check-circle"></i> Closed
                                 </span>
                             }
-                            <span class="pill session-timer" data-session-end="@endIso">
-                                <i class="bi bi-hourglass-split"></i> <span>Checking</span>
-                            </span>
+                            @if (receipt.HasSessionStarted)
+                            {
+                                <span class="pill session-timer" data-session-end="@endIso">
+                                    <i class="bi bi-hourglass-split"></i> <span>Checking</span>
+                                </span>
+                            }
+                            else if (receipt.Orders.Any(o => string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                <span class="pill pending">
+                                    <i class="bi bi-hourglass"></i> Starts when staff starts order
+                                </span>
+                            }
                         </div>
                         <div class="total">₱@receipt.Total.ToString("N2")</div>
                     </div>
                     <div class="meta">
                         @receipt.Orders.Count order@(receipt.Orders.Count == 1 ? "" : "s") ·
                         @receipt.TotalItems item@(receipt.TotalItems == 1 ? "" : "s")<br>
-                        @receipt.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt")
-                        @if (receipt.IsTableSession)
+                        @(receipt.HasSessionStarted ? receipt.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt") : "Session not started")
+                        @if (receipt.IsTableSession && receipt.HasSessionStarted)
                         {
                             <span> - @receipt.SessionEndUtc.ToLocalTime().ToString("h:mm tt")</span>
                         }

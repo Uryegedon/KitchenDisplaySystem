@@ -358,9 +358,13 @@
                     {
                         <span class="pill paid"><i class="bi bi-check2-circle"></i> Session Ended</span>
                     }
-                    @if (showStaffDetails && hasUnlimitedOrder)
+                    @if (showStaffDetails && hasUnlimitedOrder && Model.HasSessionStarted)
                     {
                         <span class="pill" id="sessionTimerPill" data-session-end="@sessionEndIso"><i class="bi bi-hourglass-split"></i> <span id="sessionTimerText">Checking session</span></span>
+                    }
+                    else if (showStaffDetails && hasUnlimitedOrder)
+                    {
+                        <span class="pill pending"><i class="bi bi-hourglass"></i> Starts when staff starts order</span>
                     }
                 </div>
                 <div class="receipt-meta">
@@ -413,11 +417,11 @@
                     </div>
                     <div class="info-box">
                         <span>Session Start</span>
-                        <strong>@Model.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</strong>
+                        <strong>@(Model.HasSessionStarted ? Model.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt") : "Not started")</strong>
                     </div>
                     <div class="info-box">
                         <span>Session Ends</span>
-                        <strong>@Model.SessionEndUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</strong>
+                        <strong>@(Model.HasSessionStarted ? Model.SessionEndUtc.ToLocalTime().ToString("MMM dd, h:mm tt") : "After staff starts")</strong>
                     </div>
                     <div class="info-box">
                         <span>Payment</span>

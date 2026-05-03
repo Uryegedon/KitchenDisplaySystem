@@ -50,8 +50,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             var order = await _orderService.GetByIdAsync(id);
             if (order != null)
             {
-                order.Status = status;
-                await _orderService.UpdateAsync(id, order);
+                await _orderService.UpdateStatusAsync(id, status);
                 TempData["Message"] = $"Order #{order.OrderNumber} status updated to '{status}'.";
             }
             return RedirectToAction("Index");

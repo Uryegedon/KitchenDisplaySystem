@@ -11,6 +11,8 @@
     var sessionRemainingLabel = $"{(int)orderingSessionRemaining.TotalHours:D2}:{orderingSessionRemaining.Minutes:D2}:{orderingSessionRemaining.Seconds:D2}";
     var hasPrivateOrderAccess = ViewBag.HasPrivateOrderAccess is bool privateAccess && privateAccess;
     var publicAccessToken = ViewBag.PublicAccessToken as string ?? "";
+    var sessionEnded = Model.BillArchived;
+    var canReorderUnlimited = Model.OrderType == "Unlimited" && !sessionEnded && !orderingSessionExpired;
     const int cancelWindowSeconds = 5;
     var cancelDeadlineUtc = Model.OrderDate.ToUniversalTime().AddSeconds(cancelWindowSeconds);
     var cancelRemainingSeconds = Math.Max(0, (int)Math.Ceiling((cancelDeadlineUtc - DateTime.UtcNow).TotalSeconds));
@@ -492,7 +494,7 @@
         </p>
         @if (Model.OrderType == "Unlimited")
         {
-            <div id="confirmation-session-timer" class="session-window @(hasOrderingSession && orderingSessionRemaining == TimeSpan.Zero ? "expired" : "")">
+            <div id="confirmation-session-timer" class="session-window @(hasOrderingSession && orderingSessionRemaining == TimeSpan.Zero ? "expired" : "")" style="@(hasOrderingSession ? "" : "display:none;")">
                 @if (hasOrderingSession)
                 {
                     <i class="bi bi-hourglass-split"></i>
@@ -503,7 +505,7 @@
                 {
                     <i class="bi bi-hourglass-split"></i>
                     <strong>Ordering session:</strong>
-                    <span id="confirmation-session-label">@sessionHours-hour window starts from your first confirmed Unlimited order.</span>
+                    <span id="confirmation-session-label">@sessionHours-hour window starts when staff starts your first Unlimited order.</span>
                 }
             </div>
         }
@@ -692,9 +694,18 @@
         }
         @if (Model.OrderType == "Unlimited")
         {
-            <a asp-action="UnlimitedMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="btn-primary @(orderingSessionExpired ? "btn-disabled" : "")" aria-disabled="@(orderingSessionExpired ? "true" : "false")" style="text-decoration: none; background: #F39C12;">
-                <i class="bi bi-arrow-repeat"></i> Reorder (Unlimited)
-            </a>
+            if (canReorderUnlimited)
+            {
+                <a id="reorderUnlimitedLink" asp-action="UnlimitedMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="btn-primary" style="text-decoration: none; background: #F39C12;">
+                    <i class="bi bi-arrow-repeat"></i> Reorder (Unlimited)
+                </a>
+            }
+            else
+            {
+                <button class="btn-secondary" disabled style="opacity: 0.6; cursor: not-allowed;">
+                    <i class="bi bi-arrow-repeat"></i> Reorder Unavailable
+                </button>
+            }
         }
         @if (hasPrivateOrderAccess)
         {
@@ -702,9 +713,18 @@
                 <i class="bi bi-receipt"></i> Receipt / Bill
             </a>
         }
-        <a asp-action="Index" asp-controller="Kiosk" asp-area="Customer" class="btn-primary" style="text-decoration: none;">
-            <i class="bi bi-house"></i> New Order
-        </a>
+        @if (sessionEnded || orderingSessionExpired)
+        {
+            <a id="newOrderLink" asp-action="Index" asp-controller="Kiosk" asp-area="Customer" asp-route-startNewSession="true" class="btn-primary" style="text-decoration: none;">
+                <i class="bi bi-house"></i> New Order
+            </a>
+        }
+        else
+        {
+            <a id="newOrderLink" asp-action="Index" asp-controller="Kiosk" asp-area="Customer" class="btn-primary" style="text-decoration: none;">
+                <i class="bi bi-house"></i> New Order
+            </a>
+        }
     </div>
 
     <div class="text-center mt-4">
@@ -729,7 +749,32 @@
     // Highlight current step based on actual order status
     const orderingSessionExpired = @orderingSessionExpired.ToString().ToLowerInvariant();
     const publicAccessToken = "@publicAccessToken";
+    function disableReorderUnlimited() {
+        const reorderLink = document.getElementById('reorderUnlimitedLink');
+        if (!reorderLink) return;
+
+        const disabled = document.createElement('button');
+        disabled.type = 'button';
+        disabled.className = 'btn-secondary';
+        disabled.disabled = true;
+        disabled.style.opacity = '0.6';
+        disabled.style.cursor = 'not-allowed';
+        disabled.innerHTML = '<i class="bi bi-arrow-repeat"></i> Reorder Unavailable';
+        reorderLink.replaceWith(disabled);
+    }
+
+    function makeNewOrderStartNewSession() {
+        const newOrderLink = document.getElementById('newOrderLink');
+        if (!newOrderLink) return;
+
+        const url = new URL(newOrderLink.href, window.location.origin);
+        url.searchParams.set('startNewSession', 'true');
+        newOrderLink.href = url.toString();
+    }
+
     if (orderingSessionExpired) {
+        disableReorderUnlimited();
+        makeNewOrderStartNewSession();
         setTimeout(() => {
             alert('Your ordering session is already over. You cannot add more orders to this session.');
         }, 350);
@@ -849,15 +894,22 @@
         }
 
         function updateSessionTimer() {
-            fetch('/Customer/Kiosk/GetSessionInfo')
+            fetch('/Customer/Kiosk/GetSessionInfo?orderNumber=@Model.OrderNumber&accessToken=' + encodeURIComponent(publicAccessToken))
                 .then(response => response.json())
                 .then(data => {
+                    if (data.sessionEnded || data.isExpired) {
+                        disableReorderUnlimited();
+                        makeNewOrderStartNewSession();
+                    }
+
                     if (!data.hasSession) {
                         timerBox.classList.remove('expired');
-                        timerLabel.textContent = `${data.sessionHours || @sessionHours}-hour window starts from your first confirmed order.`;
+                        timerBox.style.display = 'none';
+                        timerLabel.textContent = `${data.sessionHours || @sessionHours}-hour window starts when staff starts your first Unlimited order.`;
                         return;
                     }
 
+                    timerBox.style.display = '';
                     if (data.isExpired) {
                         timerBox.classList.add('expired');
                         timerLabel.textContent = 'expired';

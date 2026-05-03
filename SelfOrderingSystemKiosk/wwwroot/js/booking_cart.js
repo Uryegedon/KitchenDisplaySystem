@@ -228,6 +228,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
+            const previousCount = personCount;
             const nextCount = isAddMode ? personCount + enteredCount : enteredCount;
             if (nextCount > 50) {
                 showNotification("Person count cannot be more than 50.", 'error');
@@ -235,32 +236,73 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
+            function syncPersonCountLabel() {
+                const label = document.querySelector(".person-count");
+                if (label) {
+                    label.textContent = personCount > 0
+                        ? `${personCount} Person${personCount > 1 ? "s" : ""}`
+                        : "0 Persons";
+                }
+                updateOrderSummary();
+            }
+
+            function resetPersonSelection(message) {
+                personCount = 0;
+                if (typeof window !== 'undefined') {
+                    window.isReorder = false;
+                    window.reorderPersonCount = 0;
+                    window.orderingSessionPersonCount = 0;
+                }
+                cart = [];
+                updateCartDisplay();
+                syncPersonCountLabel();
+                setPersonModalMode("initial");
+                openModal("personModal");
+                showNotification(message || "Please enter the number of persons for this new session.", 'error');
+                personInput?.focus();
+            }
+
+            function restorePreviousPersonSelection(message) {
+                personCount = previousCount;
+                syncPersonCountLabel();
+                showNotification(message || "Unable to save person count.", 'error');
+                personInput?.focus();
+            }
+
+            function finishPersonSelection() {
+                setTimeout(syncPersonCountLabel, 100);
+                closeModal("personModal");
+                if (isAddMode) {
+                    const noun = enteredCount === 1 ? "person" : "persons";
+                    showNotification(`Added ${enteredCount} ${noun}. Total: ${personCount}`, 'success');
+                    setPersonModalMode("initial");
+                } else {
+                    showRulesModal();
+                }
+            }
+
             personCount = nextCount;
-            document.querySelector(".person-count").textContent =
-                `${personCount} Person${personCount > 1 ? "s" : ""}`;
+            syncPersonCountLabel();
 
             savePersonCountToSession()
                 .then(response => response.json())
                 .then(data => {
-                    if (!data?.success) {
-                        showNotification(data?.message || "Unable to save person count.", 'error');
+                    if (data?.resetPersonCount) {
+                        resetPersonSelection(data.message);
+                        return;
                     }
-                })
-                .catch(err => console.error('Error saving ordering session:', err));
-            
-            // Update order summary with a small delay to ensure DOM is ready
-            setTimeout(() => {
-                updateOrderSummary();
-            }, 100);
 
-            closeModal("personModal");
-            if (isAddMode) {
-                const noun = enteredCount === 1 ? "person" : "persons";
-                showNotification(`Added ${enteredCount} ${noun}. Total: ${personCount}`, 'success');
-                setPersonModalMode("initial");
-            } else {
-                showRulesModal();
-            }
+                    if (!data?.success) {
+                        restorePreviousPersonSelection(data?.message);
+                        return;
+                    }
+
+                    finishPersonSelection();
+                })
+                .catch(err => {
+                    console.error('Error saving ordering session:', err);
+                    restorePreviousPersonSelection("Unable to save person count. Please try again.");
+                });
         });
     }
 

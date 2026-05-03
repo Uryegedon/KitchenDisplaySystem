@@ -195,16 +195,22 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
             var sessionStart = orders
                 .Where(o => string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase))
-                .Select(o => (DateTime?)o.OrderDate)
-                .Min() ?? orders.Min(o => o.OrderDate);
+                .Select(GetOrderSessionStartUtc)
+                .Where(start => start.HasValue)
+                .Select(start => start!.Value)
+                .DefaultIfEmpty()
+                .Min();
+            var hasSessionStarted = sessionStart != default;
+            var displayStart = hasSessionStarted ? sessionStart : orders.Min(o => o.OrderDate);
             var locationLabel = BuildLocationLabel(anchorOrder.Floor, anchorOrder.TableNumber);
 
             return new SessionReceiptViewModel
             {
                 Orders = orders.OrderBy(o => o.OrderDate).ToList(),
                 AnchorOrder = anchorOrder,
-                SessionStartUtc = sessionStart,
-                SessionEndUtc = sessionStart.AddHours(2),
+                SessionStartUtc = displayStart,
+                SessionEndUtc = hasSessionStarted ? sessionStart.AddHours(2) : displayStart,
+                HasSessionStarted = hasSessionStarted,
                 TableNumber = anchorOrder.TableNumber,
                 Floor = anchorOrder.Floor,
                 LocationLabel = locationLabel,
@@ -217,34 +223,64 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             var includeArchived = anchorOrder.BillArchived;
             var ordered = tableOrders
                 .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase)
-                    && (includeArchived || !o.BillArchived))
+                    && o.BillArchived == includeArchived)
                 .OrderBy(o => o.OrderDate)
                 .ToList();
 
             if (!ordered.Any())
                 return new List<Order> { anchorOrder };
 
-            DateTime sessionStart = ordered.First().OrderDate;
-            foreach (var order in ordered)
+            var anchorSessionStart = GetOrderSessionStartUtc(anchorOrder);
+            if (!anchorSessionStart.HasValue)
             {
-                if (order.OrderDate >= sessionStart.AddHours(2))
-                    sessionStart = order.OrderDate;
-
-                if (order.Id == anchorOrder.Id)
-                    break;
+                anchorSessionStart = ordered
+                    .Select(GetOrderSessionStartUtc)
+                    .Where(start => start.HasValue)
+                    .Select(start => start!.Value)
+                    .LastOrDefault(start => anchorOrder.OrderDate >= start && anchorOrder.OrderDate < start.AddHours(2));
             }
 
+            if (!anchorSessionStart.HasValue || anchorSessionStart.Value == default)
+                return new List<Order> { anchorOrder };
+
+            var sessionStart = anchorSessionStart.Value;
             var sessionEnd = sessionStart.AddHours(2);
             return ordered
-                .Where(o => o.OrderDate >= sessionStart && o.OrderDate < sessionEnd)
+                .Where(o =>
+                {
+                    var orderSessionStart = GetOrderSessionStartUtc(o);
+                    if (orderSessionStart.HasValue)
+                        return orderSessionStart.Value >= sessionStart && orderSessionStart.Value < sessionEnd;
+
+                    return o.OrderDate >= sessionStart && o.OrderDate < sessionEnd;
+                })
                 .ToList();
+        }
+
+        private static DateTime ToUtc(DateTime value)
+        {
+            return value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+                : value.ToUniversalTime();
+        }
+
+        private static DateTime? GetOrderSessionStartUtc(Order order)
+        {
+            if (order == null || string.Equals(order.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (order.SessionStartedAtUtc.HasValue)
+                return ToUtc(order.SessionStartedAtUtc.Value);
+
+            return null;
         }
 
         private static bool ShouldHideClosedReceipt(SessionReceiptViewModel receipt)
         {
             return receipt.Orders.Any()
                 && (receipt.Orders.All(o => o.BillArchived)
-                    || (receipt.SessionEndUtc <= DateTime.UtcNow
+                    || (receipt.HasSessionStarted
+                        && receipt.SessionEndUtc <= DateTime.UtcNow
                         && receipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase))));
         }
 
@@ -282,6 +318,33 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             }
 
             return Url.Action("Receipts", "Kitchen", new { area = "Kitchen" }) ?? "/Kitchen/Kitchen/Receipts";
+        }
+
+        private async Task<DateTime?> GetSessionStartForStaffStartAsync(Order order)
+        {
+            if (order.SessionStartedAtUtc.HasValue)
+                return ToUtc(order.SessionStartedAtUtc.Value);
+
+            if (!string.Equals(order.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (!string.IsNullOrWhiteSpace(order.TableNumber) &&
+                string.Equals(order.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase))
+            {
+                var tableOrders = await _orderService.GetOrdersByTableAsync(order.TableNumber);
+                var activeSessionStart = tableOrders
+                    .Where(o => !o.BillArchived)
+                    .Select(GetOrderSessionStartUtc)
+                    .Where(start => start.HasValue && DateTime.UtcNow < start.Value.AddHours(2))
+                    .Select(start => start!.Value)
+                    .OrderByDescending(start => start)
+                    .FirstOrDefault();
+
+                if (activeSessionStart != default)
+                    return activeSessionStart;
+            }
+
+            return DateTime.UtcNow;
         }
 
         // Optional: update status
@@ -338,8 +401,12 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 }
             }
 
+            DateTime? sessionStartedAtUtc = null;
+            if (status.Equals("In Progress", StringComparison.OrdinalIgnoreCase))
+                sessionStartedAtUtc = await GetSessionStartForStaffStartAsync(order);
+
             // Update the order status
-            await _orderService.UpdateStatusAsync(id, status);
+            await _orderService.UpdateStatusAsync(id, status, sessionStartedAtUtc);
             return RedirectToAction("Index");
         }
     }

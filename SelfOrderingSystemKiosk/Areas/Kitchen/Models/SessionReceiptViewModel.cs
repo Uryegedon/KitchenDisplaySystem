@@ -8,6 +8,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
         public Order? AnchorOrder { get; set; }
         public DateTime SessionStartUtc { get; set; }
         public DateTime SessionEndUtc { get; set; }
+        public bool HasSessionStarted { get; set; }
         public string TableNumber { get; set; } = string.Empty;
         public string Floor { get; set; } = string.Empty;
         public string LocationLabel { get; set; } = string.Empty;
@@ -20,7 +21,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
         public decimal Tax => BillableOrders.Sum(o => o.Tax);
         public decimal Total => Subtotal;
         public int TotalItems => BillableOrders.SelectMany(o => o.Items ?? new List<OrderItem>()).Sum(i => i.Quantity);
-        public string ReceiptNumber => IsTableSession ? $"T{TableNumber}-{SessionStartUtc:MMddHHmm}" : AnchorOrder?.OrderNumber ?? string.Empty;
+        public string ReceiptNumber => AnchorOrder?.OrderNumber ?? string.Empty;
 
         public IReadOnlyList<ReceiptLineItem> LineItems =>
             BillableOrders

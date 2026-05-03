@@ -22,6 +22,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
         [JsonPropertyName("orderDate")]
         public DateTime OrderDate { get; set; }
 
+        [BsonElement("sessionStartedAtUtc")]
+        [JsonPropertyName("sessionStartedAtUtc")]
+        public DateTime? SessionStartedAtUtc { get; set; }
+
         [BsonElement("orderType")]
         [JsonPropertyName("orderType")]
         public string OrderType { get; set; }

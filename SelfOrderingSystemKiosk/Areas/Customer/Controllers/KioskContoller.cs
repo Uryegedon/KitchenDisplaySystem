@@ -15,12 +15,14 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private readonly MenuItemService _menuItems;
         private readonly MenuCategoryRegistry _menuCategories;
         private readonly ILogger<KioskController> _logger;
+        private bool _skipRememberedPersonCountRestore;
 
         private const string SessionOrderChannel = "OrderChannel";
         private const string SessionServiceTable = "ServiceTableNumber";
         private const string SessionServiceFloor = "ServiceFloor";
         private const string SessionDiningType = "DiningType";
         private const string SessionPersonCount = "PersonCount";
+        private const string SessionEndedTableReset = "EndedTableSessionReset";
         private const string CookieServiceTable = "KdsOrderTable";
         private const string CookieServiceFloor = "KdsOrderFloor";
         private const string CookiePersonCount = "KdsOrderPersonCount";
@@ -46,22 +48,32 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             HttpContext.Session.Remove(SessionServiceFloor);
         }
 
-        private void ApplyOrderingSessionToViewBag()
+        private async Task ApplyOrderingSessionToViewBagAsync()
         {
             RestoreOrderingCookiesToSession();
             var channel = HttpContext.Session.GetString(SessionOrderChannel) ?? OrderChannelKiosk;
             ViewBag.OrderChannel = channel;
             ViewBag.IsQrFlow = channel == OrderChannelQr;
-            ViewBag.PersonCount = GetSessionInt(SessionPersonCount);
-            ApplyOrderingWindowToViewBag();
             if (channel == OrderChannelQr)
             {
                 var table = HttpContext.Session.GetString(SessionServiceTable);
                 var floor = HttpContext.Session.GetString(SessionServiceFloor);
+                if (!string.IsNullOrWhiteSpace(table))
+                {
+                    await ResetEndedTableSessionPersonCountAsync(table);
+                    await CheckTableOrderingGateAsync(table);
+                }
+
+                ViewBag.PersonCount = GetSessionInt(SessionPersonCount);
+                ApplyOrderingWindowToViewBag();
                 ViewBag.ServiceTable = table;
                 ViewBag.ServiceFloor = floor;
                 ViewBag.LocationLabel = BuildLocationLabel(floor, table);
+                return;
             }
+
+            ViewBag.PersonCount = GetSessionInt(SessionPersonCount);
+            ApplyOrderingWindowToViewBag();
         }
 
         private static string BuildLocationLabel(string floor, string table)
@@ -90,6 +102,71 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 Response.Cookies.Append(CookiePersonCount, personCount.Value.ToString(), options);
         }
 
+        private void ClearRememberedPersonCount(string tableNumber = null)
+        {
+            _skipRememberedPersonCountRestore = true;
+            HttpContext.Session.Remove(SessionPersonCount);
+            HttpContext.Session.Remove(SessionFirstOrderTime);
+            Response.Cookies.Delete(CookiePersonCount);
+            if (!string.IsNullOrWhiteSpace(tableNumber))
+                HttpContext.Session.SetString(SessionEndedTableReset, tableNumber);
+        }
+
+        private async Task ResetEndedTableSessionPersonCountAsync(string tableNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tableNumber))
+                return;
+
+            if (await HasEndedTableSessionReadyForNewSessionAsync(tableNumber))
+                ClearRememberedPersonCount(tableNumber);
+        }
+
+        private async Task<bool> HasEndedTableSessionReadyForNewSessionAsync(string tableNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tableNumber))
+                return false;
+
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            if (!tableOrders.Any())
+                return false;
+
+            var openUnlimitedOrders = tableOrders
+                .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
+                .ToList();
+            var hasEndedSession = tableOrders.Any(o => o.BillArchived);
+            if (hasEndedSession && !openUnlimitedOrders.Any())
+                return true;
+
+            var latestSession = GetLatestTableSession(tableOrders);
+            if (!latestSession.Any())
+                return false;
+
+            var sessionStart = latestSession
+                .Select(GetOrderSessionStartUtc)
+                .Where(start => start.HasValue)
+                .Select(start => start!.Value)
+                .Min();
+            var sessionEnd = sessionStart.Add(OrderingSessionLength);
+            var hasNewPendingSessionOrder = openUnlimitedOrders.Any(o =>
+                !GetOrderSessionStartUtc(o).HasValue &&
+                ToUtc(o.OrderDate) >= sessionEnd);
+
+            if (hasNewPendingSessionOrder)
+                return false;
+
+            var isExpired = DateTime.UtcNow >= sessionEnd;
+            var isPaid = latestSession.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+            return isExpired && isPaid;
+        }
+
+        private bool WasEndedTableSessionReset(string tableNumber)
+        {
+            return string.Equals(
+                HttpContext.Session.GetString(SessionEndedTableReset),
+                tableNumber,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
         private void RestoreOrderingCookiesToSession()
         {
             if (string.IsNullOrEmpty(HttpContext.Session.GetString(SessionServiceTable)) &&
@@ -107,7 +184,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 HttpContext.Session.SetString(SessionServiceFloor, floor);
             }
 
-            if (!GetSessionInt(SessionPersonCount).HasValue &&
+            if (!_skipRememberedPersonCountRestore &&
+                !GetSessionInt(SessionPersonCount).HasValue &&
                 Request.Cookies.TryGetValue(CookiePersonCount, out var rawCount) &&
                 int.TryParse(rawCount, out var personCount) &&
                 personCount > 0)
@@ -174,7 +252,11 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return TableOrderingGateResult.Allowed();
             }
 
-            var sessionStart = latestSession.Min(o => o.OrderDate);
+            var sessionStart = latestSession
+                .Select(GetOrderSessionStartUtc)
+                .Where(start => start.HasValue)
+                .Select(start => start!.Value)
+                .Min();
             var sessionEnd = sessionStart.Add(OrderingSessionLength);
             var isExpired = DateTime.UtcNow >= sessionEnd;
             var isPaid = latestSession.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
@@ -211,10 +293,24 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return;
             }
 
+            if (order.BillArchived)
+            {
+                HttpContext.Session.Remove(SessionFirstOrderTime);
+                ViewBag.HasOrderingSession = false;
+                ViewBag.OrderingSessionRemaining = TimeSpan.Zero;
+                ViewBag.OrderingSessionExpired = false;
+                ViewBag.ConfirmationBillPaid = string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(order.TableNumber) ||
                 !string.Equals(order.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase))
             {
-                HttpContext.Session.SetString(SessionFirstOrderTime, order.OrderDate.ToUniversalTime().ToString("O"));
+                var orderSessionStart = GetOrderSessionStartUtc(order);
+                if (orderSessionStart.HasValue)
+                    HttpContext.Session.SetString(SessionFirstOrderTime, orderSessionStart.Value.ToString("O"));
+                else
+                    HttpContext.Session.Remove(SessionFirstOrderTime);
                 ViewBag.ConfirmationBillPaid = string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
                 return;
             }
@@ -224,8 +320,16 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (!sessionOrders.Any())
                 sessionOrders = new List<Order> { order };
 
-            var sessionStart = sessionOrders.Min(o => o.OrderDate);
-            HttpContext.Session.SetString(SessionFirstOrderTime, sessionStart.ToUniversalTime().ToString("O"));
+            var sessionStart = sessionOrders
+                .Select(GetOrderSessionStartUtc)
+                .Where(start => start.HasValue)
+                .Select(start => start!.Value)
+                .DefaultIfEmpty()
+                .Min();
+            if (sessionStart != default)
+                HttpContext.Session.SetString(SessionFirstOrderTime, sessionStart.ToString("O"));
+            else
+                HttpContext.Session.Remove(SessionFirstOrderTime);
             ViewBag.ConfirmationBillPaid = sessionOrders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
         }
 
@@ -234,20 +338,22 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             var ordered = tableOrders
                 .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase)
                     && !o.BillArchived
-                    && IsUnlimitedOrder(o))
-                .OrderBy(o => o.OrderDate)
+                    && IsUnlimitedOrder(o)
+                    && GetOrderSessionStartUtc(o).HasValue)
+                .OrderBy(o => GetOrderSessionStartUtc(o))
                 .ToList();
 
             if (!ordered.Any())
                 return new List<Order>();
 
-            var sessionStart = ordered.First().OrderDate;
+            var sessionStart = GetOrderSessionStartUtc(ordered.First())!.Value;
             var latestSession = new List<Order>();
             foreach (var order in ordered)
             {
-                if (order.OrderDate >= sessionStart.Add(OrderingSessionLength))
+                var orderSessionStart = GetOrderSessionStartUtc(order)!.Value;
+                if (orderSessionStart >= sessionStart.Add(OrderingSessionLength))
                 {
-                    sessionStart = order.OrderDate;
+                    sessionStart = orderSessionStart;
                     latestSession.Clear();
                 }
 
@@ -262,7 +368,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             var includeArchived = anchorOrder.BillArchived;
             var ordered = tableOrders
                 .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase)
-                    && (includeArchived || !o.BillArchived)
+                    && o.BillArchived == includeArchived
                     && IsUnlimitedOrder(o))
                 .OrderBy(o => o.OrderDate)
                 .ToList();
@@ -270,25 +376,60 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (!ordered.Any())
                 return new List<Order> { anchorOrder };
 
-            var sessionStart = ordered.First().OrderDate;
-            foreach (var order in ordered)
+            var anchorSessionStart = GetOrderSessionStartUtc(anchorOrder);
+            if (!anchorSessionStart.HasValue)
             {
-                if (order.OrderDate >= sessionStart.Add(OrderingSessionLength))
-                    sessionStart = order.OrderDate;
-
-                if (order.Id == anchorOrder.Id)
-                    break;
+                anchorSessionStart = ordered
+                    .Select(GetOrderSessionStartUtc)
+                    .Where(start => start.HasValue)
+                    .Select(start => start!.Value)
+                    .LastOrDefault(start => anchorOrder.OrderDate >= start && anchorOrder.OrderDate < start.Add(OrderingSessionLength));
             }
 
+            if (!anchorSessionStart.HasValue || anchorSessionStart.Value == default)
+                return new List<Order> { anchorOrder };
+
+            var sessionStart = anchorSessionStart.Value;
             var sessionEnd = sessionStart.Add(OrderingSessionLength);
             return ordered
-                .Where(o => o.OrderDate >= sessionStart && o.OrderDate < sessionEnd)
+                .Where(o =>
+                {
+                    var orderSessionStart = GetOrderSessionStartUtc(o);
+                    if (orderSessionStart.HasValue)
+                        return orderSessionStart.Value >= sessionStart && orderSessionStart.Value < sessionEnd;
+
+                    return o.OrderDate >= sessionStart && o.OrderDate < sessionEnd;
+                })
                 .ToList();
         }
 
         private static bool IsUnlimitedOrder(Order order)
         {
             return string.Equals(order.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static DateTime ToUtc(DateTime value)
+        {
+            return value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+                : value.ToUniversalTime();
+        }
+
+        private static DateTime? GetOrderSessionStartUtc(Order order)
+        {
+            if (order == null || string.Equals(order.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (order.SessionStartedAtUtc.HasValue)
+                return ToUtc(order.SessionStartedAtUtc.Value);
+
+            return null;
+        }
+
+        private static bool IsOrderingSessionExpired(Order order)
+        {
+            var sessionStart = GetOrderSessionStartUtc(order);
+            return sessionStart.HasValue && DateTime.UtcNow >= sessionStart.Value.Add(OrderingSessionLength);
         }
 
         private void RememberOrderAccess(Order order)
@@ -341,16 +482,26 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             }
         }
 
-        public IActionResult Index()
+        public async Task<IActionResult> Index(bool startNewSession = false)
         {
             SetKioskChannelDefaults();
+            if (startNewSession)
+                _skipRememberedPersonCountRestore = true;
+
             RestoreOrderingCookiesToSession();
+            var table = HttpContext.Session.GetString(SessionServiceTable);
+            if (startNewSession)
+                ClearRememberedPersonCount(table);
+
+            if (!string.IsNullOrWhiteSpace(table))
+                await ResetEndedTableSessionPersonCountAsync(table);
+
             return View();
         }
 
         /// <summary>Table QR entry point. Example: /Customer/Kiosk/Qr?table=12&amp;floor=2</summary>
         [HttpGet]
-        public IActionResult Qr(string table, string floor = null)
+        public async Task<IActionResult> Qr(string table, string floor = null)
         {
             if (string.IsNullOrWhiteSpace(table))
             {
@@ -373,6 +524,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 HttpContext.Session.Remove(SessionServiceFloor);
 
             HttpContext.Session.SetString(SessionDiningType, "DineIn");
+            await ResetEndedTableSessionPersonCountAsync(table);
             SaveOrderingCookies(table, floor, GetSessionInt(SessionPersonCount));
             TempData["DiningType"] = "DineIn";
             return RedirectToAction("ChooseExperience");
@@ -395,10 +547,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             return RedirectToAction("ChooseExperience");
         }
 
-        public IActionResult ChooseExperience()
+        public async Task<IActionResult> ChooseExperience()
         {
             ViewBag.DiningType = TempData["DiningType"];
-            ApplyOrderingSessionToViewBag();
+            await ApplyOrderingSessionToViewBagAsync();
             return View();
         }
 
@@ -452,7 +604,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             TempData.Keep("DiningType"); // Keep dining type if it exists
             ViewBag.ExperienceType = "Unlimited";
             ViewBag.IsReorder = isReorder;
-            
+             
             // For reorders, calculate personCount from previous order
             int? personCount = null;
             if (isReorder && !string.IsNullOrEmpty(previousOrderNumber))
@@ -460,10 +612,20 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 var previousOrder = await _orderService.GetByOrderNumberAsync(previousOrderNumber);
                 if (previousOrder != null && previousOrder.OrderType == "Unlimited")
                 {
-                    const decimal pricePerHead = 477m;
-                    personCount = (int)Math.Round(previousOrder.Subtotal / pricePerHead);
-                    ViewBag.PersonCount = personCount;
-                    HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
+                    if (previousOrder.BillArchived || IsOrderingSessionExpired(previousOrder))
+                    {
+                        isReorder = false;
+                        ViewBag.IsReorder = false;
+                        RestoreQrSessionFromOrder(previousOrder);
+                        ClearRememberedPersonCount(previousOrder.TableNumber);
+                    }
+                    else
+                    {
+                        const decimal pricePerHead = 477m;
+                        personCount = (int)Math.Round(previousOrder.Subtotal / pricePerHead);
+                        ViewBag.PersonCount = personCount;
+                        HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
+                    }
                 }
             }
             
@@ -489,7 +651,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 .OrderBy(c => c.SortOrder)
                 .ToList();
             ViewBag.DefaultMenuCategory = "Wings";
-            ApplyOrderingSessionToViewBag();
+            await ApplyOrderingSessionToViewBagAsync();
             return View(items);
         }
 
@@ -596,6 +758,21 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 var isRealQrTableOrder = string.Equals(channel, OrderChannelQr, StringComparison.OrdinalIgnoreCase)
                     && string.Equals(diningType, "DineIn", StringComparison.OrdinalIgnoreCase)
                     && !string.Equals(tableNumber, "0", StringComparison.OrdinalIgnoreCase);
+
+                if (isRealQrTableOrder &&
+                    isUnlimitedOrder &&
+                    await HasEndedTableSessionReadyForNewSessionAsync(tableNumber) &&
+                    !WasEndedTableSessionReset(tableNumber))
+                {
+                    ClearRememberedPersonCount(tableNumber);
+                    return Json(new
+                    {
+                        success = false,
+                        resetPersonCount = true,
+                        message = "The previous table session has ended. Please enter the number of persons for this new session."
+                    });
+                }
+
                 SaveOrderingCookies(isRealQrTableOrder ? tableNumber : null, isRealQrTableOrder ? floor : null, personCount);
 
                 var tableGate = isRealQrTableOrder && isUnlimitedOrder
@@ -614,7 +791,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
                 if (isUnlimitedOrder)
                 {
-                    // Check 2-hour time limit after the first Unlimited order in the session.
+                    // Check the 2-hour time limit after staff starts the first Unlimited order.
                     const int orderingSessionHours = 2;
                     DateTime? firstOrderTime = GetFirstOrderTimeUtc();
 
@@ -631,10 +808,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                                 message = $"Time limit exceeded. Your {orderingSessionHours}-hour ordering window started at {firstOrderTime.Value.ToLocalTime():hh:mm tt} and has expired. Please start a new session."
                             });
                         }
-                    }
-                    else
-                    {
-                        HttpContext.Session.SetString(SessionFirstOrderTime, DateTime.UtcNow.ToString("O"));
                     }
                 }
 
@@ -658,6 +831,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 };
 
                 await _orderService.CreateAsync(order);
+                HttpContext.Session.Remove(SessionEndedTableReset);
                 RememberOrderAccess(order);
 
                 return Json(new { success = true, orderNumber = order.OrderNumber, accessToken = order.PublicAccessToken });
@@ -670,14 +844,29 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         }
 
         [HttpPost]
-        public IActionResult SaveOrderingSession([FromQuery] int personCount)
+        public async Task<IActionResult> SaveOrderingSession([FromQuery] int personCount)
         {
             if (personCount <= 0 || personCount > 50)
                 return Json(new { success = false, message = "Person count must be greater than zero." });
 
+            RestoreOrderingCookiesToSession();
+            var table = HttpContext.Session.GetString(SessionServiceTable);
+            if (!string.IsNullOrWhiteSpace(table) &&
+                await HasEndedTableSessionReadyForNewSessionAsync(table) &&
+                !WasEndedTableSessionReset(table))
+            {
+                ClearRememberedPersonCount(table);
+                return Json(new
+                {
+                    success = false,
+                    resetPersonCount = true,
+                    message = "The previous table session has ended. Please enter the number of persons for this new session."
+                });
+            }
+
             HttpContext.Session.SetInt32(SessionPersonCount, personCount);
             SaveOrderingCookies(
-                HttpContext.Session.GetString(SessionServiceTable),
+                table,
                 HttpContext.Session.GetString(SessionServiceFloor),
                 personCount);
 
@@ -728,8 +917,72 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         }
 
         [HttpGet]
-        public IActionResult GetSessionInfo()
+        public async Task<IActionResult> GetSessionInfo(string orderNumber = null, string accessToken = null)
         {
+            RestoreOrderingCookiesToSession();
+
+            if (!string.IsNullOrWhiteSpace(orderNumber))
+            {
+                var order = await _orderService.GetByOrderNumberAsync(orderNumber);
+                if (order == null || !IsUnlimitedOrder(order))
+                {
+                    HttpContext.Session.Remove(SessionFirstOrderTime);
+                    return Json(new { hasSession = false, sessionHours = (int)OrderingSessionLength.TotalHours });
+                }
+
+                if (order.BillArchived)
+                {
+                    HttpContext.Session.Remove(SessionFirstOrderTime);
+                    ClearRememberedPersonCount(order.TableNumber);
+                    return Json(new
+                    {
+                        hasSession = false,
+                        sessionEnded = true,
+                        sessionHours = (int)OrderingSessionLength.TotalHours
+                    });
+                }
+
+                if (HasPrivateOrderAccess(order, accessToken))
+                    RememberOrderAccess(order);
+
+                RestoreQrSessionFromOrder(order);
+                var orderSessionStart = GetOrderSessionStartUtc(order);
+                if (!string.IsNullOrWhiteSpace(order.TableNumber) &&
+                    string.Equals(order.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase))
+                {
+                    await CheckTableOrderingGateAsync(order.TableNumber);
+                }
+                else if (orderSessionStart.HasValue)
+                {
+                    HttpContext.Session.SetString(SessionFirstOrderTime, orderSessionStart.Value.ToString("O"));
+                }
+                else
+                {
+                    HttpContext.Session.Remove(SessionFirstOrderTime);
+                }
+            }
+
+            var channel = HttpContext.Session.GetString(SessionOrderChannel) ?? OrderChannelKiosk;
+            if (string.Equals(channel, OrderChannelQr, StringComparison.OrdinalIgnoreCase))
+            {
+                var table = HttpContext.Session.GetString(SessionServiceTable);
+                if (!string.IsNullOrWhiteSpace(table) &&
+                    await HasEndedTableSessionReadyForNewSessionAsync(table))
+                {
+                    ClearRememberedPersonCount(table);
+                    return Json(new
+                    {
+                        hasSession = false,
+                        sessionEnded = true,
+                        resetPersonCount = true,
+                        sessionHours = (int)OrderingSessionLength.TotalHours
+                    });
+                }
+
+                if (!string.IsNullOrWhiteSpace(table))
+                    await CheckTableOrderingGateAsync(table);
+            }
+
             var firstOrderTime = GetFirstOrderTimeUtc();
             if (!firstOrderTime.HasValue)
                 return Json(new { hasSession = false, sessionHours = (int)OrderingSessionLength.TotalHours });
