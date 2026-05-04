@@ -291,11 +291,105 @@ namespace SelfOrderingSystemKiosk.Services
                 return new List<Order>();
 
             return await _orders
-                .Find(o => o.TableNumber == tableNumber && 
-                          o.Status != "Canceled" && 
+                .Find(o => o.TableNumber == tableNumber &&
+                          o.Status != "Canceled" &&
                           o.DiningType == "DineIn")
                 .SortBy(o => o.OrderDate)
                 .ToListAsync();
+        }
+
+        // ====================
+        // Branch Filtering Methods
+        // ====================
+
+        /// <summary>
+        /// Gets all orders filtered by branch (empty branchId returns all orders)
+        /// </summary>
+        public async Task<List<Order>> GetAllByBranchAsync(string? branchId)
+        {
+            if (string.IsNullOrEmpty(branchId))
+            {
+                return await GetAllAsync();
+            }
+
+            return await _orders.Find(o => o.BranchId == branchId).ToListAsync();
+        }
+
+        /// <summary>
+        /// Gets orders by date range and branch
+        /// </summary>
+        public async Task<List<Order>> GetByDateRangeHalfOpenAsync(DateTime startUtcInclusive, DateTime endUtcExclusive, string? branchId)
+        {
+            if (string.IsNullOrEmpty(branchId))
+            {
+                return await GetByDateRangeHalfOpenAsync(startUtcInclusive, endUtcExclusive);
+            }
+
+            return await _orders
+                .Find(o => o.OrderDate >= startUtcInclusive && o.OrderDate < endUtcExclusive && o.BranchId == branchId)
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Gets orders for kitchen filtered by branch
+        /// </summary>
+        public async Task<List<Order>> GetOrdersForKitchenAsync(string? dateFilter, string? branchId)
+        {
+            await ExpirePendingOrdersAsync();
+
+            var now = DateTime.UtcNow;
+            var filter = string.IsNullOrEmpty(dateFilter) ? "all" : dateFilter.ToLowerInvariant();
+            
+            if (!string.IsNullOrEmpty(branchId))
+            {
+                // Filter by branch
+                return filter switch
+                {
+                    "day" => await _orders.Find(o => 
+                        o.OrderDate >= new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc) &&
+                        o.OrderDate < new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(1) &&
+                        o.BranchId == branchId).ToListAsync(),
+                    "week" => await _orders.Find(o =>
+                        o.OrderDate >= new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek) &&
+                        o.OrderDate < new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek).AddDays(7) &&
+                        o.BranchId == branchId).ToListAsync(),
+                    "month" => await _orders.Find(o =>
+                        o.OrderDate >= new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc) &&
+                        o.OrderDate < new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1) &&
+                        o.BranchId == branchId).ToListAsync(),
+                    _ => await GetAllByBranchAsync(branchId)
+                };
+            }
+            else
+            {
+                // No branch filter - return all
+                return filter switch
+                {
+                    "day" => await GetByDateRangeHalfOpenAsync(
+                        new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc),
+                        new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(1)),
+                    "week" => await GetByDateRangeHalfOpenAsync(
+                        new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek),
+                        new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek).AddDays(7)),
+                    "month" => await GetByDateRangeHalfOpenAsync(
+                        new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc),
+                        new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1)),
+                    _ => await GetAllAsync()
+                };
+            }
+        }
+
+        /// <summary>
+        /// Gets order count by branch
+        /// </summary>
+        public async Task<long> GetCountByBranchAsync(string? branchId)
+        {
+            if (string.IsNullOrEmpty(branchId))
+            {
+                return await _orders.CountDocumentsAsync(_ => true);
+            }
+
+            return await _orders.CountDocumentsAsync(o => o.BranchId == branchId);
         }
     }
 }

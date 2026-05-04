@@ -164,5 +164,73 @@ namespace SelfOrderingSystemKiosk.Services
                 Note = note
             });
         }
+
+        // ====================
+        // Branch Filtering Methods
+        // ====================
+
+        /// <summary>
+        /// Gets all ingredients filtered by branch (empty branchId returns ingredients with empty BranchId or matching branch)
+        /// </summary>
+        public async Task<List<IngredientItem>> GetAllByBranchAsync(string? branchId)
+        {
+            if (string.IsNullOrEmpty(branchId))
+            {
+                return await GetAllAsync();
+            }
+
+            // Return items for specific branch OR shared items (empty BranchId)
+            var filter = Builders<IngredientItem>.Filter.Or(
+                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, branchId),
+                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, string.Empty)
+            );
+            var list = await _collection.Find(filter).ToListAsync();
+            return list
+                .OrderBy(i => i.IngredientCategory, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Gets low stock items filtered by branch
+        /// </summary>
+        public async Task<List<IngredientItem>> GetLowStockByBranchAsync(string? branchId)
+        {
+            if (string.IsNullOrEmpty(branchId))
+            {
+                var all = await GetAllAsync();
+                return all.Where(i => i.CurrentStock <= i.ReorderLevel).ToList();
+            }
+
+            var filter = Builders<IngredientItem>.Filter.And(
+                Builders<IngredientItem>.Filter.Or(
+                    Builders<IngredientItem>.Filter.Eq(i => i.BranchId, branchId),
+                    Builders<IngredientItem>.Filter.Eq(i => i.BranchId, string.Empty)
+                ),
+                Builders<IngredientItem>.Filter.Where(i => i.CurrentStock <= i.ReorderLevel)
+            );
+            var list = await _collection.Find(filter).ToListAsync();
+            return list
+                .OrderBy(i => i.IngredientCategory, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Gets ingredient count by branch
+        /// </summary>
+        public async Task<long> GetCountByBranchAsync(string? branchId)
+        {
+            if (string.IsNullOrEmpty(branchId))
+            {
+                return await _collection.CountDocumentsAsync(_ => true);
+            }
+
+            var filter = Builders<IngredientItem>.Filter.Or(
+                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, branchId),
+                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, string.Empty)
+            );
+            return await _collection.CountDocumentsAsync(filter);
+        }
     }
 }

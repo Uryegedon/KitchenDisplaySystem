@@ -248,6 +248,9 @@ node_modules/
 # Qodo (code review tool)
 .qodo/
 
+# Qwen (local AI tooling)
+.qwen/
+
 # JetBrains IDEs
 .idea/
 *.iml

@@ -115,8 +115,9 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task<bool> DecrementStockAsync(string itemName, int quantity, string? reason = null, string? referenceType = null, string? referenceId = null)
         {
-            var item = await GetByNameAsync(itemName);
-            if (item == null && itemName.StartsWith("Coffee - ", StringComparison.OrdinalIgnoreCase))
+            var lookupName = NormalizeSubmittedItemName(itemName);
+            var item = await GetByNameAsync(lookupName);
+            if (item == null && lookupName.StartsWith("Coffee - ", StringComparison.OrdinalIgnoreCase))
             {
                 item = await GetByNameAsync("Coffee");
             }
@@ -156,6 +157,22 @@ namespace SelfOrderingSystemKiosk.Services
             return true;
         }
 
+        private static string NormalizeSubmittedItemName(string itemName)
+        {
+            if (string.IsNullOrWhiteSpace(itemName))
+                return string.Empty;
+
+            const string flavorMarker = " (Flavors:";
+            var markerIndex = itemName.IndexOf(flavorMarker, StringComparison.OrdinalIgnoreCase);
+            var normalized = markerIndex >= 0
+                ? itemName[..markerIndex].Trim()
+                : itemName.Trim();
+
+            return normalized.StartsWith("Coffee - ", StringComparison.OrdinalIgnoreCase)
+                ? "Coffee"
+                : normalized;
+        }
+
         public async Task<bool> IncreaseStockAsync(string menuItemId, int quantityAdded, string referenceType, string? referenceId, string? note = null)
         {
             _logger.LogWarning("Menu item stock adjustment ignored for {MenuItemId}; stock is tracked through ingredients.", menuItemId);
@@ -167,6 +184,110 @@ namespace SelfOrderingSystemKiosk.Services
         {
             _logger.LogWarning("Menu item stock adjustment ignored for {MenuItem}; stock is tracked through ingredients.", itemName);
             await Task.CompletedTask;
+        }
+
+        // ====================
+        // Branch Filtering Methods
+        // ====================
+
+        /// <summary>
+        /// Gets all menu items filtered by branch (empty branchId returns items with empty BranchId or matching branch)
+        /// </summary>
+        public async Task<List<MenuItem>> GetAllByBranchAsync(string? branchId)
+        {
+            var validItemFilter = Builders<MenuItem>.Filter.And(
+                Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
+                Builders<MenuItem>.Filter.Ne(x => x.Item, ""));
+
+            if (string.IsNullOrEmpty(branchId))
+            {
+                var allItems = await _collection.Find(validItemFilter).ToListAsync();
+                return allItems
+                    .OrderBy(i => IsAvailableForCustomerMenu(i.Availability) ? 0 : 1)
+                    .ThenByDescending(i => i.MenuOrder)
+                    .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            // Return items for specific branch OR shared items (empty BranchId)
+            var branchFilter = Builders<MenuItem>.Filter.And(
+                validItemFilter,
+                Builders<MenuItem>.Filter.Or(
+                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, branchId),
+                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, string.Empty)
+                )
+            );
+            var branchItems = await _collection.Find(branchFilter).ToListAsync();
+            return branchItems
+                .OrderBy(i => IsAvailableForCustomerMenu(i.Availability) ? 0 : 1)
+                .ThenByDescending(i => i.MenuOrder)
+                .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Gets available menu items filtered by branch
+        /// </summary>
+        public async Task<List<MenuItem>> GetAvailableByBranchAsync(string? branchId)
+        {
+            var availableOrUnset = Builders<MenuItem>.Filter.Or(
+                Builders<MenuItem>.Filter.Eq(x => x.Availability, (string)null!),
+                Builders<MenuItem>.Filter.Eq(x => x.Availability, ""),
+                Builders<MenuItem>.Filter.Eq(x => x.Availability, "Available"),
+                Builders<MenuItem>.Filter.Not(Builders<MenuItem>.Filter.Exists(x => x.Availability)));
+
+            var validItemFilter = Builders<MenuItem>.Filter.And(
+                Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
+                Builders<MenuItem>.Filter.Ne(x => x.Item, ""));
+
+            if (string.IsNullOrEmpty(branchId))
+            {
+                var allFilter = Builders<MenuItem>.Filter.And(validItemFilter, availableOrUnset);
+                var allItems = await _collection.Find(allFilter).ToListAsync();
+                return allItems
+                    .OrderByDescending(i => i.MenuOrder)
+                    .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            // Return items for specific branch OR shared items (empty BranchId)
+            var branchFilter = Builders<MenuItem>.Filter.And(
+                validItemFilter,
+                availableOrUnset,
+                Builders<MenuItem>.Filter.Or(
+                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, branchId),
+                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, string.Empty)
+                )
+            );
+            var branchItems = await _collection.Find(branchFilter).ToListAsync();
+            return branchItems
+                .OrderByDescending(i => i.MenuOrder)
+                .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Gets menu item count by branch
+        /// </summary>
+        public async Task<long> GetCountByBranchAsync(string? branchId)
+        {
+            var validItemFilter = Builders<MenuItem>.Filter.And(
+                Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
+                Builders<MenuItem>.Filter.Ne(x => x.Item, ""));
+
+            if (string.IsNullOrEmpty(branchId))
+            {
+                return await _collection.CountDocumentsAsync(validItemFilter);
+            }
+
+            var filter = Builders<MenuItem>.Filter.And(
+                validItemFilter,
+                Builders<MenuItem>.Filter.Or(
+                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, branchId),
+                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, string.Empty)
+                )
+            );
+            return await _collection.CountDocumentsAsync(filter);
         }
     }
 }

@@ -1,6 +1,7 @@
 @model IEnumerable<SelfOrderingSystemKiosk.Models.MenuItem>
 @using SelfOrderingSystemKiosk.Models
 @using SelfOrderingSystemKiosk.Services
+@using SelfOrderingSystemKiosk.Areas.Admin.Models
 @inject KpItemsImageResolver KpImages
 @{
     ViewData["Title"] = "Menu (foods)";
@@ -9,7 +10,30 @@
     var menuFormCats = ViewBag.MenuCategoryFormList as IEnumerable<MenuCategoryOption>;
     var catFilter = ViewBag.CategoryFilter as string ?? "all";
     var ingredientsForRecipe = ViewBag.Ingredients as IEnumerable<IngredientItem> ?? Array.Empty<IngredientItem>();
+    var branchName = ViewData["BranchName"] as string ?? "Unknown";
+    var isOwner = ViewBag.IsOwner == true;
+    var allBranches = ViewBag.AllBranches as List<Branch> ?? new List<Branch>();
 }
+
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <h2 style="margin: 0; font-size: 1.5em;">@branchName</h2>
+    @if (isOwner)
+    {
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <span style="color: #888; font-size: 0.9em;">📊 Select branch:</span>
+            <select id="branchFilter" onchange="filterByBranch()" style="padding: 8px 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 0.9em; min-width: 200px;">
+                @foreach (var branch in allBranches)
+                {
+                    <option value="@branch.Id" selected="@(ViewBag.BranchFilter == branch.Id)">@branch.BranchName</option>
+                }
+            </select>
+        </div>
+    }
+    else
+    {
+        <span style="color: #888; font-size: 0.9em;">📊 Viewing your branch</span>
+    }
+</div>
 
 <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">
         <div>
@@ -810,4 +834,15 @@
         </form>
     </div>
 </div>
+
+@section Scripts {
+    <script>
+        function filterByBranch() {
+            const branchId = document.getElementById('branchFilter').value;
+            const url = new URL(window.location.href);
+            url.searchParams.set('branchFilter', branchId);
+            window.location.href = url.toString();
+        }
+    </script>
+}
 

@@ -1,0 +1,222 @@
+@model SelfOrderingSystemKiosk.Models.AdminUser
+@{
+    Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+}
+
+<div class="user-form-container">
+    <div class="form-header">
+        <a asp-action="Index" class="back-link">
+            <i class="bi bi-arrow-left"></i> Back to Users
+        </a>
+        <h1>Create New User</h1>
+    </div>
+
+    <form asp-action="Create" method="post" class="user-form">
+        @Html.AntiForgeryToken()
+
+        <div class="form-section">
+            <h3>Account Information</h3>
+
+            <div class="form-group">
+                <label for="Username">Username <span class="required">*</span></label>
+                <input type="text" id="Username" name="Username" class="form-control" placeholder="e.g., john.doe" required />
+                <span asp-validation-for="Username" class="text-danger"></span>
+            </div>
+
+            <div class="form-group">
+                <label for="Password">Password <span class="required">*</span></label>
+                <input type="password" id="Password" name="Password" class="form-control" placeholder="Minimum 6 characters" required minlength="6" />
+                <span asp-validation-for="Password" class="text-danger"></span>
+            </div>
+
+            <div class="form-group">
+                <label for="FullName">Full Name <span class="required">*</span></label>
+                <input type="text" id="FullName" name="FullName" class="form-control" placeholder="e.g., John Doe" required />
+                <span asp-validation-for="FullName" class="text-danger"></span>
+            </div>
+
+            <div class="form-group">
+                <label for="Email">Email Address</label>
+                <input type="email" id="Email" name="Email" class="form-control" placeholder="user@example.com" />
+                <span asp-validation-for="Email" class="text-danger"></span>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>Role & Permissions</h3>
+
+            <div class="form-group">
+                <label for="Role">Role <span class="required">*</span></label>
+                <select id="Role" name="Role" class="form-control" required>
+                    <option value="">Select a role...</option>
+                    @foreach (var role in (ViewBag.Roles as List<string> ?? new List<string>()))
+                    {
+                        <option value="@role">@role</option>
+                    }
+                </select>
+                <span asp-validation-for="Role" class="text-danger"></span>
+            </div>
+
+            <div class="form-group">
+                <label for="BranchId">Branch Assignment</label>
+                <select id="BranchId" name="BranchId" class="form-control">
+                    <option value="">All Branches (Owner only)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn-submit">
+                <i class="bi bi-check-circle"></i> Create User
+            </button>
+            <a asp-action="Index" class="btn-cancel">Cancel</a>
+        </div>
+    </form>
+</div>
+
+@section Styles {
+    <style>
+        .user-form-container {
+            padding: 0;
+            max-width: 700px;
+        }
+
+        .form-header {
+            margin-bottom: 24px;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #e67e22;
+            text-decoration: none;
+            font-weight: 600;
+            margin-bottom: 12px;
+            transition: color 0.3s;
+        }
+
+        .back-link:hover {
+            color: #d35400;
+        }
+
+        .form-header h1 {
+            margin: 0;
+            font-size: 1.5em;
+            color: #d35400;
+        }
+
+        .user-form {
+            background: #fff;
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid #f0d7bf;
+        }
+
+        .form-section {
+            margin-bottom: 32px;
+        }
+
+        .form-section h3 {
+            margin: 0 0 20px 0;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f0d7bf;
+            color: #d35400;
+            font-size: 1.2em;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .required {
+            color: #e74c3c;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #f0d7bf;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            box-sizing: border-box;
+            background: #fffaf5;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #e67e22;
+            box-shadow: 0 0 6px rgba(230, 126, 34, 0.3);
+        }
+
+        select.form-control {
+            cursor: pointer;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            padding-top: 20px;
+            border-top: 2px solid #f0d7bf;
+        }
+
+        .btn-submit {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 25px;
+            background-color: #e67e22;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+            box-shadow: 0 4px 10px rgba(230, 126, 34, 0.2);
+        }
+
+        .btn-submit:hover {
+            background-color: #d35400;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(211, 84, 0, 0.3);
+        }
+
+        .btn-cancel {
+            display: inline-flex;
+            align-items: center;
+            padding: 12px 25px;
+            background-color: #95a5a6;
+            color: white;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 600;
+            border: none;
+            transition: background-color 0.3s;
+        }
+
+        .btn-cancel:hover {
+            background-color: #7f8c8d;
+        }
+
+        .text-danger {
+            color: #e74c3c;
+            font-size: 0.85em;
+            margin-top: 4px;
+            display: block;
+        }
+    </style>
+}
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}

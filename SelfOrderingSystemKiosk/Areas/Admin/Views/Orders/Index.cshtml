@@ -2,7 +2,17 @@
 @{
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     ViewData["Title"] = "Orders Management";
+    var branchName = ViewData["BranchName"] as string ?? "Unknown";
+    var isOwner = User.IsInRole("Owner");
 }
+
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <h2 style="margin: 0; font-size: 1.5em;">@branchName</h2>
+    @if (isOwner)
+    {
+        <span style="color: #888; font-size: 0.9em;">📊 Viewing all branches</span>
+    }
+</div>
 
 <p style="margin-top: 0;">Track and update order statuses efficiently.</p>
 

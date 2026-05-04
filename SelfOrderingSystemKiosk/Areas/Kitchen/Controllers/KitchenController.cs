@@ -92,13 +92,15 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             var canViewTableSession = isSignedIn
                 && !string.IsNullOrWhiteSpace(id)
                 && string.IsNullOrWhiteSpace(orderNumber);
+            if (!isSignedIn && HasPublicReceiptAccess(anchorOrder, accessToken))
+                canViewTableSession = true;
             return View(await BuildReceiptViewModelAsync(anchorOrder, canViewTableSession));
         }
 
         [HttpGet]
         public async Task<IActionResult> Receipts([FromQuery] string? dateFilter = "all", [FromQuery] bool showArchived = false)
         {
-            var orders = await _orderService.GetOrdersForKitchenAsync("all");
+            var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter);
             var receipts = await BuildReceiptsAsync(orders);
             var tableSessions = await _tableOrderingSessions.GetAllAsync();
             var knownTables = await _tableRegistry.GetAllAsync();
@@ -425,21 +427,35 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             if (!ordered.Any())
                 return new List<Order> { anchorOrder };
 
+            var startedSessions = ordered
+                .Select(GetOrderSessionStartUtc)
+                .Where(start => start.HasValue)
+                .Select(start => start!.Value)
+                .OrderBy(start => start)
+                .ToList();
             var anchorSessionStart = GetOrderSessionStartUtc(anchorOrder);
             if (!anchorSessionStart.HasValue)
             {
-                anchorSessionStart = ordered
-                    .Select(GetOrderSessionStartUtc)
-                    .Where(start => start.HasValue)
-                    .Select(start => start!.Value)
-                    .LastOrDefault(start => anchorOrder.OrderDate >= start && anchorOrder.OrderDate < start.AddHours(2));
+                anchorSessionStart = startedSessions
+                    .LastOrDefault(start => ToUtc(anchorOrder.OrderDate) >= start && ToUtc(anchorOrder.OrderDate) < start.AddHours(2));
+
+                if (!anchorSessionStart.HasValue || anchorSessionStart.Value == default)
+                {
+                    anchorSessionStart = startedSessions
+                        .FirstOrDefault(start => ToUtc(anchorOrder.OrderDate) <= start);
+                }
             }
 
             if (!anchorSessionStart.HasValue || anchorSessionStart.Value == default)
-                return new List<Order> { anchorOrder };
+                return ordered;
 
             var sessionStart = anchorSessionStart.Value;
             var sessionEnd = sessionStart.AddHours(2);
+            var previousSessionEnd = startedSessions
+                .Where(start => start < sessionStart)
+                .Select(start => start.AddHours(2))
+                .DefaultIfEmpty(DateTime.MinValue)
+                .Max();
             return ordered
                 .Where(o =>
                 {
@@ -447,7 +463,8 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                     if (orderSessionStart.HasValue)
                         return orderSessionStart.Value >= sessionStart && orderSessionStart.Value < sessionEnd;
 
-                    return o.OrderDate >= sessionStart && o.OrderDate < sessionEnd;
+                    var orderDate = ToUtc(o.OrderDate);
+                    return orderDate > previousSessionEnd && orderDate < sessionEnd;
                 })
                 .ToList();
         }

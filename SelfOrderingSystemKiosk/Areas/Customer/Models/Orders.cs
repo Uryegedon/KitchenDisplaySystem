@@ -87,6 +87,11 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
         [JsonPropertyName("billArchived")]
         public bool BillArchived { get; set; }
 
+        /// <summary>Optional branch identifier for multi-branch setups.</summary>
+        [BsonElement("branchId")]
+        [JsonPropertyName("branchId")]
+        public string BranchId { get; set; }
+
         public Order()
         {
             Items = new List<OrderItem>();
@@ -97,6 +102,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
             PaymentMethod = "Cash";
             PaymentStatus = "Pending";
             BillArchived = false;
+            BranchId = string.Empty;
         }
     }
 

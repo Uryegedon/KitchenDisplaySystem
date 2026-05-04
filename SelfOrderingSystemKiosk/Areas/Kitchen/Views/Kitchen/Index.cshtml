@@ -2,9 +2,9 @@
 @{
     ViewData["Title"] = "Kitchen Dashboard";
     var totalOrders = Model.Count();
-    var pendingOrders = Model.Count(o => o.Status == "Pending");
-    var inProgressOrders = Model.Count(o => o.Status == "In Progress");
-    var completedOrders = Model.Count(o => o.Status == "Completed");
+    var pendingOrders = Model.Count(o => string.Equals(o.Status, "Pending", StringComparison.OrdinalIgnoreCase));
+    var inProgressOrders = Model.Count(o => string.Equals(o.Status, "In Progress", StringComparison.OrdinalIgnoreCase));
+    var completedOrders = Model.Count(o => string.Equals(o.Status, "Completed", StringComparison.OrdinalIgnoreCase));
 }
 
 <!DOCTYPE html>
@@ -452,10 +452,11 @@
     </div>
 
     <div class="orders-grid">
-        @foreach (var order in Model.OrderBy(o => o.Status == "Pending" ? 0 : o.Status == "In Progress" ? 1 : 2).ThenByDescending(o => o.OrderDate))
+        @foreach (var order in Model.OrderBy(o => string.Equals(o.Status, "Pending", StringComparison.OrdinalIgnoreCase) ? 0 : string.Equals(o.Status, "In Progress", StringComparison.OrdinalIgnoreCase) ? 1 : 2).ThenByDescending(o => o.OrderDate))
         {
-            var statusClass = order.Status.ToLower().Replace(" ", "-");
-            var hideByDefault = (order.Status == "Completed" || order.Status == "Canceled") ? "display: none;" : "";
+            var status = order.Status ?? "Pending";
+            var statusClass = status.ToLowerInvariant().Replace(" ", "-");
+            var hideByDefault = (string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase) || string.Equals(status, "Canceled", StringComparison.OrdinalIgnoreCase)) ? "display: none;" : "";
             <div class="order-card @statusClass" data-status="@statusClass" style="@hideByDefault">
                 <div class="order-header">
                     <div>

@@ -390,7 +390,10 @@ namespace SelfOrderingSystemKiosk.Services
             var seedNames = seed.Select(x => x.Item).ToList();
             var existingItems = await coll.Find(Builders<IngredientItem>.Filter.In(x => x.Item, seedNames))
                 .ToListAsync(ct);
-            var existingByName = existingItems.ToDictionary(x => x.Item, StringComparer.OrdinalIgnoreCase);
+            
+            // Filter to only shared ingredients (empty BranchId) to avoid duplicates from branch-specific copies
+            var sharedItems = existingItems.Where(x => string.IsNullOrEmpty(x.BranchId)).ToList();
+            var existingByName = sharedItems.ToDictionary(x => x.Item, StringComparer.OrdinalIgnoreCase);
             var missing = new List<IngredientItem>();
             var legacyDefaults = LegacyIngredientSeedNames.Except(seedNames, StringComparer.OrdinalIgnoreCase).ToList();
 

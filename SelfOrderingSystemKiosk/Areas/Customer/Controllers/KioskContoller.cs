@@ -527,21 +527,35 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (!ordered.Any())
                 return new List<Order> { anchorOrder };
 
+            var startedSessions = ordered
+                .Select(GetOrderSessionStartUtc)
+                .Where(start => start.HasValue)
+                .Select(start => start!.Value)
+                .OrderBy(start => start)
+                .ToList();
             var anchorSessionStart = GetOrderSessionStartUtc(anchorOrder);
             if (!anchorSessionStart.HasValue)
             {
-                anchorSessionStart = ordered
-                    .Select(GetOrderSessionStartUtc)
-                    .Where(start => start.HasValue)
-                    .Select(start => start!.Value)
-                    .LastOrDefault(start => anchorOrder.OrderDate >= start && anchorOrder.OrderDate < start.Add(OrderingSessionLength));
+                anchorSessionStart = startedSessions
+                    .LastOrDefault(start => ToUtc(anchorOrder.OrderDate) >= start && ToUtc(anchorOrder.OrderDate) < start.Add(OrderingSessionLength));
+
+                if (!anchorSessionStart.HasValue || anchorSessionStart.Value == default)
+                {
+                    anchorSessionStart = startedSessions
+                        .FirstOrDefault(start => ToUtc(anchorOrder.OrderDate) <= start);
+                }
             }
 
             if (!anchorSessionStart.HasValue || anchorSessionStart.Value == default)
-                return new List<Order> { anchorOrder };
+                return ordered;
 
             var sessionStart = anchorSessionStart.Value;
             var sessionEnd = sessionStart.Add(OrderingSessionLength);
+            var previousSessionEnd = startedSessions
+                .Where(start => start < sessionStart)
+                .Select(start => start.Add(OrderingSessionLength))
+                .DefaultIfEmpty(DateTime.MinValue)
+                .Max();
             return ordered
                 .Where(o =>
                 {
@@ -549,7 +563,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     if (orderSessionStart.HasValue)
                         return orderSessionStart.Value >= sessionStart && orderSessionStart.Value < sessionEnd;
 
-                    return o.OrderDate >= sessionStart && o.OrderDate < sessionEnd;
+                    var orderDate = ToUtc(o.OrderDate);
+                    return orderDate > previousSessionEnd && orderDate < sessionEnd;
                 })
                 .ToList();
         }
@@ -1077,6 +1092,29 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
             if (!string.IsNullOrWhiteSpace(table))
             {
+                var existingSession = await _tableOrderingSessions.GetAsync(table);
+                var openUnlimitedOrders = (await _orderService.GetOrdersByTableAsync(table))
+                    .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
+                    .ToList();
+                var hasOpenUnlimitedOrders = openUnlimitedOrders.Any();
+                var billedPersonCount = existingSession?.BilledPersonCount > 0
+                    ? existingSession.BilledPersonCount
+                    : openUnlimitedOrders
+                        .Select(GetChargedUnlimitedPersonCount)
+                        .DefaultIfEmpty(0)
+                        .Max();
+                if (hasOpenUnlimitedOrders && personCount > billedPersonCount)
+                {
+                    HttpContext.Session.SetInt32(SessionPersonCount, personCount);
+                    return Json(new
+                    {
+                        success = true,
+                        personCount,
+                        requiresOrderToCharge = true,
+                        message = "Additional guests will be added to the bill when the next Unlimited order is submitted."
+                    });
+                }
+
                 var tableSession = await _tableOrderingSessions.SavePersonCountAsync(table, personCount);
                 if (tableSession?.PersonCount > 0)
                     personCount = tableSession.PersonCount;
@@ -1092,6 +1130,21 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 personCount);
 
             return Json(new { success = true, personCount });
+        }
+
+        private static int GetChargedUnlimitedPersonCount(Order order)
+        {
+            if (order == null || !IsUnlimitedOrder(order))
+                return 0;
+
+            const decimal pricePerHead = 477m;
+            var addOnSubtotal = (order.Items ?? new List<OrderItem>())
+                .Where(i => i.Price > 0)
+                .Sum(i => i.Price * i.Quantity);
+            var baseSubtotal = Math.Max(0m, order.Subtotal - addOnSubtotal);
+            return baseSubtotal >= pricePerHead
+                ? Math.Max(1, (int)Math.Floor(baseSubtotal / pricePerHead))
+                : 0;
         }
 
         [HttpGet]

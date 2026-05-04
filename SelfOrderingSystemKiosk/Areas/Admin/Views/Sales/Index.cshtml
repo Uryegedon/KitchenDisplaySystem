@@ -16,9 +16,19 @@
     var chartLabelsJson = System.Text.Json.JsonSerializer.Serialize(chartData.Keys.OrderBy(k => k).Select(k => DateTime.Parse(k).ToString("MMM dd")).ToList());
     var chartValuesJson = System.Text.Json.JsonSerializer.Serialize(chartData.Keys.OrderBy(k => k).Select(k => chartData[k]).ToList());
     var hasCustomRange = ViewBag.HasCustomRange != null && (bool)ViewBag.HasCustomRange;
+    var isOwner = ViewBag.IsOwner == true;
+    var branchName = ViewData["BranchName"] as string ?? "Unknown";
 }
 
 <div class="dashboard-container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h2 style="margin: 0; font-size: 1.5em;">@branchName</h2>
+        @if (isOwner)
+        {
+            <span style="color: #888; font-size: 0.9em;">📊 Viewing all branches</span>
+        }
+    </div>
+    
     <p style="margin-bottom: 8px;"><a asp-area="Admin" asp-controller="Dashboard" asp-action="Index" style="color: #e67e22; font-weight: 600; text-decoration: none;"><i class="bi bi-arrow-left"></i> Back to dashboard</a></p>
     <p style="margin-top: 0;">Revenue charts, date ranges, and best sellers</p>
 

@@ -4,6 +4,8 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
 {
     public class SessionReceiptViewModel
     {
+        private const decimal UnlimitedPricePerHead = 477m;
+
         public List<Order> Orders { get; set; } = new();
         public Order? AnchorOrder { get; set; }
         public DateTime SessionStartUtc { get; set; }
@@ -17,14 +19,25 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
         public IEnumerable<Order> BillableOrders =>
             Orders.Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase));
 
-        public decimal Subtotal => BillableOrders.Sum(o => o.Subtotal);
+        public decimal Subtotal => LineItems.Sum(i => i.LineTotal);
         public decimal Tax => BillableOrders.Sum(o => o.Tax);
         public decimal Total => Subtotal;
         public int TotalItems => BillableOrders.SelectMany(o => o.Items ?? new List<OrderItem>()).Sum(i => i.Quantity);
         public string ReceiptNumber => AnchorOrder?.OrderNumber ?? string.Empty;
 
         public IReadOnlyList<ReceiptLineItem> LineItems =>
-            BillableOrders
+            BuildLineItems();
+
+        private IReadOnlyList<ReceiptLineItem> BuildLineItems()
+        {
+            var billableOrders = BillableOrders.ToList();
+            var unlimitedPersonCount = billableOrders
+                .Where(IsUnlimitedOrder)
+                .Select(GetOrderPersonCount)
+                .DefaultIfEmpty(0)
+                .Max();
+
+            var lineItems = billableOrders
                 .SelectMany(o => o.Items ?? new List<OrderItem>())
                 .GroupBy(i => new { i.ItemName, i.Price })
                 .Select(g => new ReceiptLineItem
@@ -35,6 +48,33 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
                 })
                 .OrderBy(i => i.ItemName)
                 .ToList();
+
+            if (unlimitedPersonCount > 0)
+            {
+                lineItems.Insert(0, new ReceiptLineItem
+                {
+                    ItemName = "Unlimited Dine-In",
+                    Price = UnlimitedPricePerHead,
+                    Quantity = unlimitedPersonCount
+                });
+            }
+
+            return lineItems;
+        }
+
+        private static bool IsUnlimitedOrder(Order order) =>
+            string.Equals(order.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase);
+
+        private static int GetOrderPersonCount(Order order)
+        {
+            if (order?.PersonCount is > 0)
+                return order.PersonCount.Value;
+
+            if (order != null && IsUnlimitedOrder(order) && order.Subtotal >= UnlimitedPricePerHead)
+                return Math.Max(1, (int)Math.Floor(order.Subtotal / UnlimitedPricePerHead));
+
+            return 0;
+        }
     }
 
     public class ReceiptLineItem

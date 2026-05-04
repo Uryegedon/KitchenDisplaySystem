@@ -274,10 +274,15 @@
             cursor: pointer;
         }
 
-        .discount-control input {
-            width: 18px;
-            height: 18px;
-            accent-color: #16a34a;
+        .discount-control select {
+            margin-left: auto;
+            border: 1px solid #86efac;
+            border-radius: 8px;
+            background: white;
+            color: #14532d;
+            font-weight: 800;
+            padding: 7px 10px;
+            min-width: 150px;
         }
 
         .discount-row {
@@ -325,7 +330,15 @@
             }
             th, td { padding: 8px 7px; }
             .totals { width: 100%; }
-            .discount-control { width: 100%; }
+            .discount-control {
+                width: 100%;
+                align-items: stretch;
+                flex-direction: column;
+            }
+            .discount-control select {
+                margin-left: 0;
+                width: 100%;
+            }
             .total-row { padding: 9px 11px; }
             .payment-actions { justify-content: stretch; }
             .payment-actions form,
@@ -464,9 +477,14 @@
 
             @if (allowPaymentActions)
             {
-                <label class="discount-control">
-                    <input type="checkbox" id="seniorDiscountToggle" />
-                    <span>Apply 20% senior discount</span>
+                <label class="discount-control" for="discountRateSelect">
+                    <span>Discount / Promo</span>
+                    <select id="discountRateSelect">
+                        <option value="0">No discount</option>
+                        <option value="0.10">10% promo</option>
+                        <option value="0.15">15% promo</option>
+                        <option value="0.20">20% senior discount</option>
+                    </select>
                 </label>
             }
 
@@ -477,9 +495,9 @@
                 </div>
                 @if (allowPaymentActions)
                 {
-                    <div class="total-row discount-row" id="seniorDiscountRow" style="display:none;">
-                        <span>Senior Discount (20%)</span>
-                        <strong id="seniorDiscountAmount">-₱0.00</strong>
+                    <div class="total-row discount-row" id="discountRow" style="display:none;">
+                        <span id="discountLabel">Discount</span>
+                        <strong id="discountAmount">-₱0.00</strong>
                     </div>
                 }
                 <div class="total-row">
@@ -548,12 +566,13 @@
         })();
 
         (function () {
-            const toggle = document.getElementById('seniorDiscountToggle');
+            const discountSelect = document.getElementById('discountRateSelect');
             const totals = document.querySelector('.totals');
-            const row = document.getElementById('seniorDiscountRow');
-            const discountAmount = document.getElementById('seniorDiscountAmount');
+            const row = document.getElementById('discountRow');
+            const discountLabel = document.getElementById('discountLabel');
+            const discountAmount = document.getElementById('discountAmount');
             const totalDue = document.getElementById('receiptTotalDue');
-            if (!toggle || !totals || !row || !discountAmount || !totalDue) return;
+            if (!discountSelect || !totals || !row || !discountLabel || !discountAmount || !totalDue) return;
 
             const subtotal = Number(totals.dataset.subtotal || 0);
             const formatter = new Intl.NumberFormat('en-PH', {
@@ -562,13 +581,16 @@
             });
 
             function updateDiscount() {
-                const discount = toggle.checked ? subtotal * 0.20 : 0;
-                row.style.display = toggle.checked ? 'flex' : 'none';
+                const rate = Number(discountSelect.value || 0);
+                const selectedLabel = discountSelect.selectedOptions[0]?.textContent || 'Discount';
+                const discount = rate > 0 ? subtotal * rate : 0;
+                row.style.display = rate > 0 ? 'flex' : 'none';
+                discountLabel.textContent = selectedLabel;
                 discountAmount.textContent = `-${formatter.format(discount)}`;
                 totalDue.textContent = formatter.format(Math.max(0, subtotal - discount));
             }
 
-            toggle.addEventListener('change', updateDiscount);
+            discountSelect.addEventListener('change', updateDiscount);
             updateDiscount();
         })();
     </script>

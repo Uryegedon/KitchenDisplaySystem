@@ -1,0 +1,262 @@
+@model SelfOrderingSystemKiosk.Areas.Admin.Models.Branch
+@{
+    Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+}
+
+<div class="branch-form-container">
+    <div class="form-header">
+        <a asp-action="Index" class="back-link">
+            <i class="bi bi-arrow-left"></i> Back to Branches
+        </a>
+        <h1>Edit Branch</h1>
+    </div>
+
+    <form asp-action="Edit" method="post" class="branch-form">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="Id" />
+        <input type="hidden" asp-for="CreatedAt" />
+
+        <div class="form-section">
+            <h3>Basic Information</h3>
+            
+            <div class="form-group">
+                <label asp-for="BranchCode">Branch Code <span class="required">*</span></label>
+                <input asp-for="BranchCode" class="form-control" placeholder="e.g., BR001, MAIN, DOWNTOWN" />
+                <span asp-validation-for="BranchCode" class="text-danger"></span>
+                <small class="form-text">A unique short code to identify this branch</small>
+            </div>
+
+            <div class="form-group">
+                <label asp-for="BranchName">Branch Name <span class="required">*</span></label>
+                <input asp-for="BranchName" class="form-control" placeholder="e.g., Main Branch, Downtown Location" />
+                <span asp-validation-for="BranchName" class="text-danger"></span>
+            </div>
+
+            <div class="form-group">
+                <label asp-for="IsActive">Status</label>
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" asp-for="IsActive" />
+                    <label for="IsActive">Branch is active and accepting orders</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>Contact Information</h3>
+            
+            <div class="form-group">
+                <label asp-for="Address">Address</label>
+                <input asp-for="Address" class="form-control" placeholder="Street address, city, province" />
+                <span asp-validation-for="Address" class="text-danger"></span>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label asp-for="Phone">Phone Number</label>
+                    <input asp-for="Phone" class="form-control" placeholder="+63 XX XXX XXXX" />
+                    <span asp-validation-for="Phone" class="text-danger"></span>
+                </div>
+
+                <div class="form-group">
+                    <label asp-for="Email">Email Address</label>
+                    <input asp-for="Email" type="email" class="form-control" placeholder="branch&#64;example.com" />
+                    <span asp-validation-for="Email" class="text-danger"></span>
+                </div>
+            </div>
+        </div>
+
+        @if (Model.UpdatedAt.HasValue)
+        {
+            <div class="form-section">
+                <h3>Metadata</h3>
+                <p class="form-text">
+                    <strong>Created:</strong> @Model.CreatedAt.ToLocalTime().ToString("MMMM dd, yyyy HH:mm")<br />
+                    <strong>Last Updated:</strong> @Model.UpdatedAt.Value.ToLocalTime().ToString("MMMM dd, yyyy HH:mm")
+                </p>
+            </div>
+        }
+
+        <div class="form-actions">
+            <button type="submit" class="btn-submit">
+                <i class="bi bi-check-circle"></i> Save Changes
+            </button>
+            <a asp-action="Index" class="btn-cancel">Cancel</a>
+        </div>
+    </form>
+</div>
+
+@section Styles {
+    <style>
+        .branch-form-container {
+            padding: 20px;
+            max-width: 700px;
+        }
+
+        .form-header {
+            margin-bottom: 24px;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            margin-bottom: 12px;
+            transition: color 0.2s;
+        }
+
+        .back-link:hover {
+            color: #764ba2;
+        }
+
+        .form-header h1 {
+            margin: 0;
+            font-size: 1.8rem;
+            color: #2c3e50;
+        }
+
+        .branch-form {
+            background: white;
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        }
+
+        .form-section {
+            margin-bottom: 32px;
+        }
+
+        .form-section h3 {
+            margin: 0 0 20px 0;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f0f0f0;
+            color: #2c3e50;
+            font-size: 1.2rem;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .required {
+            color: #e74c3c;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            box-sizing: border-box;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+
+        .form-text {
+            display: block;
+            margin-top: 6px;
+            color: #6c757d;
+            font-size: 0.85rem;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-wrapper input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .checkbox-wrapper label {
+            margin: 0;
+            font-weight: normal;
+            cursor: pointer;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            padding-top: 20px;
+            border-top: 2px solid #f0f0f0;
+        }
+
+        .btn-submit {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-cancel {
+            display: inline-flex;
+            align-items: center;
+            padding: 12px 24px;
+            background: #f8f9fa;
+            color: #495057;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            border: 1px solid #dee2e6;
+            transition: all 0.2s;
+        }
+
+        .btn-cancel:hover {
+            background: #e9ecef;
+        }
+
+        .text-danger {
+            color: #e74c3c;
+            font-size: 0.85rem;
+            margin-top: 4px;
+            display: block;
+        }
+
+        @@media (max-width: 600px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+}
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}

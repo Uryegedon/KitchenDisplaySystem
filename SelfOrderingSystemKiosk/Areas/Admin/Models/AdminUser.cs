@@ -4,6 +4,17 @@ using System.ComponentModel.DataAnnotations;
 
 namespace SelfOrderingSystemKiosk.Models
 {
+    /// <summary>
+    /// User role constants for authorization
+    /// </summary>
+    public static class UserRoles
+    {
+        public const string Owner = "Owner";
+        public const string BranchManager = "BranchManager";
+        public const string Admin = "Admin";
+        public const string Kitchen = "Kitchen";
+    }
+
     public class AdminUser
     {
         [BsonId]
@@ -23,7 +34,10 @@ namespace SelfOrderingSystemKiosk.Models
         public string Email { get; set; }
 
         [BsonElement("Role")]
-        public string Role { get; set; } = "Admin";
+        public string Role { get; set; } = UserRoles.Admin;
+
+        [BsonElement("BranchId")]
+        public string? BranchId { get; set; } // Null = Owner (access to all branches)
     }
 
     public class AdminSignUp
@@ -44,7 +58,8 @@ namespace SelfOrderingSystemKiosk.Models
         [Required, MinLength(6)]
         public string Password { get; set; }
 
-        public string Role { get; set; } = "Admin"; 
+        public string Role { get; set; } = UserRoles.Admin;
+        public string? BranchId { get; set; } // Null = Owner (access to all branches)
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }

@@ -1,27 +1,46 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SelfOrderingSystemKiosk.Services;
+using SelfOrderingSystemKiosk.Areas.Admin.Models;
 
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Admin,Kitchen")]
+    [Authorize]
     public class SalesController : Controller
     {
         private readonly OrderService _orderService;
+        private readonly BranchService _branchService;
 
-        public SalesController(OrderService orderService)
+        public SalesController(OrderService orderService, BranchService branchService)
         {
             _orderService = orderService;
+            _branchService = branchService;
         }
 
         public async Task<IActionResult> Index(string? startDate = null, string? endDate = null)
         {
             ViewData["Title"] = "Sales & reports";
 
+            // Get user's branch context
+            var userBranchId = User.GetBranchId();
+            var isOwner = User.IsOwner();
+
+            // Get branch info for display
+            Branch? userBranch = null;
+            if (!string.IsNullOrEmpty(userBranchId))
+            {
+                userBranch = await _branchService.GetByIdAsync(userBranchId);
+                ViewData["BranchName"] = userBranch?.BranchName ?? "Unknown Branch";
+            }
+            else
+            {
+                ViewData["BranchName"] = "All Branches";
+            }
+
             var todayStart = DateTime.UtcNow.Date;
             var todayEnd = todayStart.AddDays(1);
-            var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd);
+            var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd, userBranchId);
 
             DateTime defaultRangeStart, defaultRangeEnd;
             if (string.IsNullOrEmpty(startDate) && string.IsNullOrEmpty(endDate))
@@ -42,7 +61,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (rangeEnd <= rangeStart)
                 rangeEnd = rangeStart.AddDays(1);
 
-            var rangeOrders = await _orderService.GetByDateRangeHalfOpenAsync(rangeStart, rangeEnd);
+            var rangeOrders = await _orderService.GetByDateRangeHalfOpenAsync(rangeStart, rangeEnd, userBranchId);
 
             var rangeRevenue = rangeOrders.Where(o => o.Total > 0).Sum(o => o.Total);
             var rangeRevenueAlaCarte = rangeOrders
@@ -60,13 +79,13 @@ namespace SelfOrderingSystemKiosk.Controllers
             var rangeOrderCount = rangeOrders.Count;
 
             var historyStart = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            var allOrdersForBestSellers = await _orderService.GetByDateRangeHalfOpenAsync(historyStart, DateTime.UtcNow.AddDays(1));
+            var allOrdersForBestSellers = await _orderService.GetByDateRangeHalfOpenAsync(historyStart, DateTime.UtcNow.AddDays(1), userBranchId);
             var bestSellersAllTime = OrderSalesAnalytics.BuildBestSellers(allOrdersForBestSellers);
             var bestSellersToday = OrderSalesAnalytics.BuildBestSellers(todayOrders);
 
             var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEnd = monthStart.AddMonths(1);
-            var monthOrders = await _orderService.GetByDateRangeHalfOpenAsync(monthStart, monthEnd);
+            var monthOrders = await _orderService.GetByDateRangeHalfOpenAsync(monthStart, monthEnd, userBranchId);
             var bestSellersMonthly = OrderSalesAnalytics.BuildBestSellers(monthOrders);
 
             var chartData = new Dictionary<string, decimal>();
@@ -93,6 +112,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             ViewBag.BestSellersToday = bestSellersToday;
             ViewBag.BestSellersMonthly = bestSellersMonthly;
             ViewBag.HasCustomRange = !string.IsNullOrEmpty(startDate) && !string.IsNullOrEmpty(endDate);
+            ViewBag.IsOwner = isOwner;
 
             return View();
         }

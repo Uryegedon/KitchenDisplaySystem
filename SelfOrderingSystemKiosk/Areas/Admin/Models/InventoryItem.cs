@@ -39,5 +39,8 @@ namespace SelfOrderingSystemKiosk.Models
 
         [BsonElement("Image")]
         public string Image { get; set; } = "/images/wings.png";
+
+        [BsonElement("BranchId")]
+        public string BranchId { get; set; } = string.Empty; // Empty = shared across all branches
     }
 }

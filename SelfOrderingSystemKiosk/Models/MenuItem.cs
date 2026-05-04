@@ -48,5 +48,8 @@ namespace SelfOrderingSystemKiosk.Models
         /// <summary>Ingredients deducted when this dish is sold (kitchen stock).</summary>
         [BsonElement("recipe")]
         public List<MenuRecipeLine>? Recipe { get; set; }
+
+        [BsonElement("BranchId")]
+        public string BranchId { get; set; } = string.Empty; // Empty = shared across all branches
     }
 }

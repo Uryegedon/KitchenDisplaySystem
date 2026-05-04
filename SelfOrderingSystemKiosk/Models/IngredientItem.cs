@@ -27,5 +27,8 @@ namespace SelfOrderingSystemKiosk.Models
 
         [BsonElement("Status")]
         public string Status { get; set; } = "In Stock";
+
+        [BsonElement("BranchId")]
+        public string BranchId { get; set; } = string.Empty; // Empty = shared across all branches
     }
 }

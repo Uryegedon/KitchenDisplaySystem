@@ -10,6 +10,32 @@
     <link rel="stylesheet" href="~/css/admin.css" asp-append-version="true" />
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    @RenderSection("Styles", required: false)
+    <style>
+        .header-user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.9em;
+            color: #888;
+        }
+        .user-role-badge {
+            background: #e67e22;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+        }
+        .user-role-badge.owner { background: #9b59b6; }
+        .user-role-badge.manager { background: #3498db; }
+        .branch-indicator {
+            background: #f0f0f0;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.85em;
+        }
+    </style>
 </head>
 <body>
     <div class="wrapper">
@@ -21,6 +47,11 @@
 
             <ul class="nav-links">
                 <li><a asp-area="Admin" asp-controller="Dashboard" asp-action="Index"><i class="bi bi-speedometer2"></i> <span>Dashboard</span></a></li>
+                @if (User.IsInRole("Owner"))
+                {
+                    <li><a asp-area="Admin" asp-controller="Branches" asp-action="Overview"><i class="bi bi-geo-alt"></i> <span>Branches</span></a></li>
+                    <li><a asp-area="Admin" asp-controller="AccountManagement" asp-action="Index"><i class="bi bi-people"></i> <span>User Accounts</span></a></li>
+                }
                 <li><a asp-area="Admin" asp-controller="Sales" asp-action="Index"><i class="bi bi-graph-up-arrow"></i> <span>Sales &amp; reports</span></a></li>
                 <li><a asp-area="Admin" asp-controller="Menu" asp-action="Index"><i class="bi bi-egg-fried"></i> <span>Menu (foods)</span></a></li>
                 <li><a asp-area="Admin" asp-controller="Inventory" asp-action="Index"><i class="bi bi-box-seam"></i> <span>Kitchen/Supplies</span></a></li>
@@ -36,7 +67,31 @@
         <!-- Content -->
         <div class="main-content">
             <header class="header">
-                <h1>@ViewData["Title"]</h1>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h1>@ViewData["Title"]</h1>
+                    @if (User.Identity?.IsAuthenticated == true)
+                    {
+                        <div class="header-user-info">
+                            @if (!string.IsNullOrEmpty(ViewData["BranchName"] as string))
+                            {
+                                <span class="branch-indicator">🏪 @ViewData["BranchName"]</span>
+                            }
+                            @if (User.IsInRole("Owner"))
+                            {
+                                <span class="user-role-badge owner">👑 Owner</span>
+                            }
+                            else if (User.IsInRole("BranchManager"))
+                            {
+                                <span class="user-role-badge manager">🏪 Manager</span>
+                            }
+                            else if (User.IsInRole("Kitchen"))
+                            {
+                                <span class="user-role-badge">👨‍🍳 Kitchen</span>
+                            }
+                            <span style="color: #666;">@User.Identity.Name</span>
+                        </div>
+                    }
+                </div>
             </header>
 
             <main class="content">

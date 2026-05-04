@@ -1,0 +1,279 @@
+@model IEnumerable<SelfOrderingSystemKiosk.Models.AdminUser>
+@{
+    Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+    var users = Model?.ToList() ?? new List<SelfOrderingSystemKiosk.Models.AdminUser>();
+}
+
+<div class="account-management-container">
+    <div class="page-header">
+        <h1>User Accounts</h1>
+        <a asp-action="Create" class="btn-primary">
+            <i class="bi bi-plus-circle"></i> Add User
+        </a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-error">@TempData["Error"]</div>
+    }
+
+    @if (!users.Any())
+    {
+        <div class="empty-state">
+            <i class="bi bi-person-x" style="font-size: 3rem; color: #ccc;"></i>
+            <h3>No users found</h3>
+            <p>Get started by adding your first user account.</p>
+            <a asp-action="Create" class="btn-primary">Add Your First User</a>
+        </div>
+    }
+    else
+    {
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Full Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Branch</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in users)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@user.Username</strong>
+                            </td>
+                            <td>@user.FullName</td>
+                            <td>@(string.IsNullOrEmpty(user.Email) ? "-" : user.Email)</td>
+                            <td>
+                                <span class="role-badge role-@user.Role.ToLower()">@user.Role</span>
+                            </td>
+                            <td>
+                                @(string.IsNullOrEmpty(user.BranchId) ? "All Branches" : user.BranchId)
+                            </td>
+                            <td>
+                                <div class="action-buttons">
+                                    <a asp-action="Edit" asp-route-id="@user.Id" class="btn btn-edit">Edit</a>
+                                    <a asp-action="ChangePassword" asp-route-id="@user.Id" class="btn btn-password">Change Password</a>
+                                    <a asp-action="Delete" asp-route-id="@user.Id" class="btn btn-delete">Delete</a>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@section Styles {
+    <style>
+        .account-management-container {
+            padding: 0;
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .page-header h1 {
+            margin: 0;
+            font-size: 1.5em;
+            color: #d35400;
+        }
+
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 25px;
+            background-color: #e67e22;
+            color: white;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+            box-shadow: 0 4px 10px rgba(230, 126, 34, 0.2);
+        }
+
+        .btn-primary:hover {
+            background-color: #d35400;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(211, 84, 0, 0.3);
+        }
+
+        .table-container {
+            background: #fff;
+            border: 2px solid #f0d7bf;
+            border-radius: 12px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #fff3e6;
+            border-bottom: 2px solid #f0d7bf;
+        }
+
+        th {
+            padding: 14px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: #d35400;
+            font-size: 0.95em;
+        }
+
+        td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #f0d7bf;
+            color: #555;
+        }
+
+        tbody tr:hover {
+            background: #fffaf5;
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .role-badge {
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 0.85em;
+            font-weight: 600;
+            text-transform: uppercase;
+            display: inline-block;
+        }
+
+        .role-owner {
+            background: #fff6e5;
+            color: #d35400;
+            border: 1px solid #f7b267;
+        }
+
+        .role-branchmanager {
+            background: #e8f8f5;
+            color: #27ae60;
+            border: 1px solid #27ae60;
+        }
+
+        .role-admin {
+            background: #ebf5fb;
+            color: #3498db;
+            border: 1px solid #cde4f7;
+        }
+
+        .role-kitchen {
+            background: #f5f5f5;
+            color: #666;
+            border: 1px solid #e0e0e0;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.9em;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s;
+        }
+
+        .btn-edit {
+            background-color: #e67e22;
+            color: white;
+        }
+
+        .btn-edit:hover {
+            background-color: #d35400;
+            transform: translateY(-2px);
+        }
+
+        .btn-password {
+            background-color: #3498db;
+            color: white;
+        }
+
+        .btn-password:hover {
+            background-color: #2980b9;
+            transform: translateY(-2px);
+        }
+
+        .btn-delete {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        .btn-delete:hover {
+            background-color: #c0392b;
+            transform: translateY(-2px);
+        }
+
+        .alert {
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+
+        .alert-success {
+            background-color: #e8f8f5;
+            color: #27ae60;
+            border-left: 5px solid #27ae60;
+        }
+
+        .alert-error {
+            background-color: #fde8e8;
+            color: #e74c3c;
+            border-left: 5px solid #e74c3c;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            background: #fff;
+            border: 2px solid #f0d7bf;
+            border-radius: 12px;
+        }
+
+        .empty-state h3 {
+            margin: 16px 0 8px;
+            color: #d35400;
+        }
+
+        .empty-state p {
+            color: #666;
+            margin-bottom: 24px;
+        }
+    </style>
+}

@@ -19,9 +19,54 @@
     var revUnTo = ViewBag.TodaysRevUnlimitedTakeOut != null ? (decimal)ViewBag.TodaysRevUnlimitedTakeOut : 0m;
     var cKiosk = ViewBag.TodaysCountKiosk != null ? (int)ViewBag.TodaysCountKiosk : 0;
     var cQr = ViewBag.TodaysCountQr != null ? (int)ViewBag.TodaysCountQr : 0;
+    
+    // Branch context
+    var branchName = ViewData["BranchName"] as string ?? "Unknown";
+    var isOwner = User.IsInRole("Owner");
+    var branchSummaries = ViewBag.BranchSummaries as List<SelfOrderingSystemKiosk.Controllers.BranchSummary> ?? new List<SelfOrderingSystemKiosk.Controllers.BranchSummary>();
 }
 
 <div class="dashboard-container">
+    @* Branch Header *@
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2 style="margin: 0;">
+            @if (isOwner)
+            {
+                <span style="color: #e67e22;">📊 @branchName</span>
+            }
+            else
+            {
+                <span>🏪 @branchName</span>
+            }
+        </h2>
+        @if (isOwner && branchSummaries.Any())
+        {
+            <span style="color: #888; font-size: 0.9em;">@branchSummaries.Count branch(es)</span>
+        }
+    </div>
+    
+    @if (isOwner && branchSummaries.Any())
+    {
+        @* Owner Multi-Branch Overview *@
+        <div style="margin-bottom: 24px;">
+            <h3 style="color: #555; font-size: 1.1em; margin-bottom: 12px;">Branch Overview (Today)</h3>
+            <div class="dashboard-cards">
+                @foreach (var branch in branchSummaries)
+                {
+                    <div class="stat-card" style="border-left: 4px solid #e67e22;">
+                        <h3 style="color: #e67e22; font-size: 0.95em;">@branch.BranchName</h3>
+                        <div style="font-size: 0.85em; color: #888;">@branch.BranchCode</div>
+                        <div style="margin-top: 8px;">
+                            <div style="font-size: 1.3em; font-weight: 700; color: #27ae60;">₱@branch.TodaysRevenue.ToString("N2")</div>
+                            <div style="font-size: 0.85em; color: #666;">@branch.TodaysOrders orders · @branch.TodaysBillableCount billable</div>
+                        </div>
+                        <a asp-area="Admin" asp-controller="Orders" asp-action="Index" asp-route-filter="today" style="display: inline-block; margin-top: 8px; color: #e67e22; font-size: 0.85em; font-weight: 600; text-decoration: none;">View orders →</a>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    
     <p style="margin-top: 0;">Today's snapshot and quick actions. Charts and best sellers are on <a asp-area="Admin" asp-controller="Sales" asp-action="Index" style="color: #e67e22; font-weight: 600;">Sales &amp; reports</a>.</p>
 
     <div class="dashboard-cards">

@@ -61,13 +61,14 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
 
             // Get user role (default to Admin if not set)
-            var userRole = existingUser.Role ?? "Admin";
+            var userRole = existingUser.Role ?? UserRoles.Admin;
 
             // Create claims with user information
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.Name, existingUser.Username),
-                new Claim(ClaimTypes.Role, userRole)
+                new Claim(ClaimTypes.Role, userRole),
+                new Claim("BranchId", existingUser.BranchId ?? "") // Empty string = Owner/All branches
             };
 
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
@@ -75,13 +76,18 @@ namespace SelfOrderingSystemKiosk.Controllers
             await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
 
             // Redirect based on user role
-            if (userRole.Equals("Kitchen", StringComparison.OrdinalIgnoreCase))
+            if (userRole.Equals(UserRoles.Kitchen, StringComparison.OrdinalIgnoreCase))
             {
                 return RedirectToAction("Index", "Kitchen", new { area = "Kitchen" });
             }
+            else if (userRole.Equals(UserRoles.BranchManager, StringComparison.OrdinalIgnoreCase))
+            {
+                // Branch managers go to their branch-specific dashboard
+                return RedirectToAction("Index", "Dashboard", new { area = "Admin" });
+            }
             else
             {
-                // Default to Admin dashboard
+                // Owner/Admin goes to overview dashboard
                 return RedirectToAction("Index", "Dashboard", new { area = "Admin" });
             }
         }

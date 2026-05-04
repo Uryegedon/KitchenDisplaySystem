@@ -1,0 +1,810 @@
+@{
+    Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+    var allBranches = ViewBag.AllBranches as List<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch> ?? new List<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch>();
+    var selectedBranchId = ViewBag.SelectedBranchId as string;
+    var selectedPeriod = ViewBag.SelectedPeriod as string ?? "today";
+    var periodLabel = ViewBag.PeriodLabel as string ?? "Today";
+    var selectedBranch = ViewBag.SelectedBranch as SelfOrderingSystemKiosk.Areas.Admin.Models.Branch;
+    var branchStats = ViewBag.BranchStats as List<SelfOrderingSystemKiosk.Controllers.BranchOverviewStats> ?? new List<SelfOrderingSystemKiosk.Controllers.BranchOverviewStats>();
+    var branchOrders = ViewBag.BranchOrders as List<SelfOrderingSystemKiosk.Areas.Customer.Models.Order> ?? new List<SelfOrderingSystemKiosk.Areas.Customer.Models.Order>();
+}
+
+<div class="branch-overview-container">
+    <div class="overview-header">
+        <div>
+            <h1><i class="bi bi-graph-up-arrow"></i> Branch Overview</h1>
+            <p class="overview-subtitle">Multi-branch performance metrics and statistics</p>
+        </div>
+        <a asp-action="Index" class="btn-secondary">
+            <i class="bi bi-grid"></i> Manage Branches
+        </a>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters-card">
+        <form method="get" class="filters-form">
+            <div class="filter-group">
+                <label for="branchId">Branch</label>
+                <select name="branchId" id="branchId" class="form-select" onchange="this.form.submit()">
+                    <option value="">All Branches</option>
+                    @foreach (var b in allBranches.Where(b => b.IsActive))
+                    {
+                        <option value="@b.Id" selected="@(selectedBranchId == b.Id)">@b.BranchName (@b.BranchCode)</option>
+                    }
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="period">Time Period</label>
+                <select name="period" id="period" class="form-select" onchange="this.form.submit()">
+                    <option value="today" selected="@(selectedPeriod == "today")">Today</option>
+                    <option value="yesterday" selected="@(selectedPeriod == "yesterday")">Yesterday</option>
+                    <option value="week" selected="@(selectedPeriod == "week")">This Week</option>
+                    <option value="month" selected="@(selectedPeriod == "month")">This Month</option>
+                </select>
+            </div>
+            <div class="filter-period-label">
+                <span class="period-badge">@periodLabel</span>
+            </div>
+        </form>
+    </div>
+
+    @if (!string.IsNullOrEmpty(selectedBranchId) && selectedBranch != null)
+    {
+        <!-- Single Branch Detail View -->
+        <div class="single-branch-view">
+            <div class="branch-detail-header">
+                <h2>@selectedBranch.BranchName <span class="branch-code">@selectedBranch.BranchCode</span></h2>
+                <span class="status-badge @(selectedBranch.IsActive ? "status-active" : "status-inactive")">
+                    @(selectedBranch.IsActive ? "Active" : "Inactive")
+                </span>
+            </div>
+
+            @{
+                var billableOrders = branchOrders.Where(o => o.Total > 0).ToList();
+                var totalRevenue = billableOrders.Sum(o => o.Total);
+                var totalOrders = branchOrders.Count;
+                var dineInCount = branchOrders.Count(o => string.Equals(o.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase));
+                var takeOutCount = branchOrders.Count(o => string.Equals(o.DiningType, "TakeOut", StringComparison.OrdinalIgnoreCase));
+                var kioskCount = branchOrders.Count(o => string.Equals(o.OrderChannel, "Kiosk", StringComparison.OrdinalIgnoreCase));
+                var qrCount = branchOrders.Count(o => string.Equals(o.OrderChannel, "Qr", StringComparison.OrdinalIgnoreCase));
+            }
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                        <i class="bi bi-receipt"></i>
+                    </div>
+                    <div class="stat-details">
+                        <div class="stat-value">@totalOrders</div>
+                        <div class="stat-label">Total Orders</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                        <i class="bi bi-currency-dollar"></i>
+                    </div>
+                    <div class="stat-details">
+                        <div class="stat-value">₱@totalRevenue.ToString("N2")</div>
+                        <div class="stat-label">Total Revenue</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                        <i class="bi bi-house-door"></i>
+                    </div>
+                    <div class="stat-details">
+                        <div class="stat-value">@dineInCount</div>
+                        <div class="stat-label">Dine-In Orders</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                        <i class="bi bi-bag"></i>
+                    </div>
+                    <div class="stat-details">
+                        <div class="stat-value">@takeOutCount</div>
+                        <div class="stat-label">Take-Out Orders</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                        <i class="bi bi-tv"></i>
+                    </div>
+                    <div class="stat-details">
+                        <div class="stat-value">@kioskCount</div>
+                        <div class="stat-label">Kiosk Orders</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%);">
+                        <i class="bi bi-qr-code"></i>
+                    </div>
+                    <div class="stat-details">
+                        <div class="stat-value">@qrCount</div>
+                        <div class="stat-label">QR Orders</div>
+                    </div>
+                </div>
+            </div>
+
+            @if (billableOrders.Any())
+            {
+                <div class="orders-breakdown">
+                    <h3>Order Breakdown</h3>
+                    <div class="breakdown-grid">
+                        <div class="breakdown-item">
+                            <span class="breakdown-label">Subtotal</span>
+                            <span class="breakdown-value">₱@billableOrders.Sum(o => o.Subtotal).ToString("N2")</span>
+                        </div>
+                        <div class="breakdown-item">
+                            <span class="breakdown-label">Tax (12%)</span>
+                            <span class="breakdown-value">₱@billableOrders.Sum(o => o.Tax).ToString("N2")</span>
+                        </div>
+                        <div class="breakdown-item breakdown-total">
+                            <span class="breakdown-label">Grand Total</span>
+                            <span class="breakdown-value">₱@totalRevenue.ToString("N2")</span>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <div class="recent-orders">
+                <h3>Recent Orders (@branchOrders.Count)</h3>
+                @if (branchOrders.Any())
+                {
+                    <div class="orders-table-container">
+                        <table class="orders-table">
+                            <thead>
+                                <tr>
+                                    <th>Order #</th>
+                                    <th>Time</th>
+                                    <th>Type</th>
+                                    <th>Dining</th>
+                                    <th>Channel</th>
+                                    <th>Status</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var order in branchOrders.OrderByDescending(o => o.OrderDate).Take(20))
+                                {
+                                    <tr>
+                                        <td><strong>@order.OrderNumber</strong></td>
+                                        <td>@order.OrderDate.ToLocalTime().ToString("MMM dd, HH:mm")</td>
+                                        <td><span class="badge badge-type">@order.OrderType</span></td>
+                                        <td><span class="badge badge-dining">@order.DiningType</span></td>
+                                        <td><span class="badge badge-channel">@order.OrderChannel</span></td>
+                                        <td><span class="badge badge-@order.Status.ToLower().Replace(" ", "-")">@order.Status</span></td>
+                                        <td><strong>₱@order.Total.ToString("N2")</strong></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <p class="empty-message">No orders found for this period.</p>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- All Branches Overview -->
+        @if (!allBranches.Any())
+        {
+            <div class="empty-state">
+                <i class="bi bi-shop" style="font-size: 3rem; color: #ccc;"></i>
+                <h3>No branches configured</h3>
+                <p>Add branches to start viewing multi-branch statistics.</p>
+                <a asp-action="Create" class="btn-primary">Add Your First Branch</a>
+            </div>
+        }
+        else if (!branchStats.Any())
+        {
+            <div class="empty-state">
+                <i class="bi bi-graph-down" style="font-size: 3rem; color: #ccc;"></i>
+                <h3>No data for selected period</h3>
+                <p>There are no orders across all branches for @periodLabel.ToLower().</p>
+            </div>
+        }
+        else
+        {
+            <!-- Summary Cards -->
+            <div class="summary-stats">
+                <div class="summary-card">
+                    <div class="summary-label">Active Branches</div>
+                    <div class="summary-value">@allBranches.Count(b => b.IsActive)<span style="font-size: 0.5em; color: #888;">/@allBranches.Count</span></div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-label">Total Orders</div>
+                    <div class="summary-value">@branchStats.Sum(s => s.TotalOrders)</div>
+                </div>
+                <div class="summary-card highlight">
+                    <div class="summary-label">Total Revenue</div>
+                    <div class="summary-value">₱@branchStats.Sum(s => s.TotalRevenue).ToString("N2")</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-label">Avg per Branch</div>
+                    <div class="summary-value">₱@(branchStats.Any() ? branchStats.Sum(s => s.TotalRevenue) / branchStats.Count : 0).ToString("N2")</div>
+                </div>
+            </div>
+
+            <!-- Branch Comparison Table -->
+            <div class="branches-comparison">
+                <h3>Branch Performance Comparison</h3>
+                <div class="comparison-table-container">
+                    <table class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th>Branch</th>
+                                <th>Status</th>
+                                <th>Orders</th>
+                                <th>Revenue</th>
+                                <th>Dine-In</th>
+                                <th>Take-Out</th>
+                                <th>Kiosk</th>
+                                <th>QR</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var stats in branchStats)
+                            {
+                                var branch = allBranches.FirstOrDefault(b => b.Id == stats.BranchId);
+                                <tr>
+                                    <td>
+                                        <div class="branch-name-cell">
+                                            <strong>@stats.BranchName</strong>
+                                            <small>@stats.BranchCode</small>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="status-badge @(stats.IsActive ? "status-active" : "status-inactive")">
+                                            @(stats.IsActive ? "Active" : "Inactive")
+                                        </span>
+                                    </td>
+                                    <td><strong>@stats.TotalOrders</strong></td>
+                                    <td><strong>₱@stats.TotalRevenue.ToString("N2")</strong></td>
+                                    <td>@stats.DineInOrders</td>
+                                    <td>@stats.TakeOutOrders</td>
+                                    <td>@stats.KioskOrders</td>
+                                    <td>@stats.QrOrders</td>
+                                    <td>
+                                        <a asp-action="Overview" asp-route-branchId="@stats.BranchId" asp-route-period="@selectedPeriod" class="btn-link">
+                                            <i class="bi bi-eye"></i> Details
+                                        </a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Revenue by Branch Chart Placeholder -->
+            <div class="revenue-chart-card">
+                <h3>Revenue by Branch</h3>
+                <div class="revenue-bars">
+                    @if (branchStats.Any())
+                    {
+                        var maxRevenue = branchStats.Max(s => s.TotalRevenue);
+                        @foreach (var stats in branchStats.OrderByDescending(s => s.TotalRevenue))
+                        {
+                            var barWidth = maxRevenue > 0 ? (stats.TotalRevenue / maxRevenue * 100) : 0;
+                            <div class="revenue-bar-row">
+                                <div class="revenue-bar-label">@stats.BranchName</div>
+                                <div class="revenue-bar-container">
+                                    <div class="revenue-bar" style="width: @barWidth%;"></div>
+                                    <span class="revenue-bar-value">₱@stats.TotalRevenue.ToString("N2")</span>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@section Styles {
+    <style>
+        .branch-overview-container {
+            padding: 20px;
+        }
+
+        .overview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .overview-header h1 {
+            margin: 0 0 4px 0;
+            font-size: 1.8rem;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .overview-subtitle {
+            margin: 0;
+            color: #7f8c8d;
+            font-size: 0.95rem;
+        }
+
+        .btn-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: #f8f9fa;
+            color: #495057;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            border: 1px solid #dee2e6;
+            transition: all 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background: #e9ecef;
+        }
+
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .filters-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+        }
+
+        .filters-form {
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .filter-group label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.9rem;
+        }
+
+        .form-select {
+            padding: 10px 16px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 1rem;
+            background: white;
+            cursor: pointer;
+            min-width: 180px;
+        }
+
+        .form-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .period-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .stat-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .stat-icon i {
+            font-size: 1.5rem;
+            color: white;
+        }
+
+        .stat-details {
+            flex: 1;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: #7f8c8d;
+            margin-top: 4px;
+        }
+
+        /* Summary Stats */
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .summary-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+
+        .summary-card.highlight {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .summary-card.highlight .summary-label {
+            color: rgba(255,255,255,0.9);
+        }
+
+        .summary-card.highlight .summary-value {
+            color: white;
+        }
+
+        .summary-label {
+            font-size: 0.85rem;
+            color: #7f8c8d;
+            margin-bottom: 8px;
+        }
+
+        .summary-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+
+        /* Single Branch View */
+        .single-branch-view {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+
+        .branch-detail-header {
+            padding: 20px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .branch-detail-header h2 {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .branch-code {
+            font-family: monospace;
+            opacity: 0.9;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-active {
+            background: rgba(39, 174, 96, 0.3);
+            color: white;
+        }
+
+        .status-inactive {
+            background: rgba(149, 165, 166, 0.3);
+            color: rgba(255,255,255,0.7);
+        }
+
+        .orders-breakdown, .recent-orders {
+            padding: 24px;
+            border-top: 1px solid #f0f0f0;
+        }
+
+        .orders-breakdown h3, .recent-orders h3 {
+            margin: 0 0 16px 0;
+            color: #2c3e50;
+        }
+
+        .breakdown-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .breakdown-item {
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .breakdown-item.breakdown-total {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .breakdown-label {
+            font-size: 0.9rem;
+            color: #7f8c8d;
+        }
+
+        .breakdown-item.breakdown-total .breakdown-label {
+            color: rgba(255,255,255,0.9);
+        }
+
+        .breakdown-value {
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+
+        /* Orders Table */
+        .orders-table-container {
+            overflow-x: auto;
+        }
+
+        .orders-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .orders-table th, .orders-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .orders-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+
+        .orders-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-type { background: #e3f2fd; color: #1976d2; }
+        .badge-dining { background: #fff3e0; color: #f57c00; }
+        .badge-channel { background: #f3e5f5; color: #7b1fa2; }
+        .badge-pending { background: #fff3e0; color: #f57c00; }
+        .badge-in-progress { background: #e3f2fd; color: #1976d2; }
+        .badge-completed { background: #e8f5e9; color: #388e3c; }
+        .badge-canceled { background: #ffebee; color: #d32f2f; }
+
+        /* Comparison Table */
+        .branches-comparison {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+
+        .branches-comparison h3 {
+            margin: 0;
+            padding: 20px 24px;
+            background: #f8f9fa;
+            color: #2c3e50;
+        }
+
+        .comparison-table-container {
+            overflow-x: auto;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .comparison-table th, .comparison-table td {
+            padding: 14px 16px;
+            text-align: left;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .comparison-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.85rem;
+        }
+
+        .branch-name-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .branch-name-cell small {
+            color: #7f8c8d;
+            font-family: monospace;
+        }
+
+        .btn-link {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn-link:hover {
+            color: #764ba2;
+        }
+
+        /* Revenue Bars */
+        .revenue-chart-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            padding: 24px;
+        }
+
+        .revenue-chart-card h3 {
+            margin: 0 0 20px 0;
+            color: #2c3e50;
+        }
+
+        .revenue-bars {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .revenue-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .revenue-bar-label {
+            width: 150px;
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.9rem;
+        }
+
+        .revenue-bar-container {
+            flex: 1;
+            position: relative;
+            height: 32px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .revenue-bar {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 8px;
+            transition: width 0.3s ease;
+        }
+
+        .revenue-bar-value {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-weight: 700;
+            color: #2c3e50;
+            font-size: 0.9rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .empty-state h3 {
+            margin: 16px 0 8px;
+            color: #2c3e50;
+        }
+
+        .empty-state p {
+            color: #7f8c8d;
+            margin-bottom: 24px;
+        }
+
+        .empty-message {
+            text-align: center;
+            color: #7f8c8d;
+            padding: 20px;
+        }
+
+        @@media (max-width: 768px) {
+            .overview-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+            }
+
+            .stats-grid, .summary-stats {
+                grid-template-columns: 1fr;
+            }
+
+            .breakdown-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+}

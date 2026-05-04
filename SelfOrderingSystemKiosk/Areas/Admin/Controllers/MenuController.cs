@@ -2,15 +2,17 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
+using SelfOrderingSystemKiosk.Areas.Admin.Models;
 
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Admin,Kitchen")]
+    [Authorize]
     public class MenuController : Controller
     {
         private readonly MenuItemService _menuItems;
         private readonly IngredientStockService _ingredients;
+        private readonly BranchService _branchService;
         private readonly IWebHostEnvironment _environment;
         private readonly MenuCategoryRegistry _menuCategories;
         private const long MaxImageUploadBytes = 5 * 1024 * 1024;
@@ -18,16 +20,18 @@ namespace SelfOrderingSystemKiosk.Controllers
         public MenuController(
             MenuItemService menuItems,
             IngredientStockService ingredients,
+            BranchService branchService,
             IWebHostEnvironment environment,
             MenuCategoryRegistry menuCategories)
         {
             _menuItems = menuItems;
             _ingredients = ingredients;
+            _branchService = branchService;
             _environment = environment;
             _menuCategories = menuCategories;
         }
 
-        public async Task<IActionResult> Index(string message = null, string categoryFilter = null)
+        public async Task<IActionResult> Index(string message = null, string categoryFilter = null, string? branchFilter = null)
         {
             ViewData["Title"] = "Menu (foods)";
             ViewBag.Message = message;
@@ -37,14 +41,51 @@ namespace SelfOrderingSystemKiosk.Controllers
                 : categoryFilter.Trim();
             ViewBag.CategoryFilter = filter ?? "all";
 
-            var allItems = await _menuItems.GetAllAsync();
+            // Get user's branch context
+            var userBranchId = User.GetBranchId();
+            var isOwner = User.IsOwner();
+
+            // Get all branches for owner filter dropdown
+            List<Branch> allBranches = new();
+            if (isOwner)
+            {
+                allBranches = await _branchService.GetAllAsync();
+                ViewBag.AllBranches = allBranches;
+                
+                // Owner must select a branch - default to first branch if none selected
+                if (string.IsNullOrEmpty(branchFilter) || branchFilter == "all")
+                {
+                    branchFilter = allBranches.FirstOrDefault()?.Id;
+                }
+            }
+
+            // Get branch info for display
+            Branch? userBranch = null;
+            string? effectiveBranchId = userBranchId;
+            
+            if (isOwner && !string.IsNullOrEmpty(branchFilter))
+            {
+                userBranch = allBranches.FirstOrDefault(b => b.Id == branchFilter);
+                effectiveBranchId = branchFilter;
+            }
+            else if (!string.IsNullOrEmpty(userBranchId))
+            {
+                userBranch = await _branchService.GetByIdAsync(userBranchId);
+            }
+
+            ViewData["BranchName"] = userBranch?.BranchName ?? "Select Branch";
+            ViewBag.BranchFilter = branchFilter;
+
+            // Get menu items filtered by branch
+            var allItems = await _menuItems.GetAllByBranchAsync(effectiveBranchId);
             ViewBag.MenuCategoryFormList = BuildEditCategoryOptions(allItems);
-            ViewBag.Ingredients = await _ingredients.GetAllAsync();
+            ViewBag.Ingredients = await _ingredients.GetAllByBranchAsync(effectiveBranchId);
 
             var items = allItems;
             if (filter != null && _menuCategories.IsValidKey(filter))
                 items = allItems.Where(i => string.Equals(i.Category, filter, StringComparison.Ordinal)).ToList();
 
+            ViewBag.IsOwner = isOwner;
             return View(items);
         }
 
@@ -86,6 +127,10 @@ namespace SelfOrderingSystemKiosk.Controllers
                 ? "Unavailable"
                 : "Available";
 
+            // Get user's branch context - managers create items for their branch only
+            var userBranchId = User.GetBranchId();
+            var isOwner = User.IsOwner();
+
             var newItem = new MenuItem
             {
                 Item = name,
@@ -99,7 +144,8 @@ namespace SelfOrderingSystemKiosk.Controllers
                 ReorderLevel = reorderLevel,
                 MenuOrder = menuOrder,
                 Status = "Available",
-                Recipe = ParseRecipeLines(Request.Form)
+                Recipe = ParseRecipeLines(Request.Form),
+                BranchId = isOwner ? string.Empty : userBranchId ?? string.Empty // Owner creates shared items; managers create branch-specific
             };
 
             await _menuItems.AddAsync(newItem);
@@ -143,6 +189,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 existing.Category = Category ?? existing.Category;
                 existing.Price = Price;
                 existing.Recipe = ParseRecipeLines(Request.Form);
+                // Preserve BranchId from existing item - don't allow changing branch assignment
 
                 if (string.Equals(existing.Category, "Unavailable", StringComparison.Ordinal))
                     existing.Availability = "Unavailable";

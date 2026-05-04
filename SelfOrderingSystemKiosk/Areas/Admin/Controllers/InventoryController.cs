@@ -2,33 +2,76 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
+using SelfOrderingSystemKiosk.Areas.Admin.Models;
 
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Admin,Kitchen")]
+    [Authorize]
     public class InventoryController : Controller
     {
         private readonly IngredientStockService _ingredients;
         private readonly IngredientCategoryRegistry _ingredientCategories;
+        private readonly BranchService _branchService;
 
-        public InventoryController(IngredientStockService ingredients, IngredientCategoryRegistry ingredientCategories)
+        public InventoryController(IngredientStockService ingredients, IngredientCategoryRegistry ingredientCategories, BranchService branchService)
         {
             _ingredients = ingredients;
             _ingredientCategories = ingredientCategories;
+            _branchService = branchService;
         }
 
-        public async Task<IActionResult> Index(string? categoryFilter = null)
+        public async Task<IActionResult> Index(string? categoryFilter = null, string? branchFilter = null)
         {
             ViewData["Title"] = "Kitchen/Supplies inventory";
-            var all = await _ingredients.GetAllAsync();
+
+            // Get user's branch context
+            var userBranchId = User.GetBranchId();
+            var isOwner = User.IsOwner();
+
+            // Get all branches for owner filter dropdown
+            List<Branch> allBranches = new();
+            if (isOwner)
+            {
+                allBranches = await _branchService.GetAllAsync();
+                ViewBag.AllBranches = allBranches;
+                
+                // Owner must select a branch - default to first branch if none selected
+                if (string.IsNullOrEmpty(branchFilter) || branchFilter == "all")
+                {
+                    branchFilter = allBranches.FirstOrDefault()?.Id;
+                }
+            }
+
+            // Get branch info for display
+            Branch? userBranch = null;
+            string? effectiveBranchId = userBranchId;
+            
+            if (isOwner && !string.IsNullOrEmpty(branchFilter))
+            {
+                userBranch = allBranches.FirstOrDefault(b => b.Id == branchFilter);
+                effectiveBranchId = branchFilter;
+            }
+            else if (!string.IsNullOrEmpty(userBranchId))
+            {
+                userBranch = await _branchService.GetByIdAsync(userBranchId);
+            }
+
+            ViewData["BranchName"] = userBranch?.BranchName ?? "Select Branch";
+
+            // Get ingredients filtered by branch
+            var all = await _ingredients.GetAllByBranchAsync(effectiveBranchId);
             ViewBag.CategoryFilter = string.IsNullOrWhiteSpace(categoryFilter) || categoryFilter == "all" ? "all" : categoryFilter;
+            ViewBag.BranchFilter = branchFilter;
+            
             var items = all;
             if (ViewBag.CategoryFilter != "all")
                 items = all.Where(i => string.Equals(i.IngredientCategory, categoryFilter, StringComparison.Ordinal)).ToList();
 
             ViewBag.ItemCount = items?.Count ?? 0;
             ViewBag.IngredientCategories = IngredientCategoryRegistry.All;
+            ViewBag.IsOwner = isOwner;
+            ViewBag.AllBranches = allBranches;
             return View(items);
         }
 
@@ -58,7 +101,11 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return RedirectToAction("Index");
             }
 
-            var allItems = await _ingredients.GetAllAsync();
+            // Get user's branch context - managers create items for their branch only
+            var userBranchId = User.GetBranchId();
+            var isOwner = User.IsOwner();
+
+            var allItems = await _ingredients.GetAllByBranchAsync(userBranchId);
             var existingNames = allItems
                 .Select(i => i.Item ?? "")
                 .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -94,7 +141,8 @@ namespace SelfOrderingSystemKiosk.Controllers
                     IngredientCategory = row.Category,
                     CurrentStock = Math.Max(0, row.Stock),
                     Unit = string.IsNullOrWhiteSpace(row.Unit) ? "g" : row.Unit,
-                    ReorderLevel = Math.Max(0, row.ReorderLevel)
+                    ReorderLevel = Math.Max(0, row.ReorderLevel),
+                    BranchId = isOwner ? string.Empty : userBranchId ?? string.Empty // Owner creates shared items; managers create branch-specific
                 };
 
                 await _ingredients.AddAsync(newItem);
@@ -122,6 +170,17 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return RedirectToAction("Index");
             }
 
+            // Branch managers can only edit items from their branch or shared items
+            var userBranchId = User.GetBranchId();
+            var isOwner = User.IsOwner();
+            if (!isOwner && !string.IsNullOrEmpty(userBranchId) && 
+                !string.IsNullOrEmpty(existing.BranchId) && 
+                existing.BranchId != userBranchId)
+            {
+                TempData["Message"] = "You can only edit items from your assigned branch.";
+                return RedirectToAction("Index");
+            }
+
             if (!_ingredientCategories.IsValid(ingredientCategory))
             {
                 TempData["Message"] = "Invalid ingredient category.";
@@ -131,7 +190,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             // Check for duplicate name if name changed
             if (!string.Equals(existing.Item, item.Trim(), StringComparison.OrdinalIgnoreCase))
             {
-                var allItems = await _ingredients.GetAllAsync();
+                var allItems = await _ingredients.GetAllByBranchAsync(userBranchId);
                 if (allItems.Any(i => i.Id != id && string.Equals(i.Item, item.Trim(), StringComparison.OrdinalIgnoreCase)))
                 {
                     TempData["Message"] = $"An ingredient with the name '{item.Trim()}' already exists.";
@@ -158,6 +217,17 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return RedirectToAction("Index");
             }
 
+            // Branch managers can only restock items from their branch or shared items
+            var userBranchId = User.GetBranchId();
+            var isOwner = User.IsOwner();
+            if (!isOwner && !string.IsNullOrEmpty(userBranchId) && 
+                !string.IsNullOrEmpty(item.BranchId) && 
+                item.BranchId != userBranchId)
+            {
+                TempData["Message"] = "You can only restock items from your assigned branch.";
+                return RedirectToAction("Index");
+            }
+
             if (amount <= 0)
             {
                 TempData["Message"] = "Invalid restock amount.";
@@ -166,7 +236,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             var previousStock = item.CurrentStock;
             item.CurrentStock += amount;
-            
+
             // Update status based on new logic
             if (item.CurrentStock == 0)
             {
@@ -207,6 +277,17 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return RedirectToAction("Index");
             }
 
+            // Branch managers can only clear items from their branch or shared items
+            var userBranchId = User.GetBranchId();
+            var isOwner = User.IsOwner();
+            if (!isOwner && !string.IsNullOrEmpty(userBranchId) && 
+                !string.IsNullOrEmpty(item.BranchId) && 
+                item.BranchId != userBranchId)
+            {
+                TempData["Message"] = "You can only clear items from your assigned branch.";
+                return RedirectToAction("Index");
+            }
+
             var previousStock = item.CurrentStock;
             item.CurrentStock = 0;
             item.Status = "No Stock";
@@ -227,7 +308,8 @@ namespace SelfOrderingSystemKiosk.Controllers
         public async Task<IActionResult> GetCategory(string itemName)
         {
             if (string.IsNullOrWhiteSpace(itemName)) return Json(new { category = "" });
-            var item = (await _ingredients.GetAllAsync()).FirstOrDefault(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
+            var userBranchId = User.GetBranchId();
+            var item = (await _ingredients.GetAllByBranchAsync(userBranchId)).FirstOrDefault(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
             return Json(new { category = item?.IngredientCategory ?? "" });
         }
 
@@ -235,7 +317,8 @@ namespace SelfOrderingSystemKiosk.Controllers
         public async Task<IActionResult> CheckDuplicate(string itemName)
         {
             if (string.IsNullOrWhiteSpace(itemName)) return Json(new { exists = false });
-            var exists = (await _ingredients.GetAllAsync()).Any(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
+            var userBranchId = User.GetBranchId();
+            var exists = (await _ingredients.GetAllByBranchAsync(userBranchId)).Any(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
             return Json(new { exists });
         }
     }
