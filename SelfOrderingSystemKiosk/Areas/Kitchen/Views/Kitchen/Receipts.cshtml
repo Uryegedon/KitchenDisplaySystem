@@ -6,7 +6,7 @@
     var showArchived = ViewBag.ShowArchived is bool archived && archived;
     var tables = Model.ToList();
     var occupiedCount = tables.Count(t => t.IsOccupied);
-    var pendingBillCount = tables.Count(t => t.HasBill && !t.IsPaid);
+    var pendingBillCount = tables.Sum(t => t.Receipts.Count(r => r.Orders.Any() && !r.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase))));
 }
 
 <!DOCTYPE html>
@@ -130,6 +130,7 @@
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             gap: 16px;
+            align-items: start;
         }
 
         .bill-card {
@@ -139,6 +140,7 @@
             box-shadow: 0 6px 20px rgba(0,0,0,0.15);
             border-left: 6px solid #FF5722;
             transition: transform 0.25s, box-shadow 0.25s;
+            align-self: start;
         }
 
         .bill-card:hover {
@@ -212,6 +214,34 @@
             margin: 0;
         }
 
+        .lane-bills {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .lane-bill {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid #FFE0A3;
+            border-radius: 12px;
+            background: #fffaf0;
+        }
+
+        .lane-bill strong,
+        .lane-bill span {
+            display: block;
+        }
+
+        .lane-bill .btn {
+            padding: 8px 12px;
+            font-size: 0.86rem;
+            white-space: nowrap;
+        }
+
         .empty {
             background: rgba(255, 255, 255, 0.96);
             padding: 28px;
@@ -253,7 +283,7 @@
     </div>
 
     <div class="summary-row">
-        <span class="summary-pill"><i class="bi bi-grid-3x3-gap"></i> 7 dine-in tables</span>
+        <span class="summary-pill"><i class="bi bi-grid-3x3-gap"></i> 7 dine-in tables + counter/take out</span>
         <span class="summary-pill"><i class="bi bi-person-check"></i> @occupiedCount occupied</span>
         <span class="summary-pill"><i class="bi bi-receipt"></i> @pendingBillCount pending bill@(pendingBillCount == 1 ? "" : "s")</span>
     </div>
@@ -281,13 +311,16 @@
         <div class="grid">
             @foreach (var table in tables)
             {
+                var receipts = table.Receipts;
                 var receipt = table.Receipt;
                 var isPaid = table.IsPaid;
+                var isExpired = receipt?.HasSessionStarted == true && receipt.SessionEndUtc <= DateTime.UtcNow;
                 var isClosed = !table.IsOccupied && table.HasBill && (isPaid || receipt?.Orders.All(o => o.BillArchived) == true);
-                var needsPayment = !table.IsOccupied && table.HasBill && !isPaid;
+                var isExpiredBill = !table.IsOccupied && table.HasBill && isExpired;
+                var needsPayment = !table.IsOccupied && table.HasBill && !isPaid && !isExpiredBill;
                 var endIso = receipt?.SessionEndUtc.ToUniversalTime().ToString("O") ?? "";
-                var stateLabel = table.IsOccupied ? "Occupied" : needsPayment ? "Needs Payment" : isClosed ? "Closed" : "Available";
-                var stateIcon = table.IsOccupied ? "bi-person-check" : needsPayment ? "bi-cash-coin" : isClosed ? "bi-check-circle" : "bi-door-open";
+                var stateLabel = table.IsOccupied ? "Occupied" : isExpiredBill ? "Expired Bill" : needsPayment ? "Needs Payment" : isClosed ? "Closed" : table.HasBill ? "Open Bills" : "Available";
+                var stateIcon = table.IsOccupied ? "bi-person-check" : isExpiredBill ? "bi-hourglass-bottom" : needsPayment ? "bi-cash-coin" : isClosed ? "bi-check-circle" : "bi-door-open";
                 var searchText = string.Join(" ", new[]
                 {
                     table.LocationLabel,
@@ -295,16 +328,25 @@
                     table.Floor,
                     stateLabel,
                     isPaid ? "Paid" : "Pending",
-                    receipt?.ReceiptNumber ?? "",
-                    receipt == null ? "" : string.Join(" ", receipt.Orders.Select(o => $"{o.OrderNumber} {o.OrderType} {o.Status}")),
-                    receipt == null ? "" : string.Join(" ", receipt.LineItems.Select(i => i.ItemName))
+                    string.Join(" ", receipts.Select(r => r.ReceiptNumber)),
+                    string.Join(" ", receipts.SelectMany(r => r.Orders).Select(o => $"{o.OrderNumber} {o.OrderType} {o.Status}")),
+                    string.Join(" ", receipts.SelectMany(r => r.LineItems).Select(i => i.ItemName))
                 });
                 <div class="bill-card" data-search="@searchText.ToLowerInvariant()">
                     <div class="bill-head">
                         <div>
                             <div class="receipt-number">@table.LocationLabel</div>
-                            <div class="meta">@(receipt?.ReceiptNumber != null ? $"Bill #{receipt.ReceiptNumber}" : "No active bill")</div>
-                            <span class="pill @(table.IsOccupied ? "pending" : isClosed ? "paid" : "")">
+                            <div class="meta">
+                                @if (receipts.Count > 1)
+                                {
+                                    <span>@receipts.Count active bills</span>
+                                }
+                                else
+                                {
+                                    <span>@(receipt?.ReceiptNumber != null ? $"Bill #{receipt.ReceiptNumber}" : "No active bill")</span>
+                                }
+                            </div>
+                            <span class="pill @(isExpiredBill ? "expired" : table.IsOccupied ? "pending" : isClosed ? "paid" : "")">
                                 <i class="bi @stateIcon"></i> @stateLabel
                             </span>
                             @if (table.PersonCount > 0)
@@ -336,7 +378,7 @@
                     </div>
                     <div class="meta">
                         @table.OrderCount order@(table.OrderCount == 1 ? "" : "s")
-                        @if (receipt != null)
+                        @if (receipt != null && receipts.Count == 1)
                         {
                             <span> · @receipt.TotalItems item@(receipt.TotalItems == 1 ? "" : "s")</span><br>
                             <span>@(receipt.HasSessionStarted ? receipt.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt") : "Session not started")</span>
@@ -346,8 +388,33 @@
                             }
                         }
                     </div>
+                    @if (receipts.Count > 1 || (!table.CanManageOrdering && receipts.Count == 1))
+                    {
+                        <div class="lane-bills">
+                            @foreach (var laneReceipt in receipts)
+                            {
+                                var lanePaid = laneReceipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+                                var laneTime = laneReceipt.Orders.Select(o => o.OrderDate).DefaultIfEmpty(laneReceipt.SessionStartUtc).Max().ToLocalTime();
+                                <div class="lane-bill">
+                                    <div>
+                                        <strong>Bill #@laneReceipt.ReceiptNumber</strong>
+                                        <span class="meta">@laneReceipt.TotalItems item@(laneReceipt.TotalItems == 1 ? "" : "s") · @laneTime.ToString("h:mm tt")</span>
+                                        <span class="pill @(lanePaid ? "paid" : "pending")">
+                                            <i class="bi bi-cash-coin"></i> @(lanePaid ? "Paid" : "Pending") · ₱@laneReceipt.Total.ToString("N2")
+                                        </span>
+                                    </div>
+                                    @if (laneReceipt.AnchorOrder != null)
+                                    {
+                                        <a class="btn" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipt" asp-route-id="@laneReceipt.AnchorOrder.Id" asp-route-returnUrl="@currentReturnUrl">
+                                            Open
+                                        </a>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
                     <div class="card-actions">
-                        @if (!string.IsNullOrWhiteSpace(table.TableNumber))
+                        @if (table.CanManageOrdering)
                         {
                             @if (table.IsOccupied)
                             {
@@ -370,7 +437,7 @@
                                 </form>
                             }
                         }
-                        @if (receipt?.AnchorOrder != null)
+                        @if (table.CanManageOrdering && receipt?.AnchorOrder != null)
                         {
                             <a class="btn" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipt" asp-route-id="@receipt.AnchorOrder.Id" asp-route-returnUrl="@currentReturnUrl">
                                 <i class="bi bi-box-arrow-up-right"></i> Open Bill

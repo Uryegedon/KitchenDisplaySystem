@@ -1,4 +1,5 @@
 @model SelfOrderingSystemKiosk.Areas.Customer.Models.Order
+@using System.Text.Json
 @{
     ViewData["Title"] = "Order Confirmation";
     Layout = "~/Areas/Customer/Views/Shared/_Layout.cshtml";
@@ -13,6 +14,25 @@
     var publicAccessToken = ViewBag.PublicAccessToken as string ?? "";
     var sessionEnded = Model.BillArchived;
     var canReorderUnlimited = Model.OrderType == "Unlimited" && !sessionEnded && !orderingSessionExpired;
+    var serviceLocationLabel = string.Equals(Model.TableNumber, "KIOSK", StringComparison.OrdinalIgnoreCase) || string.Equals(Model.TableNumber, "0", StringComparison.OrdinalIgnoreCase)
+        ? "Kiosk Counter"
+        : string.Equals(Model.TableNumber, "TAKEOUT", StringComparison.OrdinalIgnoreCase)
+            ? "Take Out"
+            : !string.IsNullOrWhiteSpace(Model.TableNumber)
+                ? $"Table {Model.TableNumber}"
+                : string.Equals(Model.DiningType, "TakeOut", StringComparison.OrdinalIgnoreCase)
+                    ? "Take Out"
+                    : "Kiosk Counter";
+    var confirmationQuickItems = ViewBag.ConfirmationQuickItems as IEnumerable<SelfOrderingSystemKiosk.Areas.Customer.Controllers.ConfirmationQuickItem>
+        ?? Enumerable.Empty<SelfOrderingSystemKiosk.Areas.Customer.Controllers.ConfirmationQuickItem>();
+    var quickItemsJson = JsonSerializer.Serialize(confirmationQuickItems.Select(i => new
+    {
+        i.Name,
+        i.Label,
+        i.Group,
+        i.Quantity,
+        i.IsWingFlavor
+    }));
     const int cancelWindowSeconds = 5;
     var cancelDeadlineUtc = Model.OrderDate.ToUniversalTime().AddSeconds(cancelWindowSeconds);
     var cancelRemainingSeconds = Math.Max(0, (int)Math.Ceiling((cancelDeadlineUtc - DateTime.UtcNow).TotalSeconds));
@@ -340,6 +360,134 @@
         text-decoration: none;
     }
 
+    .quick-order-panel {
+        margin: 30px 0 8px;
+        padding: 18px;
+        background: #fffaf4;
+        border: 1px solid #f2c094;
+        border-radius: 14px;
+        text-align: left;
+    }
+
+    .quick-order-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 14px;
+        margin-bottom: 14px;
+    }
+
+    .quick-order-head h3 {
+        margin: 0;
+        color: #d35400;
+        font-size: 1.25rem;
+        font-weight: 800;
+    }
+
+    .quick-order-head p {
+        margin: 4px 0 0;
+        color: #666;
+        font-size: 0.92rem;
+    }
+
+    .quick-order-link {
+        color: #d35400;
+        font-weight: 800;
+        text-decoration: none;
+        white-space: nowrap;
+    }
+
+    .quick-order-groups {
+        display: grid;
+        gap: 14px;
+    }
+
+    .quick-group-title {
+        margin: 0 0 8px;
+        color: #555;
+        font-size: 0.82rem;
+        font-weight: 900;
+        text-transform: uppercase;
+    }
+
+    .quick-order-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .quick-order-item {
+        border: 1px solid #f0d0b2;
+        border-radius: 10px;
+        background: #fff;
+        padding: 9px;
+        min-height: 54px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .quick-order-item span {
+        font-size: 0.86rem;
+        font-weight: 800;
+        color: #333;
+        overflow-wrap: anywhere;
+    }
+
+    .quick-order-item small {
+        color: #2e7d32;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+
+    .quick-order-cart {
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid #f2c094;
+        display: grid;
+        gap: 10px;
+    }
+
+    .quick-order-cart-list {
+        display: grid;
+        gap: 7px;
+    }
+
+    .quick-cart-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        background: #fff;
+        border: 1px solid #f0d0b2;
+        border-radius: 9px;
+        padding: 8px 10px;
+        font-size: 0.9rem;
+    }
+
+    .quick-cart-row button {
+        border: 0;
+        background: #fff0e6;
+        color: #c0392b;
+        border-radius: 8px;
+        padding: 5px 8px;
+        font-weight: 900;
+    }
+
+    .quick-order-send {
+        justify-self: end;
+        border: 0;
+        border-radius: 10px;
+        background: #ff6b35;
+        color: #fff;
+        padding: 11px 18px;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
     @@media (max-width: 768px) {
         .confirmation-container {
             margin: 10px;
@@ -465,6 +613,14 @@
             gap: 6px;
             text-align: center;
         }
+
+        .quick-order-head {
+            flex-direction: column;
+        }
+
+        .quick-order-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
     }
 
     @@media (max-width: 420px) {
@@ -474,6 +630,10 @@
         }
 
         .action-buttons {
+            grid-template-columns: 1fr;
+        }
+
+        .quick-order-grid {
             grid-template-columns: 1fr;
         }
     }
@@ -547,14 +707,14 @@
                         <span class="badge bg-secondary p-2 px-3 ms-1" style="font-size: 0.9rem;"><i class="bi bi-display"></i> Kiosk</span>
                     }
                 </div>
-                @if (!string.IsNullOrEmpty(Model.TableNumber) || !string.IsNullOrEmpty(Model.Floor))
+                @if (!string.IsNullOrEmpty(serviceLocationLabel) || !string.IsNullOrEmpty(Model.Floor))
                 {
                     <p class="mb-3" style="font-size: 1rem;">
                         <i class="bi bi-geo-alt-fill text-warning"></i>
                         <strong>Service location:</strong>
                         @if (!string.IsNullOrEmpty(Model.Floor)) { <span>Floor @Model.Floor</span> }
-                        @if (!string.IsNullOrEmpty(Model.Floor) && !string.IsNullOrEmpty(Model.TableNumber)) { <span> · </span> }
-                        @if (!string.IsNullOrEmpty(Model.TableNumber)) { <span>Table @Model.TableNumber</span> }
+                        @if (!string.IsNullOrEmpty(Model.Floor) && !string.IsNullOrEmpty(serviceLocationLabel)) { <span> · </span> }
+                        @if (!string.IsNullOrEmpty(serviceLocationLabel)) { <span>@serviceLocationLabel</span> }
                     </p>
                 }
 
@@ -656,6 +816,49 @@
         </div>
     </div>
 
+    @if (canReorderUnlimited && hasPrivateOrderAccess && confirmationQuickItems.Any())
+    {
+        <section class="quick-order-panel" id="confirmationQuickOrder">
+            <div class="quick-order-head">
+                <div>
+                    <h3><i class="bi bi-lightning-charge-fill"></i> Quick Order</h3>
+                    <p>Add more unlimited items from this page. Current wing flavors still follow the 4-flavor table limit.</p>
+                </div>
+                <a asp-action="UnlimitedMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="quick-order-link reorder-unlimited-action">
+                    Full menu
+                </a>
+            </div>
+
+            <div class="quick-order-groups">
+                @foreach (var group in confirmationQuickItems.GroupBy(i => i.Group))
+                {
+                    <div>
+                        <p class="quick-group-title">@group.Key</p>
+                        <div class="quick-order-grid">
+                            @foreach (var item in group)
+                            {
+                                <button type="button"
+                                        class="quick-order-item"
+                                        data-name="@item.Name"
+                                        data-quantity="@item.Quantity">
+                                    <span>@item.Label</span>
+                                    <small>+@item.Quantity</small>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="quick-order-cart" id="quickOrderCart" style="display:none;">
+                <div class="quick-order-cart-list" id="quickOrderCartList"></div>
+                <button type="button" class="quick-order-send" id="sendQuickOrder">
+                    <i class="bi bi-send"></i> Send Quick Order
+                </button>
+            </div>
+        </section>
+    }
+
     <!-- Action Buttons -->
     <div class="action-buttons">
         @{
@@ -696,8 +899,8 @@
         {
             if (canReorderUnlimited)
             {
-                <a id="reorderUnlimitedLink" asp-action="UnlimitedMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="btn-primary" style="text-decoration: none; background: #F39C12;">
-                    <i class="bi bi-arrow-repeat"></i> Reorder (Unlimited)
+                <a asp-action="UnlimitedMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="btn-primary reorder-unlimited-action" style="text-decoration: none; background: #F39C12;">
+                    <i class="bi bi-arrow-repeat"></i> Full Menu
                 </a>
             }
             else
@@ -749,18 +952,132 @@
     // Highlight current step based on actual order status
     const orderingSessionExpired = @orderingSessionExpired.ToString().ToLowerInvariant();
     const publicAccessToken = "@publicAccessToken";
-    function disableReorderUnlimited() {
-        const reorderLink = document.getElementById('reorderUnlimitedLink');
-        if (!reorderLink) return;
+    const confirmationQuickItems = @Html.Raw(quickItemsJson);
+    const quickOrderCart = [];
 
-        const disabled = document.createElement('button');
-        disabled.type = 'button';
-        disabled.className = 'btn-secondary';
-        disabled.disabled = true;
-        disabled.style.opacity = '0.6';
-        disabled.style.cursor = 'not-allowed';
-        disabled.innerHTML = '<i class="bi bi-arrow-repeat"></i> Reorder Unavailable';
-        reorderLink.replaceWith(disabled);
+    function renderQuickOrderCart() {
+        const shell = document.getElementById('quickOrderCart');
+        const list = document.getElementById('quickOrderCartList');
+        if (!shell || !list) return;
+
+        if (quickOrderCart.length === 0) {
+            shell.style.display = 'none';
+            list.innerHTML = '';
+            return;
+        }
+
+        shell.style.display = '';
+        list.innerHTML = quickOrderCart.map((item, index) => `
+            <div class="quick-cart-row">
+                <span><strong>${escapeQuickHtml(item.ItemName)}</strong> × ${item.Quantity}</span>
+                <button type="button" data-remove-quick="${index}">Remove</button>
+            </div>
+        `).join('');
+    }
+
+    function escapeQuickHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    document.getElementById('confirmationQuickOrder')?.addEventListener('click', function(e) {
+        const remove = e.target.closest('[data-remove-quick]');
+        if (remove) {
+            quickOrderCart.splice(Number(remove.getAttribute('data-remove-quick')), 1);
+            renderQuickOrderCart();
+            return;
+        }
+
+        const button = e.target.closest('.quick-order-item');
+        if (!button) return;
+
+        const name = button.getAttribute('data-name');
+        const quantity = Number(button.getAttribute('data-quantity') || '1');
+        const quickDefinition = confirmationQuickItems.find(item => item.Name === name);
+        const existing = quickOrderCart.find(item => item.ItemName === name);
+        if (existing) {
+            const nextQuantity = existing.Quantity + (Number.isFinite(quantity) && quantity > 0 ? quantity : 1);
+            if (quickDefinition?.IsWingFlavor && nextQuantity > 4) {
+                alert('Maximum of 4 pieces per wing flavor.');
+                return;
+            }
+            if (nextQuantity > 20) {
+                alert('That quantity is too high for one quick order.');
+                return;
+            }
+            existing.Quantity = nextQuantity;
+        } else {
+            quickOrderCart.push({
+                ItemName: name,
+                Quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+                Price: 0
+            });
+        }
+        renderQuickOrderCart();
+    });
+
+    document.getElementById('sendQuickOrder')?.addEventListener('click', function() {
+        if (quickOrderCart.length === 0) return;
+
+        const button = this;
+        const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+        button.disabled = true;
+        button.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+
+        fetch('/Customer/Kiosk/QuickUnlimitedOrder?orderNumber=@Model.OrderNumber&accessToken=' + encodeURIComponent(publicAccessToken), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(quickOrderCart)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.message || 'Quick order sent to the kitchen.');
+                quickOrderCart.length = 0;
+                renderQuickOrderCart();
+                if (data.orderNumber && data.accessToken) {
+                    window.location.href = '/Customer/Kiosk/Confirmation?orderNumber=' + encodeURIComponent(data.orderNumber) + '&accessToken=' + encodeURIComponent(data.accessToken);
+                }
+                return;
+            }
+
+            alert(data.message || 'Unable to send quick order.');
+            if (data.sessionEnded) {
+                disableReorderUnlimited();
+                makeNewOrderStartNewSession();
+            }
+        })
+        .catch(error => {
+            console.error('Quick order failed:', error);
+            alert('Unable to send quick order. Please try again.');
+        })
+        .finally(() => {
+            button.disabled = false;
+            button.innerHTML = '<i class="bi bi-send"></i> Send Quick Order';
+        });
+    });
+
+    function disableReorderUnlimited() {
+        document.querySelectorAll('.reorder-unlimited-action').forEach(reorderLink => {
+            const disabled = document.createElement('button');
+            disabled.type = 'button';
+            disabled.className = reorderLink.classList.contains('quick-order-link') ? 'btn-secondary' : 'btn-secondary';
+            disabled.disabled = true;
+            disabled.style.opacity = '0.6';
+            disabled.style.cursor = 'not-allowed';
+            disabled.innerHTML = '<i class="bi bi-arrow-repeat"></i> Reorder Unavailable';
+            reorderLink.replaceWith(disabled);
+        });
+
+        const quickPanel = document.getElementById('confirmationQuickOrder');
+        if (quickPanel) quickPanel.style.display = 'none';
     }
 
     function makeNewOrderStartNewSession() {

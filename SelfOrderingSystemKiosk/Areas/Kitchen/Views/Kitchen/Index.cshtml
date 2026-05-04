@@ -480,12 +480,20 @@
                                     <i class="bi bi-building" style="font-size: 0.9em;"></i> Fl. @order.Floor
                                 </span>
                             }
-                            @if (!string.IsNullOrEmpty(order.TableNumber))
-                            {
-                                <span style="background: #F39C12; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
-                                    <i class="bi bi-table" style="font-size: 0.9em;"></i> Table @order.TableNumber
-                                </span>
+                            @{
+                                var tableLabel = string.Equals(order.TableNumber, "KIOSK", StringComparison.OrdinalIgnoreCase) || string.Equals(order.TableNumber, "0", StringComparison.OrdinalIgnoreCase)
+                                    ? "Kiosk Counter"
+                                    : string.Equals(order.TableNumber, "TAKEOUT", StringComparison.OrdinalIgnoreCase)
+                                        ? "Take Out"
+                                        : !string.IsNullOrWhiteSpace(order.TableNumber)
+                                            ? $"Table {order.TableNumber}"
+                                            : isTakeOut
+                                                ? "Take Out"
+                                                : "Kiosk Counter";
                             }
+                            <span style="background: #F39C12; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                <i class="bi bi-table" style="font-size: 0.9em;"></i> @tableLabel
+                            </span>
                             @if (string.Equals(order.OrderChannel, "Qr", StringComparison.OrdinalIgnoreCase))
                             {
                                 <span style="background: #16A085; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; margin-left: 4px;">

@@ -51,13 +51,15 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
         public string Floor { get; set; } = string.Empty;
         public string LocationLabel { get; set; } = string.Empty;
         public bool IsOccupied { get; set; }
+        public bool CanManageOrdering { get; set; }
         public TableOrderingSession? OrderingSession { get; set; }
         public SessionReceiptViewModel? Receipt { get; set; }
-        public bool HasBill => Receipt?.Orders.Any() == true;
-        public bool IsPaid => HasBill && Receipt!.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
-        public decimal Total => Receipt?.Total ?? 0m;
-        public int OrderCount => Receipt?.Orders.Count ?? 0;
-        public int PersonCount => OrderingSession?.PersonCount ?? Receipt?.Orders.Select(o => o.PersonCount ?? 0).DefaultIfEmpty(0).Max() ?? 0;
+        public List<SessionReceiptViewModel> Receipts { get; set; } = new();
+        public bool HasBill => Receipts.Any(r => r.Orders.Any());
+        public bool IsPaid => HasBill && Receipts.All(r => r.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase)));
+        public decimal Total => Receipts.Sum(r => r.Total);
+        public int OrderCount => Receipts.Sum(r => r.Orders.Count);
+        public int PersonCount => OrderingSession?.PersonCount ?? Receipts.SelectMany(r => r.Orders).Select(o => o.PersonCount ?? 0).DefaultIfEmpty(0).Max();
         public DateTime? LastActivityUtc { get; set; }
     }
 }

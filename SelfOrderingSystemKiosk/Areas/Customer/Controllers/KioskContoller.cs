@@ -29,6 +29,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private const string CookiePersonCount = "KdsOrderPersonCount";
         private const string OrderChannelKiosk = "Kiosk";
         private const string OrderChannelQr = "Qr";
+        private const string DefaultKioskTableNumber = "KIOSK";
+        private const string DefaultTakeOutTableNumber = "TAKEOUT";
         private const string SessionFirstOrderTime = "FirstOrderTime";
         private const string OrderAccessSessionPrefix = "OrderAccess:";
         private static readonly TimeSpan OrderingSessionLength = TimeSpan.FromHours(2);
@@ -53,6 +55,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             HttpContext.Session.SetString(SessionOrderChannel, OrderChannelKiosk);
             HttpContext.Session.Remove(SessionServiceTable);
             HttpContext.Session.Remove(SessionServiceFloor);
+            Response.Cookies.Delete(CookieServiceTable);
+            Response.Cookies.Delete(CookieServiceFloor);
         }
 
         private async Task ApplyOrderingSessionToViewBagAsync()
@@ -72,6 +76,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     await RestoreSharedTablePersonCountAsync(table);
                 }
 
+                var tableSession = !string.IsNullOrWhiteSpace(table)
+                    ? await _tableOrderingSessions.GetAsync(table)
+                    : null;
+                ViewBag.SharedWingFlavors = tableSession?.WingFlavors ?? new List<string>();
                 ViewBag.PersonCount = GetSessionInt(SessionPersonCount);
                 ApplyOrderingWindowToViewBag();
                 ViewBag.ServiceTable = table;
@@ -80,6 +88,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return;
             }
 
+            ViewBag.SharedWingFlavors = new List<string>();
             ViewBag.PersonCount = GetSessionInt(SessionPersonCount);
             ApplyOrderingWindowToViewBag();
         }
@@ -104,8 +113,14 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
             if (!string.IsNullOrWhiteSpace(table))
                 Response.Cookies.Append(CookieServiceTable, table, options);
+            else
+                Response.Cookies.Delete(CookieServiceTable);
+
             if (!string.IsNullOrWhiteSpace(floor))
                 Response.Cookies.Append(CookieServiceFloor, floor, options);
+            else
+                Response.Cookies.Delete(CookieServiceFloor);
+
             if (personCount.HasValue && personCount.Value > 0)
                 Response.Cookies.Append(CookiePersonCount, personCount.Value.ToString(), options);
         }
@@ -404,6 +419,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private async Task ApplyConfirmationSessionAsync(Order order)
         {
             ViewBag.ConfirmationBillPaid = false;
+            ViewBag.ConfirmationPersonCount = 0;
+            ViewBag.ConfirmationWingFlavors = new List<string>();
 
             if (order == null)
                 return;
@@ -422,6 +439,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 ViewBag.OrderingSessionRemaining = TimeSpan.Zero;
                 ViewBag.OrderingSessionExpired = false;
                 ViewBag.ConfirmationBillPaid = string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
+                ViewBag.ConfirmationPersonCount = GetOrderPersonCount(order) ?? 0;
                 return;
             }
 
@@ -434,6 +452,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 else
                     HttpContext.Session.Remove(SessionFirstOrderTime);
                 ViewBag.ConfirmationBillPaid = string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
+                ViewBag.ConfirmationPersonCount = GetOrderPersonCount(order) ?? 0;
                 return;
             }
 
@@ -453,6 +472,16 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             else
                 HttpContext.Session.Remove(SessionFirstOrderTime);
             ViewBag.ConfirmationBillPaid = sessionOrders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
+            ViewBag.ConfirmationPersonCount = sessionOrders
+                .Select(GetOrderPersonCount)
+                .Where(count => count.HasValue && count.Value > 0)
+                .Select(count => count!.Value)
+                .DefaultIfEmpty(GetOrderPersonCount(order) ?? 0)
+                .Max();
+            var tableSession = await _tableOrderingSessions.GetAsync(order.TableNumber);
+            ViewBag.ConfirmationWingFlavors = tableSession?.WingFlavors?.Any() == true
+                ? tableSession.WingFlavors
+                : (await ExtractUnlimitedWingFlavorsAsync(sessionOrders.SelectMany(o => o.Items ?? new List<OrderItem>()))).ToList();
         }
 
         private static List<Order> GetLatestTableSession(List<Order> tableOrders)
@@ -528,6 +557,14 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private static bool IsUnlimitedOrder(Order order)
         {
             return string.Equals(order.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsDefaultServiceTable(string? tableNumber)
+        {
+            return string.IsNullOrWhiteSpace(tableNumber)
+                || string.Equals(tableNumber, DefaultKioskTableNumber, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(tableNumber, DefaultTakeOutTableNumber, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(tableNumber, "0", StringComparison.OrdinalIgnoreCase);
         }
 
         private static DateTime ToUtc(DateTime value)
@@ -662,7 +699,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         [HttpPost]
         public IActionResult SelectDining(string diningType)
         {
-            RestoreOrderingCookiesToSession();
+            SetKioskChannelDefaults();
             TempData["DiningType"] = diningType;
             HttpContext.Session.SetString(SessionDiningType, diningType);
 
@@ -869,16 +906,21 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     tableNumber = HttpContext.Session.GetString(SessionServiceTable);
                     floor = HttpContext.Session.GetString(SessionServiceFloor);
                 }
-                if (!string.Equals(channel, OrderChannelQr, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(diningType, "TakeOut", StringComparison.OrdinalIgnoreCase) ||
+                if (string.Equals(diningType, "TakeOut", StringComparison.OrdinalIgnoreCase))
+                {
+                    tableNumber = DefaultTakeOutTableNumber;
+                    floor = null;
+                }
+                else if (!string.Equals(channel, OrderChannelQr, StringComparison.OrdinalIgnoreCase) ||
                     string.IsNullOrWhiteSpace(tableNumber))
                 {
-                    tableNumber = "0";
+                    tableNumber = DefaultKioskTableNumber;
+                    floor = null;
                 }
 
                 var isRealQrTableOrder = string.Equals(channel, OrderChannelQr, StringComparison.OrdinalIgnoreCase)
                     && string.Equals(diningType, "DineIn", StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(tableNumber, "0", StringComparison.OrdinalIgnoreCase);
+                    && !IsDefaultServiceTable(tableNumber);
 
                 if (isRealQrTableOrder && !await _tableOrderingSessions.IsOrderingOpenAsync(tableNumber))
                 {
@@ -1083,6 +1125,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (IsUnlimitedOrder(order))
             {
                 ApplyOrderingWindowToViewBag();
+                if (hasPrivateAccess && !order.BillArchived)
+                    ViewBag.ConfirmationQuickItems = await BuildConfirmationQuickItemsAsync(order);
             }
             else
             {
@@ -1093,6 +1137,114 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             }
 
             return View(order);
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> QuickUnlimitedOrder(
+            [FromQuery] string orderNumber,
+            [FromQuery] string accessToken,
+            [FromBody] List<OrderItem> items)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(orderNumber))
+                    return Json(new { success = false, message = "Order number is required." });
+                if (items == null || !items.Any())
+                    return Json(new { success = false, message = "Choose at least one item to reorder." });
+
+                var anchorOrder = await _orderService.GetByOrderNumberAsync(orderNumber);
+                if (anchorOrder == null || !HasPrivateOrderAccess(anchorOrder, accessToken))
+                    return Json(new { success = false, message = "Unable to access this order." });
+                if (!IsUnlimitedOrder(anchorOrder))
+                    return Json(new { success = false, message = "Quick reorder is only available for Unlimited orders." });
+                if (anchorOrder.BillArchived || IsOrderingSessionExpired(anchorOrder))
+                    return Json(new { success = false, sessionEnded = true, message = "This unlimited ordering session has ended." });
+
+                var validation = await ValidateSubmittedItemsAsync(items, true);
+                if (!validation.Success)
+                    return Json(new { success = false, message = validation.Message });
+
+                var tableNumber = anchorOrder.TableNumber;
+                var floor = anchorOrder.Floor;
+                var isRealQrTableOrder = !string.IsNullOrWhiteSpace(tableNumber)
+                    && !IsDefaultServiceTable(tableNumber)
+                    && string.Equals(anchorOrder.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase);
+
+                if (isRealQrTableOrder && !await _tableOrderingSessions.IsOrderingOpenAsync(tableNumber))
+                    return Json(new { success = false, message = "Ordering for this table is currently closed. Please ask staff for help." });
+
+                var personCount = isRealQrTableOrder
+                    ? await GetSharedTablePersonCountAsync(tableNumber)
+                    : GetOrderPersonCount(anchorOrder) ?? 0;
+                if (personCount <= 0)
+                    return Json(new { success = false, message = "Unable to find the person count for this unlimited session." });
+
+                var tableGate = isRealQrTableOrder
+                    ? await CheckTableOrderingGateAsync(tableNumber)
+                    : TableOrderingGateResult.Allowed();
+                if (!tableGate.CanOrder)
+                    return Json(new { success = false, message = tableGate.Message });
+
+                if (isRealQrTableOrder)
+                    await SeedSharedTableSessionFromOrdersAsync(tableNumber);
+
+                var chargeablePersonCount = 0;
+                if (isRealQrTableOrder)
+                {
+                    var reservation = await _tableOrderingSessions.ReserveUnlimitedOrderAsync(
+                        tableNumber,
+                        personCount,
+                        validation.UnlimitedWingFlavors);
+                    if (!reservation.Success)
+                        return Json(new { success = false, message = reservation.Message });
+
+                    personCount = reservation.PersonCount;
+                    chargeablePersonCount = reservation.ChargeablePersonCount;
+                }
+
+                const decimal pricePerHead = 477m;
+                var alaCarteAddOnSubtotal = validation.Items.Sum(i => i.Price * i.Quantity);
+                var subtotal = (chargeablePersonCount * pricePerHead) + alaCarteAddOnSubtotal;
+                var order = new Order
+                {
+                    OrderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber),
+                    PublicAccessToken = CreatePublicAccessToken(),
+                    OrderDate = DateTime.UtcNow,
+                    Status = "Pending",
+                    OrderType = "Unlimited",
+                    DiningType = anchorOrder.DiningType,
+                    OrderChannel = anchorOrder.OrderChannel,
+                    TableNumber = string.IsNullOrWhiteSpace(tableNumber) ? DefaultKioskTableNumber : tableNumber,
+                    Floor = floor,
+                    PaymentMethod = "Cash",
+                    PaymentStatus = "Pending",
+                    PersonCount = personCount,
+                    Subtotal = subtotal,
+                    Tax = 0m,
+                    Total = subtotal,
+                    Items = validation.Items
+                };
+
+                await _orderService.CreateAsync(order);
+                if (isRealQrTableOrder)
+                    await _orderService.UpdateOpenUnlimitedPersonCountForTableAsync(tableNumber, personCount);
+
+                RememberOrderAccess(order);
+                SaveOrderingCookies(isRealQrTableOrder ? tableNumber : null, isRealQrTableOrder ? floor : null, personCount);
+
+                return Json(new
+                {
+                    success = true,
+                    orderNumber = order.OrderNumber,
+                    accessToken = order.PublicAccessToken,
+                    message = "Quick order sent to the kitchen."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating quick unlimited order");
+                return Json(new { success = false, message = "Unable to send quick order. Please try again." });
+            }
         }
 
         [HttpGet]
@@ -1318,15 +1470,19 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     var isIncluded = IsUnlimitedIncludedItem(menuItem);
                     if (!isIncluded && !IsUnlimitedMenuItem(menuItem))
                         return OrderItemValidationResult.Fail($"'{lookupName}' is not available in the unlimited menu.");
-                    if (isIncluded && submitted.Quantity > 20)
-                        return OrderItemValidationResult.Fail("One or more item quantities are too high.");
                     if (!isIncluded && submitted.Quantity > 4)
                         return OrderItemValidationResult.Fail("Maximum quantity of 4 per Ala Carte add-on allowed.");
                     if (isIncluded && string.Equals(menuItem.Category, "Wings", StringComparison.Ordinal))
                     {
+                        if (submitted.Quantity > 4)
+                            return OrderItemValidationResult.Fail("Maximum quantity of 4 pieces per wing flavor allowed.");
                         submittedUnlimitedWingFlavors.Add(menuItem.Item.Trim());
                         if (submittedUnlimitedWingFlavors.Count > 4)
                             return OrderItemValidationResult.Fail("You can only choose up to 4 wing flavors per unlimited order.");
+                    }
+                    else if (isIncluded && submitted.Quantity > 20)
+                    {
+                        return OrderItemValidationResult.Fail("One or more item quantities are too high.");
                     }
                 }
                 else
@@ -1346,6 +1502,99 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             }
 
             return OrderItemValidationResult.Ok(validated, submittedUnlimitedWingFlavors);
+        }
+
+        private async Task<List<ConfirmationQuickItem>> BuildConfirmationQuickItemsAsync(Order order)
+        {
+            var availableItems = await _menuItems.GetAvailableAsync() ?? new List<MenuItem>();
+            var includedItems = availableItems
+                .Where(IsUnlimitedIncludedItem)
+                .Where(i => !string.IsNullOrWhiteSpace(i.Item))
+                .ToList();
+
+            var quickItems = new List<ConfirmationQuickItem>();
+            var wingFlavorNames = (ViewBag.ConfirmationWingFlavors as IEnumerable<string> ?? Enumerable.Empty<string>())
+                .Select(f => f.Trim())
+                .Where(f => !string.IsNullOrWhiteSpace(f))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (!wingFlavorNames.Any() && order?.Items != null)
+            {
+                wingFlavorNames = (await ExtractUnlimitedWingFlavorsAsync(order.Items))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            var wingItemsByName = includedItems
+                .Where(i => string.Equals(i.Category, "Wings", StringComparison.Ordinal))
+                .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var flavor in wingFlavorNames.Take(4))
+            {
+                if (!wingItemsByName.ContainsKey(flavor))
+                    continue;
+
+                quickItems.Add(new ConfirmationQuickItem
+                {
+                    Name = flavor,
+                    Label = flavor,
+                    Group = "Current Flavors",
+                    Quantity = 4,
+                    IsWingFlavor = true
+                });
+            }
+
+            var includedNames = new[]
+            {
+                "Plain Rice",
+                "Garlic Rice",
+                "Extra Gravy",
+                "Nachos",
+                "Potato Thins",
+                "Regular Pasta",
+                "Red Iced Tea",
+                "Coffee",
+                "Tea"
+            };
+
+            foreach (var desiredName in includedNames)
+            {
+                var menuItem = includedItems
+                    .Where(i => i.Item.Contains(desiredName, StringComparison.OrdinalIgnoreCase)
+                        || desiredName.Contains(i.Item, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(i => i.MenuOrder)
+                    .FirstOrDefault();
+                if (menuItem == null)
+                    continue;
+
+                var group = string.Equals(menuItem.Category, "Drinks", StringComparison.Ordinal)
+                    || menuItem.Item.Contains("Tea", StringComparison.OrdinalIgnoreCase)
+                    || menuItem.Item.Contains("Coffee", StringComparison.OrdinalIgnoreCase)
+                        ? "Drinks"
+                        : menuItem.Item.Contains("Rice", StringComparison.OrdinalIgnoreCase)
+                            ? "Rice"
+                            : menuItem.Item.Contains("Pasta", StringComparison.OrdinalIgnoreCase)
+                                ? "Pasta"
+                                : "Sides";
+
+                if (quickItems.Any(i => string.Equals(i.Name, menuItem.Item, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                quickItems.Add(new ConfirmationQuickItem
+                {
+                    Name = menuItem.Item,
+                    Label = menuItem.Item.StartsWith("Unli Pasta ", StringComparison.OrdinalIgnoreCase)
+                        ? menuItem.Item["Unli Pasta ".Length..].Trim()
+                        : menuItem.Item,
+                    Group = group,
+                    Quantity = 1,
+                    IsWingFlavor = false
+                });
+            }
+
+            return quickItems;
         }
 
         private async Task<HashSet<string>> ExtractUnlimitedWingFlavorsAsync(IEnumerable<OrderItem> orderItems)
@@ -1443,5 +1692,14 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             Success = false,
             Message = message
         };
+    }
+
+    public class ConfirmationQuickItem
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
+        public string Group { get; set; } = string.Empty;
+        public int Quantity { get; set; } = 1;
+        public bool IsWingFlavor { get; set; }
     }
 }

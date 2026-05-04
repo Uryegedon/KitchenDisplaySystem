@@ -259,6 +259,89 @@ function updateCardQuantity(control, quantity) {
     if (plus) plus.disabled = nextQuantity >= limit;
 }
 
+function getReservedWingFlavorNames() {
+    if (typeof window === 'undefined' || !Array.isArray(window.sharedUnlimitedWingFlavors)) {
+        return new Set();
+    }
+
+    return new Set(
+        window.sharedUnlimitedWingFlavors
+            .map(name => String(name || '').trim().toLowerCase())
+            .filter(Boolean)
+    );
+}
+
+function getSelectedWingFlavorNames() {
+    const names = getReservedWingFlavorNames();
+    cart
+        .filter(item => item?.isWingFlavor !== false)
+        .forEach(item => {
+            const name = String(item.name || '').trim().toLowerCase();
+            if (name) names.add(name);
+        });
+    return names;
+}
+
+function addItemToCart(newItem, options = {}) {
+    const requirePersonCount = options.requirePersonCount !== false;
+    const updateDisplay = options.updateDisplay !== false;
+    const successMessage = options.successMessage || '';
+
+    if (requirePersonCount && personCount === 0) {
+        showNotification("Please enter the number of persons first.", 'error');
+        openModal("personModal");
+        return false;
+    }
+
+    if (!newItem || !newItem.name) {
+        return false;
+    }
+
+    const quantityLimit = getQuantityLimit();
+    const flavorLimit = getFlavorLimit();
+    const requestedQuantity = Math.max(1, Number(newItem.quantity) || 1);
+    const itemToAdd = {
+        ...newItem,
+        price: Number.isFinite(Number(newItem.price)) ? Number(newItem.price) : 0,
+        quantity: requestedQuantity,
+        isWingFlavor: newItem.isWingFlavor !== false,
+        isAlaCarteAddOn: newItem.isAlaCarteAddOn === true
+    };
+    const existingItem = cart.find(item => cartKey(item) === cartKey(itemToAdd));
+    const isQuantityLimited = itemToAdd.isWingFlavor !== false || itemToAdd.isAlaCarteAddOn === true;
+
+    if (existingItem) {
+        if (isQuantityLimited && existingItem.quantity + itemToAdd.quantity > quantityLimit) {
+            const label = itemToAdd.isAlaCarteAddOn === true ? 'per Ala Carte add-on' : 'pieces per wing flavor';
+            showNotification(`You can only add up to ${quantityLimit} ${label}.`, 'error');
+            return false;
+        }
+
+        existingItem.quantity += itemToAdd.quantity;
+    } else {
+        if (itemToAdd.isWingFlavor !== false) {
+            const selectedWingNames = getSelectedWingFlavorNames();
+            const nextWingName = String(itemToAdd.name || '').trim().toLowerCase();
+            if (nextWingName && !selectedWingNames.has(nextWingName) && selectedWingNames.size >= flavorLimit) {
+                showNotification(`This table can only have up to ${flavorLimit} wing flavors. Please choose from the current flavors.`, 'error');
+                return false;
+            }
+        }
+
+        cart.push(itemToAdd);
+    }
+
+    if (updateDisplay) {
+        updateCartDisplay();
+    }
+
+    if (successMessage) {
+        showNotification(successMessage, 'success');
+    }
+
+    return true;
+}
+
 // ✅ Confirm persons
 document.addEventListener("DOMContentLoaded", () => {
     loadDeviceOrderState();
@@ -439,30 +522,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 isAlaCarteAddOn,
                 variantLabel: selectedVariant?.label || ''
             };
-            const existingItem = cart.find(item => cartKey(item) === cartKey(newItem));
-            const flavorLimit = getFlavorLimit();
-            const quantityLimit = getQuantityLimit();
-            const selectedWingFlavorCount = cart.filter(item => item.isWingFlavor !== false).length;
-
-            if (existingItem) {
-                if (isWingFlavor && existingItem.quantity + requestedQuantity > quantityLimit) {
-                    showNotification(`You can only add up to ${quantityLimit} pieces per wing flavor.`, 'error');
-                    return;
-                }
-                if (isAlaCarteAddOn && existingItem.quantity + requestedQuantity > quantityLimit) {
-                    showNotification(`You can only add up to ${quantityLimit} per Ala Carte add-on.`, 'error');
-                    return;
-                }
-                existingItem.quantity += requestedQuantity;
-            } else {
-                if (isWingFlavor && selectedWingFlavorCount >= flavorLimit) {
-                    showNotification(`You can only choose up to ${flavorLimit} wing flavors per order.`, 'error');
-                    return;
-                }
-                cart.push(newItem);
-            }
-
-            updateCartDisplay();
+            if (!addItemToCart(newItem)) return;
 
             // ✅ Feedback animation
             this.textContent = 'Added!';

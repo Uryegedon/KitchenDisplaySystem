@@ -11,6 +11,7 @@
     var orderingSessionKey = ViewBag.IsQrFlow == true && ViewBag.ServiceTable != null
         ? $"qr:{ViewBag.ServiceFloor ?? ""}:{ViewBag.ServiceTable}"
         : "kiosk-unlimited";
+    var sharedWingFlavors = ViewBag.SharedWingFlavors as IEnumerable<string> ?? Enumerable.Empty<string>();
     var variantGroups = allMenuItems
         .Where(i => !string.IsNullOrWhiteSpace(i.Item)
             && !IsSulitWingRiceMeal(i)
@@ -794,6 +795,7 @@
         .sulit-choice-grid.compact {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
+
     }
 </style>
 
@@ -806,8 +808,9 @@
     window.reorderPersonCount = @rememberedPersonCount;
     window.orderingSessionPersonCount = @rememberedPersonCount;
     window.orderingSessionKey = @Html.Raw(JsonSerializer.Serialize(orderingSessionKey));
+    window.sharedUnlimitedWingFlavors = @Html.Raw(JsonSerializer.Serialize(sharedWingFlavors));
 </script>
-<script src="~/js/booking_cart.js"></script>
+<script src="~/js/booking_cart.js" asp-append-version="true"></script>
 <script src="~/js/mobile_order_summary.js" asp-append-version="true"></script>
 
 <script>
@@ -1003,17 +1006,13 @@
         const quantityLimit = getQuantityLimit();
         const flavorLimit = getFlavorLimit();
         const selectedWingChoices = selected.filter(choice => choice.getAttribute('data-group-key') === 'wings');
-        const existingWingNames = new Set(
-            cart
-                .filter(item => item.isWingFlavor !== false)
-                .map(item => String(item.name || '').toLowerCase())
-        );
+        const existingWingNames = getSelectedWingFlavorNames ? getSelectedWingFlavorNames() : new Set();
         const newWingNames = selectedWingChoices
             .map(choice => String(choice.getAttribute('data-name') || '').toLowerCase())
             .filter(name => name && !existingWingNames.has(name));
 
         if (existingWingNames.size + new Set(newWingNames).size > flavorLimit) {
-            showNotification(`You can only choose up to ${flavorLimit} wing flavors per order.`, 'error');
+            showNotification(`This table can only have up to ${flavorLimit} wing flavors. Please choose from the current flavors.`, 'error');
             return;
         }
 

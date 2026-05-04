@@ -17,6 +17,8 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
     public class KitchenController : Controller
     {
         private static readonly string[] DiningTableNumbers = { "1", "2", "3", "4", "5", "6", "7" };
+        private const string DefaultKioskTableNumber = "KIOSK";
+        private const string DefaultTakeOutTableNumber = "TAKEOUT";
         private readonly OrderService _orderService;
         private readonly TableOrderingSessionService _tableOrderingSessions;
         private readonly TableRegistryService _tableRegistry;
@@ -211,7 +213,19 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 byKey[key] = new TableOverviewViewModel
                 {
                     TableNumber = tableNumber,
-                    LocationLabel = BuildLocationLabel(string.Empty, tableNumber)
+                    LocationLabel = BuildLocationLabel(string.Empty, tableNumber),
+                    CanManageOrdering = true
+                };
+            }
+
+            foreach (var defaultTable in new[] { DefaultKioskTableNumber, DefaultTakeOutTableNumber })
+            {
+                var key = NormalizeTableKey(defaultTable);
+                byKey[key] = new TableOverviewViewModel
+                {
+                    TableNumber = defaultTable,
+                    LocationLabel = BuildLocationLabel(string.Empty, defaultTable),
+                    CanManageOrdering = false
                 };
             }
 
@@ -253,14 +267,14 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 if (!showArchived && ShouldHideClosedReceipt(receipt))
                     continue;
 
-                var key = string.IsNullOrWhiteSpace(receipt.TableNumber)
-                    ? "counter"
-                    : NormalizeTableKey(receipt.TableNumber);
+                var key = GetReceiptServiceTableKey(receipt);
                 if (!byKey.TryGetValue(key, out var table))
                     continue;
 
-                var currentReceiptDate = table.Receipt?.Orders.Select(o => o.OrderDate).DefaultIfEmpty().Max() ?? DateTime.MinValue;
                 var nextReceiptDate = receipt.Orders.Select(o => o.OrderDate).DefaultIfEmpty().Max();
+                table.Receipts.Add(receipt);
+
+                var currentReceiptDate = table.Receipt?.Orders.Select(o => o.OrderDate).DefaultIfEmpty().Max() ?? DateTime.MinValue;
                 if (table.Receipt == null || nextReceiptDate >= currentReceiptDate)
                     table.Receipt = receipt;
 
@@ -271,8 +285,15 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 table.LastActivityUtc = new[] { table.LastActivityUtc ?? DateTime.MinValue, nextReceiptDate }.Max();
             }
 
+            foreach (var table in byKey.Values)
+            {
+                table.Receipts = table.Receipts
+                    .OrderByDescending(r => r.Orders.Select(o => o.OrderDate).DefaultIfEmpty(r.SessionStartUtc).Max())
+                    .ToList();
+            }
+
             return byKey.Values
-                .Where(t => IsDiningTable(t.TableNumber))
+                .Where(t => IsDiningTable(t.TableNumber) || IsDefaultServiceTable(t.TableNumber))
                 .OrderBy(t => GetTableSortValue(t.TableNumber))
                 .ThenBy(t => t.LocationLabel, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -301,6 +322,12 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
             var receipt = await BuildReceiptViewModelAsync(anchorOrder);
             await _orderService.UpdatePaymentStatusAsync(receipt.Orders.Select(o => o.Id), "Paid");
+
+            if (!receipt.IsTableSession)
+            {
+                await _orderService.ArchiveBillsAsync(receipt.Orders.Select(o => o.Id));
+                return RedirectToAction("Receipts");
+            }
 
             if (ShouldHideClosedReceipt(receipt))
                 return RedirectToAction("Receipts");
@@ -351,6 +378,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             var isTableSession = includeTableSession
                 && !isAnchorCanceled
                 && !string.IsNullOrWhiteSpace(anchorOrder.TableNumber)
+                && !IsDefaultServiceTable(anchorOrder.TableNumber)
                 && string.Equals(anchorOrder.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase);
 
             if (isTableSession)
@@ -368,7 +396,8 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 .Min();
             var hasSessionStarted = sessionStart != default;
             var displayStart = hasSessionStarted ? sessionStart : orders.Min(o => o.OrderDate);
-            var locationLabel = BuildLocationLabel(anchorOrder.Floor, anchorOrder.TableNumber);
+            var displayTableNumber = GetDisplayTableNumber(anchorOrder);
+            var locationLabel = BuildLocationLabel(anchorOrder.Floor, displayTableNumber);
 
             return new SessionReceiptViewModel
             {
@@ -377,7 +406,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 SessionStartUtc = displayStart,
                 SessionEndUtc = hasSessionStarted ? sessionStart.AddHours(2) : displayStart,
                 HasSessionStarted = hasSessionStarted,
-                TableNumber = anchorOrder.TableNumber,
+                TableNumber = displayTableNumber,
                 Floor = anchorOrder.Floor,
                 LocationLabel = locationLabel,
                 IsTableSession = isTableSession
@@ -443,28 +472,66 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
         private static bool ShouldHideClosedReceipt(SessionReceiptViewModel receipt)
         {
+            var latestOrderUtc = receipt.Orders
+                .Select(o => ToUtc(o.OrderDate))
+                .DefaultIfEmpty(ToUtc(receipt.SessionStartUtc))
+                .Max();
+            var isStaleUnstartedBill = !receipt.HasSessionStarted
+                && latestOrderUtc <= DateTime.UtcNow.Subtract(TimeSpan.FromHours(24));
+
             return receipt.Orders.Any()
                 && (receipt.Orders.All(o => o.BillArchived)
-                    || (receipt.HasSessionStarted
-                        && receipt.SessionEndUtc <= DateTime.UtcNow
-                        && receipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase))));
+                    || (!receipt.IsTableSession && receipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase)))
+                    || IsReceiptExpired(receipt)
+                    || isStaleUnstartedBill);
+        }
+
+        private static bool IsReceiptExpired(SessionReceiptViewModel receipt)
+        {
+            return receipt.HasSessionStarted && ToUtc(receipt.SessionEndUtc) <= DateTime.UtcNow;
         }
 
         private static string BuildLocationLabel(string floor, string table)
         {
-            if (string.IsNullOrWhiteSpace(table))
-                return "Kiosk / Take out";
+            if (string.IsNullOrWhiteSpace(table) || string.Equals(table, DefaultKioskTableNumber, StringComparison.OrdinalIgnoreCase) || string.Equals(table, "0", StringComparison.OrdinalIgnoreCase))
+                return "Kiosk Counter";
+
+            if (string.Equals(table, DefaultTakeOutTableNumber, StringComparison.OrdinalIgnoreCase))
+                return "Take Out";
 
             return string.IsNullOrWhiteSpace(floor)
                 ? $"Table {table}"
                 : $"Floor {floor} - Table {table}";
         }
 
+        private static string GetDisplayTableNumber(Order order)
+        {
+            if (!string.IsNullOrWhiteSpace(order.TableNumber))
+                return order.TableNumber;
+
+            return string.Equals(order.DiningType, "TakeOut", StringComparison.OrdinalIgnoreCase)
+                ? DefaultTakeOutTableNumber
+                : DefaultKioskTableNumber;
+        }
+
+        private static string GetReceiptServiceTableKey(SessionReceiptViewModel receipt)
+        {
+            if (!string.IsNullOrWhiteSpace(receipt.TableNumber))
+                return NormalizeTableKey(receipt.TableNumber);
+
+            var diningType = receipt.AnchorOrder?.DiningType;
+            return string.Equals(diningType, "TakeOut", StringComparison.OrdinalIgnoreCase)
+                ? DefaultTakeOutTableNumber
+                : DefaultKioskTableNumber;
+        }
+
         private static string NormalizeTableKey(string table)
         {
-            return string.IsNullOrWhiteSpace(table)
-                ? string.Empty
-                : table.Trim().ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(table))
+                return string.Empty;
+
+            var normalized = table.Trim().ToUpperInvariant();
+            return normalized == "0" ? DefaultKioskTableNumber : normalized;
         }
 
         private static bool IsDiningTable(string? table)
@@ -473,8 +540,20 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 && DiningTableNumbers.Contains(table.Trim(), StringComparer.OrdinalIgnoreCase);
         }
 
+        private static bool IsDefaultServiceTable(string? table)
+        {
+            return !string.IsNullOrWhiteSpace(table)
+                && (string.Equals(table.Trim(), DefaultKioskTableNumber, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(table.Trim(), DefaultTakeOutTableNumber, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(table.Trim(), "0", StringComparison.OrdinalIgnoreCase));
+        }
+
         private static int GetTableSortValue(string? table)
         {
+            if (string.Equals(table, DefaultKioskTableNumber, StringComparison.OrdinalIgnoreCase) || string.Equals(table, "0", StringComparison.OrdinalIgnoreCase))
+                return 100;
+            if (string.Equals(table, DefaultTakeOutTableNumber, StringComparison.OrdinalIgnoreCase))
+                return 101;
             if (!string.IsNullOrWhiteSpace(table) && int.TryParse(table.Trim(), out var value))
                 return value;
 
