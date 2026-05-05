@@ -13,7 +13,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 {
 
     [Area("Kitchen")]
-    [Authorize(Roles = "Kitchen,Admin")]
+    [Authorize(Roles = "Owner, Manager, Kitchen")]
     public class KitchenController : Controller
     {
         private static readonly string[] DiningTableNumbers = { "1", "2", "3", "4", "5", "6", "7" };
