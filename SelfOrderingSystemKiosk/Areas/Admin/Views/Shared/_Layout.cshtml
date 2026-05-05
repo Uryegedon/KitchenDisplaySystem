@@ -74,19 +74,19 @@
                         <div class="header-user-info">
                             @if (!string.IsNullOrEmpty(ViewData["BranchName"] as string))
                             {
-                                <span class="branch-indicator">🏪 @ViewData["BranchName"]</span>
+                                <span class="branch-indicator">@ViewData["BranchName"]</span>
                             }
                             @if (User.IsInRole("Owner"))
                             {
-                                <span class="user-role-badge owner">👑 Owner</span>
+                                <span class="user-role-badge owner">Owner</span>
                             }
                             else if (User.IsInRole("BranchManager"))
                             {
-                                <span class="user-role-badge manager">🏪 Manager</span>
+                                <span class="user-role-badge manager">Manager</span>
                             }
                             else if (User.IsInRole("Kitchen"))
                             {
-                                <span class="user-role-badge">👨‍🍳 Kitchen</span>
+                                <span class="user-role-badge">Kitchen</span>
                             }
                             <span style="color: #666;">@User.Identity.Name</span>
                         </div>
@@ -103,7 +103,7 @@
     @RenderSection("Scripts", required: false)
 
     <script>
-        // ✅ Logout Confirmation
+        // Logout Confirmation
         function confirmLogout(e) {
             e.preventDefault();
             Swal.fire({
@@ -121,7 +121,7 @@
             });
         }
 
-        // ✅ Delete Confirmation
+        // Delete Confirmation
         function confirmDelete(e, form) {
             e.preventDefault();
             Swal.fire({

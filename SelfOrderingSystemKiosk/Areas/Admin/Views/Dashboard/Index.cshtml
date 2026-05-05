@@ -32,11 +32,11 @@
         <h2 style="margin: 0;">
             @if (isOwner)
             {
-                <span style="color: #e67e22;">📊 @branchName</span>
+                <span style="color: #e67e22;">@branchName</span>
             }
             else
             {
-                <span>🏪 @branchName</span>
+                <span>@branchName</span>
             }
         </h2>
         @if (isOwner && branchSummaries.Any())
@@ -266,7 +266,7 @@
         }
     </style>
     <script>
-        /* ── Low stock modal ── */
+        /* Low stock modal */
         const lowStockModal = document.getElementById('lowStockModal');
 
         function showLowStockModal() {
@@ -285,7 +285,7 @@
             lowStockModal.addEventListener('click', (e) => { if (e.target === lowStockModal) hideLowStockModal(); });
         }
 
-        /* ── Sales modal ── */
+        /* Sales modal */
         const salesModal = document.getElementById('salesModal');
 
         function showSalesModal() {
@@ -304,14 +304,14 @@
             salesModal.addEventListener('click', (e) => { if (e.target === salesModal) hideSalesModal(); });
         }
 
-        /* ── Shared escape key handler ── */
+        /* Shared escape key handler */
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
             if (lowStockModal?.classList.contains('open')) hideLowStockModal();
             if (salesModal?.classList.contains('open')) hideSalesModal();
         });
 
-        /* ── Restock ── */
+        /* Restock */
         async function restockItem(itemId, itemName) {
             const quantityInput = document.getElementById('restock-qty-' + itemId);
             const quantity = parseInt(quantityInput.value);

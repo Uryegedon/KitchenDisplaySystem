@@ -55,7 +55,7 @@
 @section Styles {
     <style>
         .branch-delete-container {
-            padding: 20px;
+            padding: 0;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -63,10 +63,11 @@
         }
 
         .delete-card {
-            background: white;
+            background: #fff;
             padding: 40px;
-            border-radius: 16px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+            border-radius: 12px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid #f0d7bf;
             max-width: 500px;
             width: 100%;
             text-align: center;
@@ -91,7 +92,7 @@
         .delete-card h1 {
             margin: 0 0 12px 0;
             font-size: 1.6rem;
-            color: #2c3e50;
+            color: #d35400;
         }
 
         .delete-warning {
@@ -101,11 +102,12 @@
         }
 
         .branch-info {
-            background: #f8f9fa;
+            background: #fffaf5;
             padding: 20px;
             border-radius: 12px;
             margin-bottom: 24px;
             text-align: left;
+            border: 2px solid #f0d7bf;
         }
 
         .branch-info-header {
@@ -114,18 +116,18 @@
             align-items: center;
             margin-bottom: 12px;
             padding-bottom: 12px;
-            border-bottom: 2px solid #e9ecef;
+            border-bottom: 2px solid #f0d7bf;
         }
 
         .branch-info-header h2 {
             margin: 0;
             font-size: 1.3rem;
-            color: #2c3e50;
+            color: #d35400;
         }
 
         .branch-code {
             font-family: monospace;
-            color: #667eea;
+            color: #e67e22;
             font-weight: 600;
         }
 
@@ -139,7 +141,7 @@
         }
 
         .branch-detail i {
-            color: #667eea;
+            color: #e67e22;
             width: 18px;
         }
 
@@ -152,23 +154,24 @@
             display: block;
             margin-bottom: 8px;
             font-weight: 600;
-            color: #495057;
+            color: #555;
         }
 
         .form-control {
             width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: border-color 0.2s, box-shadow 0.2s;
+            padding: 12px 15px;
+            border: 2px solid #f0d7bf;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: border-color 0.3s, box-shadow 0.3s;
             box-sizing: border-box;
+            background: #fffaf5;
         }
 
         .form-control:focus {
             outline: none;
             border-color: #e74c3c;
-            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.15);
+            box-shadow: 0 0 6px rgba(231, 76, 60, 0.3);
         }
 
         .form-actions {
@@ -181,15 +184,15 @@
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 12px 24px;
+            padding: 12px 25px;
             background: #e74c3c;
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-weight: 600;
-            font-size: 1rem;
+            font-size: 1em;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: background-color 0.3s, transform 0.2s;
             opacity: 0.5;
         }
 
@@ -200,7 +203,6 @@
         .btn-delete:not(:disabled):hover {
             background: #c0392b;
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
         }
 
         .btn-delete:disabled {
@@ -210,18 +212,18 @@
         .btn-cancel {
             display: inline-flex;
             align-items: center;
-            padding: 12px 24px;
-            background: #f8f9fa;
-            color: #495057;
+            padding: 12px 25px;
+            background-color: #95a5a6;
+            color: white;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-weight: 600;
-            border: 1px solid #dee2e6;
-            transition: all 0.2s;
+            border: none;
+            transition: background-color 0.3s;
         }
 
         .btn-cancel:hover {
-            background: #e9ecef;
+            background-color: #7f8c8d;
         }
     </style>
 }

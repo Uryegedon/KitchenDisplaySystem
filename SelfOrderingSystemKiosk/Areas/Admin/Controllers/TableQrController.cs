@@ -13,7 +13,7 @@ using SelfOrderingSystemKiosk.Services;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Admin,Kitchen")]
+    [Authorize(Roles = "Owner")]
     public class TableQrController : Controller
     {
         private readonly QrCodeService _qrCodeService;

@@ -86,13 +86,13 @@
         </div>
     }
 
-    <div class="branch-overview-link" style="margin-top: 24px; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
+    <div class="branch-overview-link" style="margin-top: 24px; padding: 16px; background: #fff6e5; border: 2px solid #f0d7bf; border-radius: 12px; color: #555;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-                <h3 style="margin: 0 0 8px 0; color: white;"><i class="bi bi-graph-up-arrow"></i> Multi-Branch Overview</h3>
-                <p style="margin: 0; color: rgba(255,255,255,0.9);">View consolidated statistics and performance metrics across all branches.</p>
+                <h3 style="margin: 0 0 8px 0; color: #d35400;"><i class="bi bi-graph-up-arrow"></i> Multi-Branch Overview</h3>
+                <p style="margin: 0; color: #666;">View consolidated statistics and performance metrics across all branches.</p>
             </div>
-            <a asp-action="Overview" class="btn-primary" style="background: white; color: #667eea; text-decoration: none; font-weight: 600;">
+            <a asp-action="Overview" class="btn-primary" style="text-decoration: none; font-weight: 600;">
                 View Overview <i class="bi bi-arrow-right"></i>
             </a>
         </div>
@@ -102,7 +102,7 @@
 @section Styles {
     <style>
         .branches-container {
-            padding: 20px;
+            padding: 0;
         }
 
         .page-header {
@@ -114,28 +114,30 @@
 
         .page-header h1 {
             margin: 0;
-            font-size: 1.8rem;
-            color: #2c3e50;
+            font-size: 1.5em;
+            color: #d35400;
         }
 
         .btn-primary {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 12px 25px;
+            background-color: #e67e22;
             color: white;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-weight: 600;
             border: none;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: background-color 0.3s, transform 0.2s;
+            box-shadow: 0 4px 10px rgba(230, 126, 34, 0.2);
         }
 
         .btn-primary:hover {
+            background-color: #d35400;
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 4px 15px rgba(211, 84, 0, 0.3);
         }
 
         .btn-secondary {
@@ -143,19 +145,19 @@
             align-items: center;
             gap: 6px;
             padding: 6px 12px;
-            background: #f8f9fa;
-            color: #495057;
+            background: #fffaf5;
+            color: #555;
             text-decoration: none;
             border-radius: 6px;
             font-weight: 500;
-            border: 1px solid #dee2e6;
+            border: 1px solid #f0d7bf;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.3s;
         }
 
         .btn-secondary:hover {
-            background: #e9ecef;
-            border-color: #adb5bd;
+            background: #fff3e6;
+            border-color: #f7b267;
         }
 
         .btn-danger {
@@ -191,17 +193,17 @@
         }
 
         .branch-card {
-            background: white;
+            background: #fff;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
             overflow: hidden;
-            transition: transform 0.2s, box-shadow 0.2s;
-            border: 2px solid transparent;
+            transition: transform 0.3s, box-shadow 0.3s;
+            border: 2px solid #f0d7bf;
         }
 
         .branch-card:hover {
             transform: translateY(-4px);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+            box-shadow: 0 8px 24px rgba(230, 126, 34, 0.15);
         }
 
         .branch-card.branch-inactive {
@@ -211,8 +213,8 @@
 
         .branch-card-header {
             padding: 16px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: #fff3e6;
+            color: #555;
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
@@ -220,12 +222,13 @@
 
         .branch-card-header h3 {
             margin: 0 0 4px 0;
-            font-size: 1.2rem;
+            font-size: 1.2em;
+            color: #d35400;
         }
 
         .branch-code {
             font-size: 0.85rem;
-            opacity: 0.9;
+            color: #e67e22;
             font-family: monospace;
         }
 
@@ -261,13 +264,13 @@
         }
 
         .branch-detail i {
-            color: #667eea;
+            color: #e67e22;
             width: 18px;
         }
 
         .branch-card-footer {
             padding: 12px 16px;
-            background: #f8f9fa;
+            background: #fffaf5;
             display: flex;
             gap: 8px;
             flex-wrap: wrap;
@@ -276,14 +279,15 @@
         .empty-state {
             text-align: center;
             padding: 60px 20px;
-            background: white;
+            background: #fff;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid #f0d7bf;
         }
 
         .empty-state h3 {
             margin: 16px 0 8px;
-            color: #2c3e50;
+            color: #d35400;
         }
 
         .empty-state p {

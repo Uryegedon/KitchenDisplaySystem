@@ -71,7 +71,7 @@
 
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #f39c12, #e67e22);">
                         <i class="bi bi-receipt"></i>
                     </div>
                     <div class="stat-details">
@@ -81,7 +81,7 @@
                 </div>
 
                 <div class="stat-card">
-                    <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #27ae60, #229954);">
                         <i class="bi bi-currency-dollar"></i>
                     </div>
                     <div class="stat-details">
@@ -91,7 +91,7 @@
                 </div>
 
                 <div class="stat-card">
-                    <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #3498db, #2980b9);">
                         <i class="bi bi-house-door"></i>
                     </div>
                     <div class="stat-details">
@@ -101,7 +101,7 @@
                 </div>
 
                 <div class="stat-card">
-                    <div class="stat-icon" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #95a5a6, #7f8c8d);">
                         <i class="bi bi-bag"></i>
                     </div>
                     <div class="stat-details">
@@ -111,7 +111,7 @@
                 </div>
 
                 <div class="stat-card">
-                    <div class="stat-icon" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #e67e22, #d35400);">
                         <i class="bi bi-tv"></i>
                     </div>
                     <div class="stat-details">
@@ -121,7 +121,7 @@
                 </div>
 
                 <div class="stat-card">
-                    <div class="stat-icon" style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%);">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #f39c12, #d35400);">
                         <i class="bi bi-qr-code"></i>
                     </div>
                     <div class="stat-details">
@@ -315,7 +315,7 @@
 @section Styles {
     <style>
         .branch-overview-container {
-            padding: 20px;
+            padding: 0;
         }
 
         .overview-header {
@@ -327,8 +327,8 @@
 
         .overview-header h1 {
             margin: 0 0 4px 0;
-            font-size: 1.8rem;
-            color: #2c3e50;
+            font-size: 1.5em;
+            color: #d35400;
             display: flex;
             align-items: center;
             gap: 12px;
@@ -345,36 +345,37 @@
             align-items: center;
             gap: 8px;
             padding: 10px 20px;
-            background: #f8f9fa;
-            color: #495057;
+            background-color: #95a5a6;
+            color: white;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-weight: 600;
-            border: 1px solid #dee2e6;
-            transition: all 0.2s;
+            border: none;
+            transition: background-color 0.3s;
         }
 
         .btn-secondary:hover {
-            background: #e9ecef;
+            background-color: #7f8c8d;
         }
 
         .btn-primary {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 12px 25px;
+            background-color: #e67e22;
             color: white;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-weight: 600;
         }
 
         .filters-card {
-            background: white;
+            background: #fff;
             padding: 20px;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid #f0d7bf;
             margin-bottom: 24px;
         }
 
@@ -393,29 +394,29 @@
 
         .filter-group label {
             font-weight: 600;
-            color: #495057;
+            color: #555;
             font-size: 0.9rem;
         }
 
         .form-select {
             padding: 10px 16px;
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
+            border: 2px solid #f0d7bf;
+            border-radius: 10px;
             font-size: 1rem;
-            background: white;
+            background: #fffaf5;
             cursor: pointer;
             min-width: 180px;
         }
 
         .form-select:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #e67e22;
         }
 
         .period-badge {
             display: inline-block;
             padding: 8px 16px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: #e67e22;
             color: white;
             border-radius: 20px;
             font-weight: 600;
@@ -431,10 +432,11 @@
         }
 
         .stat-card {
-            background: white;
+            background: #fff;
             padding: 20px;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid #f0d7bf;
             display: flex;
             align-items: center;
             gap: 16px;
@@ -462,7 +464,7 @@
         .stat-value {
             font-size: 1.5rem;
             font-weight: 700;
-            color: #2c3e50;
+            color: #333;
         }
 
         .stat-label {
@@ -480,24 +482,26 @@
         }
 
         .summary-card {
-            background: white;
+            background: #fff;
             padding: 20px;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid #f0d7bf;
             text-align: center;
         }
 
         .summary-card.highlight {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: #fff6e5;
+            color: #555;
+            border-color: #f7b267;
         }
 
         .summary-card.highlight .summary-label {
-            color: rgba(255,255,255,0.9);
+            color: #d35400;
         }
 
         .summary-card.highlight .summary-value {
-            color: white;
+            color: #d35400;
         }
 
         .summary-label {
@@ -509,21 +513,23 @@
         .summary-value {
             font-size: 1.8rem;
             font-weight: 700;
-            color: #2c3e50;
+            color: #333;
         }
 
         /* Single Branch View */
         .single-branch-view {
-            background: white;
+            background: #fff;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid #f0d7bf;
             overflow: hidden;
         }
 
         .branch-detail-header {
             padding: 20px 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: #fff3e6;
+            color: #555;
+            border-bottom: 2px solid #f0d7bf;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -534,11 +540,12 @@
             display: flex;
             align-items: center;
             gap: 12px;
+            color: #d35400;
         }
 
         .branch-code {
             font-family: monospace;
-            opacity: 0.9;
+            color: #e67e22;
         }
 
         .status-badge {
@@ -550,23 +557,23 @@
         }
 
         .status-active {
-            background: rgba(39, 174, 96, 0.3);
-            color: white;
+            background: rgba(39, 174, 96, 0.2);
+            color: #27ae60;
         }
 
         .status-inactive {
-            background: rgba(149, 165, 166, 0.3);
-            color: rgba(255,255,255,0.7);
+            background: rgba(149, 165, 166, 0.2);
+            color: #95a5a6;
         }
 
         .orders-breakdown, .recent-orders {
             padding: 24px;
-            border-top: 1px solid #f0f0f0;
+            border-top: 1px solid #f0d7bf;
         }
 
         .orders-breakdown h3, .recent-orders h3 {
             margin: 0 0 16px 0;
-            color: #2c3e50;
+            color: #d35400;
         }
 
         .breakdown-grid {
@@ -577,16 +584,18 @@
 
         .breakdown-item {
             padding: 16px;
-            background: #f8f9fa;
-            border-radius: 8px;
+            background: #fffaf5;
+            border: 1px solid #f0d7bf;
+            border-radius: 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
         .breakdown-item.breakdown-total {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: #fff6e5;
+            color: #555;
+            border-color: #f7b267;
         }
 
         .breakdown-label {
@@ -595,7 +604,7 @@
         }
 
         .breakdown-item.breakdown-total .breakdown-label {
-            color: rgba(255,255,255,0.9);
+            color: #d35400;
         }
 
         .breakdown-value {
@@ -616,19 +625,19 @@
         .orders-table th, .orders-table td {
             padding: 12px;
             text-align: left;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid #f0d7bf;
         }
 
         .orders-table th {
-            background: #f8f9fa;
+            background: #fff3e6;
             font-weight: 600;
-            color: #495057;
+            color: #d35400;
             font-size: 0.85rem;
             text-transform: uppercase;
         }
 
         .orders-table tr:hover {
-            background: #f8f9fa;
+            background: #fffaf5;
         }
 
         .badge {
@@ -649,9 +658,10 @@
 
         /* Comparison Table */
         .branches-comparison {
-            background: white;
+            background: #fff;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid #f0d7bf;
             margin-bottom: 24px;
             overflow: hidden;
         }
@@ -659,8 +669,8 @@
         .branches-comparison h3 {
             margin: 0;
             padding: 20px 24px;
-            background: #f8f9fa;
-            color: #2c3e50;
+            background: #fff3e6;
+            color: #d35400;
         }
 
         .comparison-table-container {
@@ -675,13 +685,13 @@
         .comparison-table th, .comparison-table td {
             padding: 14px 16px;
             text-align: left;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid #f0d7bf;
         }
 
         .comparison-table th {
-            background: #f8f9fa;
+            background: #fff3e6;
             font-weight: 600;
-            color: #495057;
+            color: #d35400;
             font-size: 0.85rem;
         }
 
@@ -697,7 +707,7 @@
         }
 
         .btn-link {
-            color: #667eea;
+            color: #e67e22;
             text-decoration: none;
             font-weight: 600;
             display: inline-flex;
@@ -706,20 +716,21 @@
         }
 
         .btn-link:hover {
-            color: #764ba2;
+            color: #d35400;
         }
 
         /* Revenue Bars */
         .revenue-chart-card {
-            background: white;
+            background: #fff;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid #f0d7bf;
             padding: 24px;
         }
 
         .revenue-chart-card h3 {
             margin: 0 0 20px 0;
-            color: #2c3e50;
+            color: #d35400;
         }
 
         .revenue-bars {
@@ -737,7 +748,7 @@
         .revenue-bar-label {
             width: 150px;
             font-weight: 600;
-            color: #495057;
+            color: #555;
             font-size: 0.9rem;
         }
 
@@ -752,7 +763,7 @@
 
         .revenue-bar {
             height: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #f39c12, #e67e22);
             border-radius: 8px;
             transition: width 0.3s ease;
         }
@@ -763,21 +774,22 @@
             top: 50%;
             transform: translateY(-50%);
             font-weight: 700;
-            color: #2c3e50;
+            color: #333;
             font-size: 0.9rem;
         }
 
         .empty-state {
             text-align: center;
             padding: 60px 20px;
-            background: white;
+            background: #fff;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid #f0d7bf;
         }
 
         .empty-state h3 {
             margin: 16px 0 8px;
-            color: #2c3e50;
+            color: #d35400;
         }
 
         .empty-state p {
