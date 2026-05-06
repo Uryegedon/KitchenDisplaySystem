@@ -6,9 +6,38 @@
     ViewData["Title"] = "Kitchen/Supplies inventory";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     var catFilter = ViewBag.CategoryFilter as string ?? "all";
+    var expiryFilter = ViewBag.ExpiryFilter as string ?? "all";
     var categories = IngredientCategoryRegistry.All;
     var branchName = ViewData["BranchName"] as string ?? "Unknown";
     var isOwner = ViewBag.IsOwner == true;
+    var autoPrint = ViewBag.AutoPrint == true;
+    var printRows = (Model ?? Enumerable.Empty<SelfOrderingSystemKiosk.Models.IngredientItem>()).ToList();
+    var printStockStats = ViewBag.PrintStockStats as Dictionary<string, SelfOrderingSystemKiosk.Controllers.PrintStockSummary> ?? new();
+    var printGroupedRows = printRows
+        .GroupBy(i => string.IsNullOrWhiteSpace(i.IngredientCategory) ? "Uncategorized" : i.IngredientCategory)
+        .Select(g => new
+        {
+            Category = g.Key,
+            Items = g.OrderBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase).ToList()
+        })
+        .OrderBy(g => g.Category, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+    var printLeftGroups = printGroupedRows.Take(0).ToList();
+    var printRightGroups = printGroupedRows.Take(0).ToList();
+    var printTargetRows = (int)Math.Ceiling(printGroupedRows.Sum(g => g.Items.Count + 1) / 2m);
+    var printRunningRows = 0;
+    foreach (var group in printGroupedRows)
+    {
+        if (printRunningRows < printTargetRows || printLeftGroups.Count == 0)
+        {
+            printLeftGroups.Add(group);
+            printRunningRows += group.Items.Count + 1;
+        }
+        else
+        {
+            printRightGroups.Add(group);
+        }
+    }
 }
 
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
@@ -158,7 +187,7 @@
         padding: 12px;
         background: #fffaf4;
         display: grid;
-        grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(88px, 0.55fr) minmax(82px, 0.45fr) minmax(98px, 0.55fr) 36px;
+        grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(88px, 0.55fr) minmax(82px, 0.45fr) minmax(98px, 0.55fr) minmax(100px, 0.55fr) minmax(130px, 0.7fr) 36px;
         gap: 10px;
         align-items: end;
         max-width: 100%;
@@ -186,6 +215,7 @@
         font-weight: 700;
         cursor: pointer;
     }
+    .print-inventory-grid { display: none; }
     @@media (max-width: 900px) {
         .ingredient-add-row {
             grid-template-columns: 1fr;
@@ -205,8 +235,6 @@
         .restock-container,
         .inv-modal-overlay,
         .alert,
-        th:last-child,
-        td:last-child,
         #inventoryTable th:nth-child(5),
         #inventoryTable td:nth-child(5) {
             display: none !important;
@@ -214,24 +242,72 @@
         body {
             background: #fff !important;
         }
-        .main-content,
-        .content,
         .table-container {
+            display: none !important;
+        }
+        .print-inventory-grid {
+            display: block !important;
+            width: 100%;
+        }
+        .print-table-pair {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr;
+            gap: 5mm;
+            align-items: start;
+        }
+        .print-report-title {
+            display: block !important;
+            margin-bottom: 6px;
+            text-align: center;
+        }
+        .print-report-title h2 {
+            margin: 0 0 2px;
+            font-size: 12pt;
+            color: #000 !important;
+        }
+        .print-report-title p {
+            margin: 0;
+            font-size: 7.5pt;
+            color: #222 !important;
+        }
+        .print-inventory-grid table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 6.5pt;
+            line-height: 1;
+            table-layout: fixed;
+        }
+        .print-inventory-grid th,
+        .print-inventory-grid td {
+            border: 1px solid #777;
+            padding: 1px 2px;
+            vertical-align: top;
+            word-break: break-word;
+        }
+        .print-inventory-grid th {
+            background: #eee !important;
+        }
+        .print-category-row td {
+            background: #f2f2f2 !important;
+            font-weight: 700;
+            text-align: center;
+            text-transform: uppercase;
+        }
+        .main-content,
+        .content {
             margin: 0 !important;
             padding: 0 !important;
+            width: 100% !important;
             max-height: none !important;
             overflow: visible !important;
             box-shadow: none !important;
         }
-        #inventoryTable {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 11pt;
+        @@page {
+            size: portrait;
+            margin: 5mm;
         }
-        #inventoryTable th,
-        #inventoryTable td {
-            border: 1px solid #999;
-            padding: 6px 8px;
+        body {
+            zoom: 0.84;
         }
     }
 </style>
@@ -254,9 +330,15 @@
             <button type="button" class="btn btn-add" onclick="openAddIngredientModal()">
                 <i class="bi bi-plus-circle"></i> Add Ingredient
             </button>
-            <button type="button" class="btn btn-edit" onclick="window.print()">
+            <button type="button" class="btn btn-edit" onclick="printAllSupplies()">
                 <i class="bi bi-printer"></i> Print Table
             </button>
+            @if (isOwner)
+            {
+                <a class="btn btn-edit" asp-area="Admin" asp-controller="Inventory" asp-action="Transfer">
+                    <i class="bi bi-arrow-left-right"></i> Transfer
+                </a>
+            }
         </div>
     </div>
 
@@ -285,6 +367,12 @@
         </select>
         
         <input type="text" id="searchInput" placeholder="Search ingredients..." style="padding: 8px 12px; min-width: 220px; border: 2px solid #ddd; border-radius: 5px;" />
+        <label for="expiryFilter" style="font-weight: 600; margin: 0;">Expiry</label>
+        <select name="expiryFilter" id="expiryFilter" onchange="this.form.submit()" style="padding: 8px 12px; min-width: 180px; border: 2px solid #ddd; border-radius: 5px;">
+            <option value="all" selected="@(expiryFilter == "all")">All</option>
+            <option value="near" selected="@(expiryFilter == "near")">Near expiry</option>
+            <option value="expired" selected="@(expiryFilter == "expired")">Expired</option>
+        </select>
     </form>
 
     <div class="inv-modal-overlay" id="addIngredientModal" aria-hidden="true">
@@ -322,6 +410,12 @@
                     <label>Reorder<br />
                         <input type="number" name="reorderLevel" value="10" required title="Stock level that triggers reorder alert" min="0" />
                     </label>
+                    <label>Cost/unit<br />
+                        <input type="number" name="costPerUnit" value="0" step="0.01" min="0" required title="Cost per stock unit" />
+                    </label>
+                    <label>Expiration<br />
+                        <input type="date" name="expirationDate" title="Optional expiration date" />
+                    </label>
                     <button type="button" class="ingredient-remove-row" title="Remove row" onclick="removeIngredientRow(this)">×</button>
                 </div>
             </div>
@@ -355,13 +449,27 @@
                         <th class="sortable" data-column="status" onclick="sortTable(4, 'status'); return false;" style="cursor: pointer;">
                             Status <span class="sort-icon" style="margin-left: 5px;">⇅</span>
                         </th>
+                        <th class="sortable" data-column="cost" onclick="sortTable(5, 'stock'); return false;" style="cursor: pointer;">
+                            Cost/unit <span class="sort-icon" style="margin-left: 5px;">⇅</span>
+                        </th>
+                        <th class="sortable" data-column="expiry" onclick="sortTable(6, 'expiry'); return false;" style="cursor: pointer;">
+                            Expiration <span class="sort-icon" style="margin-left: 5px;">⇅</span>
+                        </th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="inventoryTableBody">
                     @foreach (var i in Model)
                     {
-                        <tr>
+                        var exp = i.ExpirationDate?.Date;
+                        var today = DateTime.UtcNow.Date;
+                        var expiryStyle = exp.HasValue && exp.Value < today
+                            ? "background:#f8d7da;"
+                            : exp.HasValue && exp.Value <= today.AddDays(7)
+                                ? "background:#fff3cd;"
+                                : "";
+                        var canManageItem = isOwner || !string.IsNullOrWhiteSpace(i.BranchId);
+                        <tr style="@expiryStyle">
                             <td data-sort-value="@(i.Item ?? "").ToLower()">@i.Item</td>
                             <td data-sort-value="@(i.IngredientCategory ?? "").ToLower()">@i.IngredientCategory</td>
                             <td data-sort-value="@i.CurrentStock">@i.CurrentStock</td>
@@ -380,33 +488,46 @@
                                     <span class="status-badge in">In Stock</span>
                                 }
                             </td>
+                            <td data-sort-value="@i.CostPerUnit">@i.CostPerUnit.ToString("N2")</td>
+                            <td data-sort-value="@(i.ExpirationDate?.ToString("yyyyMMdd") ?? "99999999")">
+                                @(i.ExpirationDate?.ToLocalTime().ToString("yyyy-MM-dd") ?? "No expiry")
+                            </td>
                             <td>
-                                <button type="button"
-                                        class="btn btn-edit inv-edit-btn"
-                                        data-id="@i.Id"
-                                        data-item="@WebUtility.HtmlEncode(i.Item ?? "")"
-                                        data-category="@WebUtility.HtmlEncode(i.IngredientCategory ?? "")"
-                                        data-stock="@i.CurrentStock"
-                                        data-unit="@WebUtility.HtmlEncode(i.Unit ?? "")"
-                                        data-reorder="@i.ReorderLevel">
-                                    Edit
-                                </button>
-                                <div class="restock-container" style="display: inline-block; margin-left: 5px;">
-                                    <button type="button" class="btn btn-restock restock-btn" 
-                                            data-id="@i.Id" 
-                                            data-current="@i.CurrentStock"
-                                            data-reorder="@i.ReorderLevel"
-                                            data-unit="@i.Unit">
-                                        Restock
+                                @if (canManageItem)
+                                {
+                                    <button type="button"
+                                            class="btn btn-edit inv-edit-btn"
+                                            data-id="@i.Id"
+                                            data-item="@WebUtility.HtmlEncode(i.Item ?? "")"
+                                            data-category="@WebUtility.HtmlEncode(i.IngredientCategory ?? "")"
+                                            data-stock="@i.CurrentStock"
+                                            data-unit="@WebUtility.HtmlEncode(i.Unit ?? "")"
+                                            data-cost="@i.CostPerUnit"
+                                            data-expiration="@(i.ExpirationDate?.ToString("yyyy-MM-dd") ?? "")"
+                                            data-reorder="@i.ReorderLevel">
+                                        Edit
                                     </button>
-                                </div>
-                                <form method="post" asp-area="Admin" asp-controller="Inventory" asp-action="ClearStock" style="display:inline; margin:0;">
-                                    @Html.AntiForgeryToken()
-                                    <input type="hidden" name="id" value="@i.Id" />
-                                    <button type="submit" class="btn-clear-stock" onclick="return confirm('Set @JavaScriptEncoder.Default.Encode(i.Item ?? "this ingredient") stock quantity to 0?');">
-                                        Clear
-                                    </button>
-                                </form>
+                                    <div class="restock-container" style="display: inline-block; margin-left: 5px;">
+                                        <button type="button" class="btn btn-restock restock-btn" 
+                                                data-id="@i.Id" 
+                                                data-current="@i.CurrentStock"
+                                                data-reorder="@i.ReorderLevel"
+                                                data-unit="@i.Unit">
+                                            Restock
+                                        </button>
+                                    </div>
+                                    <form method="post" asp-area="Admin" asp-controller="Inventory" asp-action="ClearStock" style="display:inline; margin:0;">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@i.Id" />
+                                        <button type="submit" class="btn-clear-stock" onclick="return confirm('Set @JavaScriptEncoder.Default.Encode(i.Item ?? "this ingredient") stock quantity to 0?');">
+                                            Clear
+                                        </button>
+                                    </form>
+                                }
+                                else
+                                {
+                                    <span style="color:#999;font-size:0.85em;">Owner only</span>
+                                }
                             </td>
                         </tr>
                     }
@@ -417,6 +538,58 @@
         {
             <p class="no-data">No ingredients for this filter.</p>
         }
+    </div>
+
+    <div class="print-inventory-grid" aria-hidden="true">
+        <div class="print-report-title">
+            <h2>Stock usage report</h2>
+            <p>@branchName</p>
+        </div>
+        <div class="print-table-pair">
+            @foreach (var tableGroups in new[] { printLeftGroups, printRightGroups })
+            {
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 34%;">Item</th>
+                            <th style="width: 14%;">Beginning</th>
+                            <th style="width: 14%;">Delivery</th>
+                            <th style="width: 14%;">Used</th>
+                            <th style="width: 14%;">Ending</th>
+                            <th style="width: 10%;">Waste</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var categoryGroup in tableGroups)
+                        {
+                            <tr class="print-category-row">
+                                <td colspan="6">@categoryGroup.Category</td>
+                            </tr>
+                            @foreach (var i in categoryGroup.Items)
+                            {
+                                var stats = printStockStats.TryGetValue(i.Id, out var itemStats)
+                                    ? itemStats
+                                    : new SelfOrderingSystemKiosk.Controllers.PrintStockSummary
+                                    {
+                                        BeginningStock = i.CurrentStock,
+                                        DeliveredStock = 0,
+                                        EndingStock = i.CurrentStock,
+                                        UsedStockEstimate = 0
+                                    };
+                                <tr>
+                                    <td>@i.Item</td>
+                                    <td>@stats.BeginningStock</td>
+                                    <td>@(stats.DeliveredStock == 0 ? "" : stats.DeliveredStock.ToString())</td>
+                                    <td>@(stats.UsedStockEstimate == 0 ? "" : stats.UsedStockEstimate.ToString())</td>
+                                    <td>@stats.EndingStock</td>
+                                    <td></td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
     </div>
 </div>
 
@@ -439,6 +612,19 @@
                         <option value="@c">@c</option>
                     }
                 </select>
+            </label>
+            <label>Unit<br />
+                <select name="unit" id="invEditUnit" required>
+                    <option value="g">g</option>
+                    <option value="ml">ml</option>
+                    <option value="pcs">pcs</option>
+                </select>
+            </label>
+            <label>Cost per unit<br />
+                <input type="number" name="costPerUnit" id="invEditCost" min="0" step="0.01" required />
+            </label>
+            <label>Expiration<br />
+                <input type="date" name="expirationDate" id="invEditExpiration" />
             </label>
             <div class="inv-modal-actions">
                 <button type="button" class="inv-btn-cancel" onclick="closeInvEditModal()">Cancel</button>
@@ -484,6 +670,11 @@
 @section Scripts {
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            const shouldAutoPrint = @Json.Serialize(autoPrint);
+            if (shouldAutoPrint) {
+                setTimeout(() => window.print(), 250);
+            }
+
             // Search functionality
             const searchInput = document.getElementById('searchInput');
             if (searchInput) {
@@ -512,7 +703,7 @@
                         if (!document.getElementById('noSearchResults')) {
                             const noResults = document.createElement('tr');
                             noResults.id = 'noSearchResults';
-                            noResults.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #999;">No ingredients match your search.</td>';
+                            noResults.innerHTML = '<td colspan="8" style="text-align: center; padding: 20px; color: #999;">No ingredients match your search.</td>';
                             tableBody.appendChild(noResults);
                         }
                     } else {
@@ -590,6 +781,9 @@
             document.getElementById('invEditId').value = btn.getAttribute('data-id') || '';
             document.getElementById('invEditItem').value = btn.getAttribute('data-item') || '';
             document.getElementById('invEditCategory').value = btn.getAttribute('data-category') || '';
+            document.getElementById('invEditUnit').value = btn.getAttribute('data-unit') || 'g';
+            document.getElementById('invEditCost').value = btn.getAttribute('data-cost') || '0';
+            document.getElementById('invEditExpiration').value = btn.getAttribute('data-expiration') || '';
             modal.classList.add('active');
             modal.setAttribute('aria-hidden', 'false');
         }
@@ -615,7 +809,7 @@
             const template = document.querySelector('#ingredientRows .ingredient-add-row');
             const row = template.cloneNode(true);
             row.querySelectorAll('input').forEach(input => {
-                input.value = input.name === 'reorderLevel' ? '10' : input.name === 'stock' ? '0' : '';
+                input.value = input.name === 'reorderLevel' ? '10' : input.name === 'stock' || input.name === 'costPerUnit' ? '0' : '';
             });
             row.querySelectorAll('select').forEach(select => {
                 select.selectedIndex = select.name === 'unit' ? 0 : 0;
@@ -884,6 +1078,14 @@
             const branchId = document.getElementById('branchFilter').value;
             const url = new URL(window.location.href);
             url.searchParams.set('branchFilter', branchId);
+            window.location.href = url.toString();
+        }
+
+        function printAllSupplies() {
+            const url = new URL(window.location.href);
+            url.searchParams.set('categoryFilter', 'all');
+            url.searchParams.set('expiryFilter', 'all');
+            url.searchParams.set('print', 'true');
             window.location.href = url.toString();
         }
     </script>

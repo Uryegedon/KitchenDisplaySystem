@@ -6,7 +6,7 @@ using SelfOrderingSystemKiosk.Areas.Admin.Models;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize]
+    [Authorize(Roles = "Owner,BranchManager,Admin")]
     public class SalesController : Controller
     {
         private readonly OrderService _orderService;
@@ -18,19 +18,32 @@ namespace SelfOrderingSystemKiosk.Controllers
             _branchService = branchService;
         }
 
-        public async Task<IActionResult> Index(string? startDate = null, string? endDate = null)
+        public async Task<IActionResult> Index(string? startDate = null, string? endDate = null, string? branchFilter = null)
         {
             ViewData["Title"] = "Sales & reports";
 
             // Get user's branch context
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
+            var isOwner = User.HasAllBranchAccess();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
+            var allBranches = isOwner ? await _branchService.GetAllAsync() : new List<Branch>();
+            var effectiveBranchId = userBranchId;
+
+            if (isOwner)
+            {
+                effectiveBranchId = string.Equals(branchFilter, "all", StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : string.IsNullOrWhiteSpace(branchFilter) ? null : branchFilter;
+                ViewBag.AllBranches = allBranches;
+                ViewBag.BranchFilter = string.IsNullOrWhiteSpace(branchFilter) ? "all" : branchFilter;
+            }
 
             // Get branch info for display
             Branch? userBranch = null;
-            if (!string.IsNullOrEmpty(userBranchId))
+            if (!string.IsNullOrEmpty(effectiveBranchId))
             {
-                userBranch = await _branchService.GetByIdAsync(userBranchId);
+                userBranch = await _branchService.GetByIdAsync(effectiveBranchId);
                 ViewData["BranchName"] = userBranch?.BranchName ?? "Unknown Branch";
             }
             else
@@ -40,7 +53,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             var todayStart = DateTime.UtcNow.Date;
             var todayEnd = todayStart.AddDays(1);
-            var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd, userBranchId);
+            var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd, effectiveBranchId);
 
             DateTime defaultRangeStart, defaultRangeEnd;
             if (string.IsNullOrEmpty(startDate) && string.IsNullOrEmpty(endDate))
@@ -58,12 +71,16 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             var rangeStart = OrderSalesAnalytics.ParseDateOrDefault(startDate, defaultRangeStart);
             var rangeEnd = OrderSalesAnalytics.ParseDateOrDefault(endDate, defaultRangeEnd);
+            if (!string.IsNullOrWhiteSpace(endDate))
+                rangeEnd = rangeEnd.AddDays(1);
             if (rangeEnd <= rangeStart)
                 rangeEnd = rangeStart.AddDays(1);
 
-            var rangeOrders = await _orderService.GetByDateRangeHalfOpenAsync(rangeStart, rangeEnd, userBranchId);
+            var rangeOrders = await _orderService.GetByDateRangeHalfOpenAsync(rangeStart, rangeEnd, effectiveBranchId);
 
             var rangeRevenue = rangeOrders.Where(o => o.Total > 0).Sum(o => o.Total);
+            var rangeCost = rangeOrders.Where(o => o.Total > 0).Sum(o => o.OrderCost);
+            var rangeProfit = rangeOrders.Where(o => o.Total > 0).Sum(o => o.Profit);
             var rangeRevenueAlaCarte = rangeOrders
                 .Where(o => (o.OrderType ?? "AlaCarte") == "AlaCarte" && o.Total > 0)
                 .Sum(o => o.Total);
@@ -79,13 +96,13 @@ namespace SelfOrderingSystemKiosk.Controllers
             var rangeOrderCount = rangeOrders.Count;
 
             var historyStart = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            var allOrdersForBestSellers = await _orderService.GetByDateRangeHalfOpenAsync(historyStart, DateTime.UtcNow.AddDays(1), userBranchId);
+            var allOrdersForBestSellers = await _orderService.GetByDateRangeHalfOpenAsync(historyStart, DateTime.UtcNow.AddDays(1), effectiveBranchId);
             var bestSellersAllTime = OrderSalesAnalytics.BuildBestSellers(allOrdersForBestSellers);
             var bestSellersToday = OrderSalesAnalytics.BuildBestSellers(todayOrders);
 
             var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEnd = monthStart.AddMonths(1);
-            var monthOrders = await _orderService.GetByDateRangeHalfOpenAsync(monthStart, monthEnd, userBranchId);
+            var monthOrders = await _orderService.GetByDateRangeHalfOpenAsync(monthStart, monthEnd, effectiveBranchId);
             var bestSellersMonthly = OrderSalesAnalytics.BuildBestSellers(monthOrders);
 
             var chartData = new Dictionary<string, decimal>();
@@ -99,9 +116,34 @@ namespace SelfOrderingSystemKiosk.Controllers
                     chartData[dayGroup.Key] = dayGroup.Sum(o => o.Total);
             }
 
+            if (isOwner)
+            {
+                ViewBag.BranchRevenueStats = allBranches
+                    .Select(branch =>
+                    {
+                        var branchOrders = rangeOrders
+                            .Where(o => string.Equals(o.BranchId, branch.Id, StringComparison.OrdinalIgnoreCase) && o.Total > 0)
+                            .ToList();
+                        return new BranchRevenueSummary
+                        {
+                            BranchId = branch.Id,
+                            BranchName = branch.BranchName,
+                            BranchCode = branch.BranchCode,
+                            Revenue = branchOrders.Sum(o => o.Total),
+                            Cost = branchOrders.Sum(o => o.OrderCost),
+                            Profit = branchOrders.Sum(o => o.Profit),
+                            OrderCount = branchOrders.Count
+                        };
+                    })
+                    .OrderByDescending(s => s.Revenue)
+                    .ToList();
+            }
+
             ViewBag.RangeStart = rangeStart;
             ViewBag.RangeEnd = rangeEnd.AddDays(-1);
             ViewBag.RangeRevenue = rangeRevenue;
+            ViewBag.RangeCost = rangeCost;
+            ViewBag.RangeProfit = rangeProfit;
             ViewBag.RangeRevenueAlaCarte = rangeRevenueAlaCarte;
             ViewBag.RangeRevenueUnlimited = rangeRevenueUnlimited;
             ViewBag.RangeRevenueDineIn = rangeRevenueDineIn;
@@ -116,5 +158,16 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             return View();
         }
+    }
+
+    public class BranchRevenueSummary
+    {
+        public string BranchId { get; set; } = string.Empty;
+        public string BranchName { get; set; } = string.Empty;
+        public string BranchCode { get; set; } = string.Empty;
+        public int OrderCount { get; set; }
+        public decimal Revenue { get; set; }
+        public decimal Cost { get; set; }
+        public decimal Profit { get; set; }
     }
 }

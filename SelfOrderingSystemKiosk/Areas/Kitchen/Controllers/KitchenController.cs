@@ -13,7 +13,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 {
 
     [Area("Kitchen")]
-    [Authorize(Roles = "Owner, Manager, Kitchen")]
+    [Authorize(Roles = "Owner,BranchManager,Admin,Kitchen")]
     public class KitchenController : Controller
     {
         private static readonly string[] DiningTableNumbers = { "1", "2", "3", "4", "5", "6", "7" };
@@ -706,6 +706,9 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 if (!order.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase) &&
                     order.Items != null && order.Items.Any())
                 {
+                    var orderCost = await _menuItems.CalculateOrderCostAsync(order.Items);
+                    await _orderService.UpdateCompletionCostAsync(order.Id, orderCost);
+
                     // Deduct ingredient stock for each menu item recipe in the order
                     foreach (var orderItem in order.Items)
                     {

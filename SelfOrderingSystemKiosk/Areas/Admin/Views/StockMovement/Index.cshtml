@@ -59,13 +59,14 @@
                     <th>After</th>
                     <th>Reason</th>
                     <th>Reference</th>
+                    <th>By</th>
                     <th>Note</th>
                 </tr>
             </thead>
             <tbody>
                 @if (Model == null || !Model.Any())
                 {
-                    <tr><td colspan="8" style="text-align: center; padding: 24px; color: #666;">No movements in this range.</td></tr>
+                    <tr><td colspan="9" style="text-align: center; padding: 24px; color: #666;">No movements in this range.</td></tr>
                 }
                 else
                 {
@@ -91,6 +92,7 @@
                                     <br /><code style="font-size: 0.75rem;">@m.ReferenceId</code>
                                 }
                             </td>
+                            <td style="font-size: 0.85rem;">@(string.IsNullOrWhiteSpace(m.PerformedBy) ? "-" : m.PerformedBy)</td>
                             <td style="font-size: 0.85rem;">@m.Note</td>
                         </tr>
                     }

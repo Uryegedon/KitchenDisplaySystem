@@ -12,11 +12,19 @@ namespace SelfOrderingSystemKiosk.Controllers
     {
         private readonly BranchService _branchService;
         private readonly OrderService _orderService;
+        private readonly TableOrderingSessionService _tableOrderingSessions;
+        private readonly TableRegistryService _tableRegistry;
 
-        public BranchesController(BranchService branchService, OrderService orderService)
+        public BranchesController(
+            BranchService branchService,
+            OrderService orderService,
+            TableOrderingSessionService tableOrderingSessions,
+            TableRegistryService tableRegistry)
         {
             _branchService = branchService;
             _orderService = orderService;
+            _tableOrderingSessions = tableOrderingSessions;
+            _tableRegistry = tableRegistry;
         }
 
         public async Task<IActionResult> Index(string message = null)
@@ -91,10 +99,51 @@ namespace SelfOrderingSystemKiosk.Controllers
                     var stats = CalculateBranchStats(b.Id, b, branchOrders, allBranches.Count);
                     branchStats.Add(stats);
                 }
-                ViewBag.BranchStats = branchStats.OrderByDescending(s => s.TotalRevenue).ToList();
+                ViewBag.BranchStats = branchStats
+                    .OrderByDescending(s => s.TotalOrders)
+                    .ThenBy(s => s.BranchName, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
             }
 
             return View();
+        }
+
+        public async Task<IActionResult> Seats(string? branchId = null)
+        {
+            ViewData["Title"] = "Branch Seat Availability";
+            var allBranches = await _branchService.GetAllAsync();
+            ViewBag.AllBranches = allBranches;
+            ViewBag.SelectedBranchId = branchId;
+            ViewBag.SelectedBranch = string.IsNullOrWhiteSpace(branchId)
+                ? null
+                : allBranches.FirstOrDefault(b => b.Id == branchId);
+
+            var sessions = await _tableOrderingSessions.GetAllAsync();
+            var registered = await _tableRegistry.GetAllAsync();
+            var tableNumbers = registered.Select(t => t.TableNumber)
+                .Concat(new[] { "1", "2", "3", "4", "5", "6", "7" })
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(t => int.TryParse(t, out var n) ? n : int.MaxValue)
+                .ThenBy(t => t, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var rows = tableNumbers.Select(table =>
+            {
+                var session = sessions.FirstOrDefault(s => string.Equals(s.TableNumber, table, StringComparison.OrdinalIgnoreCase));
+                var registeredTable = registered.FirstOrDefault(t => string.Equals(t.TableNumber, table, StringComparison.OrdinalIgnoreCase));
+                return new SeatAvailabilityRow
+                {
+                    TableNumber = table,
+                    Floor = registeredTable?.Floor ?? "",
+                    IsUnavailable = session?.IsOrderingOpen == true,
+                    UpdatedAtUtc = session?.UpdatedAtUtc ?? registeredTable?.UpdatedAtUtc
+                };
+            }).ToList();
+
+            ViewBag.AvailableCount = rows.Count(r => !r.IsUnavailable);
+            ViewBag.UnavailableCount = rows.Count(r => r.IsUnavailable);
+            return View(rows);
         }
 
         private BranchOverviewStats CalculateBranchStats(string branchId, Branch branch, List<Order> orders, int totalBranches)
@@ -263,5 +312,13 @@ namespace SelfOrderingSystemKiosk.Controllers
         public int QrOrders { get; set; }
         public int AlaCarteOrders { get; set; }
         public int UnlimitedOrders { get; set; }
+    }
+
+    public class SeatAvailabilityRow
+    {
+        public string TableNumber { get; set; } = string.Empty;
+        public string Floor { get; set; } = string.Empty;
+        public bool IsUnavailable { get; set; }
+        public DateTime? UpdatedAtUtc { get; set; }
     }
 }

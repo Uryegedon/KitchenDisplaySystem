@@ -36,6 +36,28 @@ namespace SelfOrderingSystemKiosk.Services
                 .ToListAsync();
         }
 
+        public async Task<List<StockMovement>> GetForInventoryItemsAsync(IEnumerable<string> inventoryItemIds, DateTime? startUtc, DateTime? endUtc)
+        {
+            var ids = inventoryItemIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (ids.Count == 0)
+                return new List<StockMovement>();
+
+            var filter = Builders<StockMovement>.Filter.In(m => m.InventoryItemId, ids);
+            if (startUtc.HasValue)
+                filter &= Builders<StockMovement>.Filter.Gte(m => m.TimestampUtc, startUtc.Value);
+            if (endUtc.HasValue)
+                filter &= Builders<StockMovement>.Filter.Lt(m => m.TimestampUtc, endUtc.Value);
+
+            return await _movements
+                .Find(filter)
+                .SortBy(m => m.TimestampUtc)
+                .ToListAsync();
+        }
+
         public async Task EnsureIndexesAsync(CancellationToken cancellationToken = default)
         {
             await _movements.Indexes.CreateOneAsync(

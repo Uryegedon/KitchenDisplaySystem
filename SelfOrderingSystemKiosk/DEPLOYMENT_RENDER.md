@@ -103,8 +103,8 @@ Click **"Add Environment Variable"** and add:
 - Replace `YourPassword` with your actual MongoDB password
 - **DO NOT** put quotes around the connection string value in Render
 - **DO NOT** include the quotes when pasting - just paste the connection string directly
-- Example (correct): `mongodb+srv://Admin:Password123@cluster0.f5tgv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`
-- Example (wrong): `"mongodb+srv://Admin:Password123@cluster0.f5tgv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"` ❌
+- Example (correct): `mongodb+srv://<username>:<password>@<cluster-host>/?retryWrites=true&w=majority&appName=<app-name>`
+- Example (wrong): `"mongodb+srv://<username>:<password>@<cluster-host>/?retryWrites=true&w=majority&appName=<app-name>"` ❌
 
 ### Additional Environment Variables (Optional):
 

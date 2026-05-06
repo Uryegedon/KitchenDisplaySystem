@@ -42,5 +42,14 @@ namespace SelfOrderingSystemKiosk.Models
 
         [BsonElement("note")]
         public string? Note { get; set; }
+
+        [BsonElement("branchId")]
+        public string? BranchId { get; set; }
+
+        [BsonElement("performedBy")]
+        public string? PerformedBy { get; set; }
+
+        [BsonElement("transferGroupId")]
+        public string? TransferGroupId { get; set; }
     }
 }

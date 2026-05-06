@@ -1,6 +1,8 @@
 @{
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     var todayRevenue = ViewBag.TodaysRevenue != null ? (decimal)ViewBag.TodaysRevenue : 0m;
+    var todayCost = ViewBag.TodaysCost != null ? (decimal)ViewBag.TodaysCost : 0m;
+    var todayProfit = ViewBag.TodaysProfit != null ? (decimal)ViewBag.TodaysProfit : 0m;
     var todayRevenueDineIn = ViewBag.TodaysRevenueDineIn != null ? (decimal)ViewBag.TodaysRevenueDineIn : 0m;
     var todayRevenueTakeOut = ViewBag.TodaysRevenueTakeOut != null ? (decimal)ViewBag.TodaysRevenueTakeOut : 0m;
     var lowStockItemsList = ViewBag.LowStockList as List<SelfOrderingSystemKiosk.Models.LowStockDashboardRow> ?? new List<SelfOrderingSystemKiosk.Models.LowStockDashboardRow>();
@@ -8,6 +10,7 @@
     var todayRevenueUnlimited = ViewBag.TodaysRevenueUnlimited != null ? (decimal)ViewBag.TodaysRevenueUnlimited : 0m;
     var todaySubtotal = ViewBag.TodaysSubtotal != null ? (decimal)ViewBag.TodaysSubtotal : 0m;
     var todayTax = ViewBag.TodaysTax != null ? (decimal)ViewBag.TodaysTax : 0m;
+    var isOwner = ViewBag.IsOwner == true;
     var todayBillable = ViewBag.TodaysBillableCount != null ? (int)ViewBag.TodaysBillableCount : 0;
     var cAc = ViewBag.TodaysCountAlaCarte != null ? (int)ViewBag.TodaysCountAlaCarte : 0;
     var cUn = ViewBag.TodaysCountUnlimited != null ? (int)ViewBag.TodaysCountUnlimited : 0;
@@ -22,7 +25,6 @@
     
     // Branch context
     var branchName = ViewData["BranchName"] as string ?? "Unknown";
-    var isOwner = User.IsInRole("Owner");
     var branchSummaries = ViewBag.BranchSummaries as List<SelfOrderingSystemKiosk.Controllers.BranchSummary> ?? new List<SelfOrderingSystemKiosk.Controllers.BranchSummary>();
 }
 
@@ -58,7 +60,7 @@
                         <div style="font-size: 0.85em; color: #888;">@branch.BranchCode</div>
                         <div style="margin-top: 8px;">
                             <div style="font-size: 1.3em; font-weight: 700; color: #27ae60;">₱@branch.TodaysRevenue.ToString("N2")</div>
-                            <div style="font-size: 0.85em; color: #666;">@branch.TodaysOrders orders · @branch.TodaysBillableCount billable</div>
+                            <div style="font-size: 0.85em; color: #666;">@branch.TodaysOrders orders · profit ₱@branch.TodaysProfit.ToString("N2")</div>
                         </div>
                         <a asp-area="Admin" asp-controller="Orders" asp-action="Index" asp-route-filter="today" style="display: inline-block; margin-top: 8px; color: #e67e22; font-size: 0.85em; font-weight: 600; text-decoration: none;">View orders →</a>
                     </div>
@@ -112,6 +114,7 @@
                     <div class="lowstock-list">
                         @foreach (var item in lowStockItemsList)
                         {
+                            var canRestockItem = isOwner || !string.IsNullOrWhiteSpace(item.BranchId);
                             <div class="lowstock-row">
                                 <div class="lowstock-name">
                                     @item.Name
@@ -121,10 +124,17 @@
                                     <span class="pill warning">Stock: @item.CurrentStock</span>
                                     <span class="pill muted">Reorder at @item.ReorderLevel</span>
                                 </div>
-                                <div class="lowstock-actions" style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
-                                    <input type="number" id="restock-qty-@item.Id" min="1" value="10" style="width: 80px; padding: 6px; border: 1px solid #f0d7bf; border-radius: 6px; font-size: 0.9em;" />
-                                    <button type="button" class="btn-restock" data-item-name="@item.Name" onclick="restockItem('@item.Id', this.dataset.itemName)" style="padding: 6px 12px; background: #27ae60; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9em; font-weight: 600;">Restock</button>
-                                </div>
+                                @if (canRestockItem)
+                                {
+                                    <div class="lowstock-actions" style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
+                                        <input type="number" id="restock-qty-@item.Id" min="1" value="10" style="width: 80px; padding: 6px; border: 1px solid #f0d7bf; border-radius: 6px; font-size: 0.9em;" />
+                                        <button type="button" class="btn-restock" data-item-name="@item.Name" onclick="restockItem('@item.Id', this.dataset.itemName)" style="padding: 6px 12px; background: #27ae60; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9em; font-weight: 600;">Restock</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div style="color:#999;font-size:0.85em;margin-top:8px;">Owner only</div>
+                                }
                             </div>
                         }
                     </div>
@@ -161,6 +171,14 @@
                     <div class="sales-row sales-row-total">
                         <span>Grand total</span>
                         <span>₱@todayRevenue.ToString("N2")</span>
+                    </div>
+                    <div class="sales-row">
+                        <span>COGS</span>
+                        <span>₱@todayCost.ToString("N2")</span>
+                    </div>
+                    <div class="sales-row sales-row-total">
+                        <span>Profit</span>
+                        <span>₱@todayProfit.ToString("N2")</span>
                     </div>
                 </div>
 

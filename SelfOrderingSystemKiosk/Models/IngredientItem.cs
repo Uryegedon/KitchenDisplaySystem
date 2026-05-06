@@ -22,6 +22,12 @@ namespace SelfOrderingSystemKiosk.Models
         [BsonElement("Unit")]
         public string Unit { get; set; } = "g";
 
+        [BsonElement("CostPerUnit")]
+        public decimal CostPerUnit { get; set; } = 0m;
+
+        [BsonElement("ExpirationDate")]
+        public DateTime? ExpirationDate { get; set; }
+
         [BsonElement("ReorderLevel")]
         public int ReorderLevel { get; set; }
 

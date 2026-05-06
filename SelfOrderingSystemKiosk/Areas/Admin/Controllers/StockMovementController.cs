@@ -2,13 +2,14 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
 
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize]
+    [Authorize(Roles = "Owner,BranchManager,Admin")]
     public class StockMovementController : Controller
     {
         private readonly StockMovementService _movementService;
@@ -27,7 +28,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             // Get user's branch context
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
+            var isOwner = User.HasAllBranchAccess();
 
             // Get branch info for display
             Branch? userBranch = null;
@@ -42,10 +43,14 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
 
             DateTime start, end;
-            if (range == "custom" && !string.IsNullOrEmpty(startDate) && !string.IsNullOrEmpty(endDate))
+            if (range == "custom" &&
+                DateTime.TryParse(startDate, out var parsedStart) &&
+                DateTime.TryParse(endDate, out var parsedEnd))
             {
-                start = DateTime.Parse(startDate).Date;
-                end = DateTime.Parse(endDate).Date.AddDays(1);
+                start = parsedStart.Date;
+                end = parsedEnd.Date.AddDays(1);
+                if (end <= start)
+                    end = start.AddDays(1);
             }
             else
             {
@@ -61,12 +66,15 @@ namespace SelfOrderingSystemKiosk.Controllers
             var movements = await _movementService.GetRecentAsync(start, end, 1000);
             
             // Filter movements by branch if not owner
-            if (!isOwner && !string.IsNullOrEmpty(userBranchId))
+            if (!isOwner)
             {
-                movements = movements.Where(m => 
-                    string.IsNullOrEmpty(m.InventoryItemId) || // Could add BranchId to StockMovement if needed
-                    true // For now, show all movements but inventory is branch-filtered
-                ).ToList();
+                movements = string.IsNullOrWhiteSpace(userBranchId)
+                    ? new List<StockMovement>()
+                    : movements
+                        .Where(m =>
+                            string.Equals(m.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(m.BranchId, string.Empty, StringComparison.Ordinal))
+                        .ToList();
             }
             
             ViewBag.Range = range;

@@ -7,7 +7,7 @@ using SelfOrderingSystemKiosk.Areas.Admin.Models;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize]
+    [Authorize(Roles = "Owner,BranchManager,Admin")]
     public class MenuController : Controller
     {
         private readonly MenuItemService _menuItems;
@@ -43,7 +43,9 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             // Get user's branch context
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
+            var isOwner = User.HasAllBranchAccess();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
 
             // Get all branches for owner filter dropdown
             List<Branch> allBranches = new();
@@ -129,7 +131,13 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             // Get user's branch context - managers create items for their branch only
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
+            var isOwner = User.HasAllBranchAccess();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
+
+            var recipe = ParseRecipeLines(Request.Form);
+            if (!await CanUseRecipeIngredientsAsync(recipe))
+                return RedirectToAction("Index", new { message = "Recipe contains ingredients outside your branch.", categoryFilter = "all" });
 
             var newItem = new MenuItem
             {
@@ -144,8 +152,8 @@ namespace SelfOrderingSystemKiosk.Controllers
                 ReorderLevel = reorderLevel,
                 MenuOrder = menuOrder,
                 Status = "Available",
-                Recipe = ParseRecipeLines(Request.Form),
-                BranchId = isOwner ? string.Empty : userBranchId ?? string.Empty // Owner creates shared items; managers create branch-specific
+                Recipe = recipe,
+                BranchId = isOwner ? string.Empty : userBranchId ?? string.Empty // Owner/Admin creates shared items; managers create branch-specific
             };
 
             await _menuItems.AddAsync(newItem);
@@ -168,6 +176,8 @@ namespace SelfOrderingSystemKiosk.Controllers
                 var existing = await _menuItems.GetByIdAsync(Id);
                 if (existing == null)
                     return RedirectToAction("Index", new { message = "Item not found.", categoryFilter = categoryFilter ?? "all" });
+                if (!CanManageBranchRecord(existing.BranchId))
+                    return Forbid();
 
                 var categoryOk = _menuCategories.IsValidKey(Category)
                     || string.Equals(Category, existing.Category, StringComparison.Ordinal);
@@ -188,7 +198,10 @@ namespace SelfOrderingSystemKiosk.Controllers
                 existing.Item = Item ?? existing.Item;
                 existing.Category = Category ?? existing.Category;
                 existing.Price = Price;
-                existing.Recipe = ParseRecipeLines(Request.Form);
+                var recipe = ParseRecipeLines(Request.Form);
+                if (!await CanUseRecipeIngredientsAsync(recipe))
+                    return RedirectToAction("Index", new { message = "Recipe contains ingredients outside your branch.", categoryFilter = categoryFilter ?? "all" });
+                existing.Recipe = recipe;
                 // Preserve BranchId from existing item - don't allow changing branch assignment
 
                 if (string.Equals(existing.Category, "Unavailable", StringComparison.Ordinal))
@@ -214,6 +227,12 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (string.IsNullOrWhiteSpace(id))
                 return RedirectToAction("Index", new { message = "Menu item not found." });
 
+            var existing = await _menuItems.GetByIdAsync(id);
+            if (existing == null)
+                return RedirectToAction("Index", new { message = "Menu item not found." });
+            if (!CanManageBranchRecord(existing.BranchId))
+                return Forbid();
+
             await _menuItems.DeleteAsync(id);
             return RedirectToAction("Index", new { message = "Menu item deleted successfully!" });
         }
@@ -224,6 +243,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             var m = await _menuItems.GetByIdAsync(id);
             if (m == null)
                 return Json(Array.Empty<MenuRecipeLine>());
+            if (!CanViewBranchRecord(m.BranchId))
+                return Forbid();
             return Json(m.Recipe ?? new List<MenuRecipeLine>());
         }
 
@@ -302,6 +323,12 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             try
             {
+                var item = await _menuItems.GetByIdAsync(id);
+                if (item == null)
+                    return Json(new { success = false, message = "Item not found." });
+                if (!CanManageBranchRecord(item.BranchId))
+                    return Forbid();
+
                 await _menuItems.ToggleAvailabilityAsync(id, availability);
 
                 if (Request.Headers["X-Requested-With"] == "XMLHttpRequest" ||
@@ -318,6 +345,50 @@ namespace SelfOrderingSystemKiosk.Controllers
 
                 return RedirectToAction("Index", new { message = "Failed to update availability." });
             }
+        }
+
+        private bool CanManageBranchRecord(string? recordBranchId)
+        {
+            if (User.HasAllBranchAccess())
+                return true;
+
+            var userBranchId = User.GetBranchId();
+            return !string.IsNullOrWhiteSpace(userBranchId) &&
+                   !string.IsNullOrWhiteSpace(recordBranchId) &&
+                   string.Equals(recordBranchId, userBranchId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool CanViewBranchRecord(string? recordBranchId)
+        {
+            if (User.HasAllBranchAccess())
+                return true;
+
+            var userBranchId = User.GetBranchId();
+            return !string.IsNullOrWhiteSpace(userBranchId) &&
+                   (string.IsNullOrWhiteSpace(recordBranchId) ||
+                    string.Equals(recordBranchId, userBranchId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private async Task<bool> CanUseRecipeIngredientsAsync(IEnumerable<MenuRecipeLine> recipe)
+        {
+            if (User.HasAllBranchAccess())
+                return true;
+
+            var userBranchId = User.GetBranchId();
+            if (string.IsNullOrWhiteSpace(userBranchId))
+                return false;
+
+            foreach (var line in recipe)
+            {
+                var ingredient = await _ingredients.GetByIdAsync(line.IngredientId);
+                if (ingredient == null)
+                    return false;
+                if (!string.IsNullOrWhiteSpace(ingredient.BranchId) &&
+                    !string.Equals(ingredient.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            return true;
         }
     }
 }

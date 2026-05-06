@@ -7,27 +7,31 @@ using SelfOrderingSystemKiosk.Areas.Admin.Models;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize]
+    [Authorize(Roles = "Owner,BranchManager,Admin")]
     public class InventoryController : Controller
     {
         private readonly IngredientStockService _ingredients;
         private readonly IngredientCategoryRegistry _ingredientCategories;
         private readonly BranchService _branchService;
+        private readonly StockMovementService _stockMovements;
 
-        public InventoryController(IngredientStockService ingredients, IngredientCategoryRegistry ingredientCategories, BranchService branchService)
+        public InventoryController(IngredientStockService ingredients, IngredientCategoryRegistry ingredientCategories, BranchService branchService, StockMovementService stockMovements)
         {
             _ingredients = ingredients;
             _ingredientCategories = ingredientCategories;
             _branchService = branchService;
+            _stockMovements = stockMovements;
         }
 
-        public async Task<IActionResult> Index(string? categoryFilter = null, string? branchFilter = null)
+        public async Task<IActionResult> Index(string? categoryFilter = null, string? branchFilter = null, string? expiryFilter = null, bool print = false)
         {
             ViewData["Title"] = "Kitchen/Supplies inventory";
 
             // Get user's branch context
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
+            var isOwner = User.HasAllBranchAccess();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
 
             // Get all branches for owner filter dropdown
             List<Branch> allBranches = new();
@@ -67,12 +71,56 @@ namespace SelfOrderingSystemKiosk.Controllers
             var items = all;
             if (ViewBag.CategoryFilter != "all")
                 items = all.Where(i => string.Equals(i.IngredientCategory, categoryFilter, StringComparison.Ordinal)).ToList();
+            ViewBag.ExpiryFilter = string.IsNullOrWhiteSpace(expiryFilter) ? "all" : expiryFilter;
+            var today = DateTime.UtcNow.Date;
+            if (ViewBag.ExpiryFilter == "expired")
+                items = items.Where(i => i.ExpirationDate.HasValue && i.ExpirationDate.Value.Date < today).ToList();
+            else if (ViewBag.ExpiryFilter == "near")
+                items = items.Where(i => i.ExpirationDate.HasValue && i.ExpirationDate.Value.Date >= today && i.ExpirationDate.Value.Date <= today.AddDays(7)).ToList();
 
-            ViewBag.ItemCount = items?.Count ?? 0;
+            var visibleItems = items ?? new List<IngredientItem>();
+            ViewBag.ItemCount = visibleItems.Count;
             ViewBag.IngredientCategories = IngredientCategoryRegistry.All;
             ViewBag.IsOwner = isOwner;
             ViewBag.AllBranches = allBranches;
-            return View(items);
+            ViewBag.AutoPrint = print;
+            ViewBag.PrintStockStats = await BuildPrintStockStatsAsync(visibleItems);
+            return View(visibleItems);
+        }
+
+        private async Task<Dictionary<string, PrintStockSummary>> BuildPrintStockStatsAsync(List<IngredientItem> items)
+        {
+            var todayLocal = DateTime.Today;
+            var startUtc = todayLocal.ToUniversalTime();
+            var endUtc = todayLocal.AddDays(1).ToUniversalTime();
+            var movements = await _stockMovements.GetForInventoryItemsAsync(items.Select(i => i.Id), startUtc, endUtc);
+            var byItem = movements
+                .GroupBy(m => m.InventoryItemId ?? "", StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.OrderBy(m => m.TimestampUtc).ToList(), StringComparer.OrdinalIgnoreCase);
+
+            return items.ToDictionary(
+                item => item.Id,
+                item =>
+                {
+                    byItem.TryGetValue(item.Id, out var itemMovements);
+                    var firstMovement = itemMovements?.FirstOrDefault();
+                    var beginningStock = firstMovement?.StockBefore ?? item.CurrentStock;
+                    var deliveredStock = itemMovements?
+                        .Where(m => m.QuantityDelta > 0)
+                        .Sum(m => m.QuantityDelta) ?? 0;
+                    var endingStock = item.CurrentStock;
+                    var rawUsedEstimate = beginningStock + deliveredStock - endingStock;
+                    var usedEstimate = Math.Abs(rawUsedEstimate) <= 1 ? 0 : Math.Max(0, rawUsedEstimate);
+
+                    return new PrintStockSummary
+                    {
+                        BeginningStock = beginningStock,
+                        DeliveredStock = deliveredStock,
+                        EndingStock = endingStock,
+                        UsedStockEstimate = usedEstimate
+                    };
+                },
+                StringComparer.OrdinalIgnoreCase);
         }
 
         [HttpPost]
@@ -81,7 +129,9 @@ namespace SelfOrderingSystemKiosk.Controllers
             List<string> ingredientCategory,
             List<int> stock,
             List<string> unit,
-            List<int> reorderLevel)
+            List<int> reorderLevel,
+            List<decimal> costPerUnit,
+            List<DateTime?> expirationDate)
         {
             var rows = item
                 .Select((name, index) => new
@@ -90,7 +140,9 @@ namespace SelfOrderingSystemKiosk.Controllers
                     Category = index < ingredientCategory.Count ? ingredientCategory[index] : "",
                     Stock = index < stock.Count ? stock[index] : 0,
                     Unit = index < unit.Count ? unit[index] : "g",
-                    ReorderLevel = index < reorderLevel.Count ? reorderLevel[index] : 10
+                    ReorderLevel = index < reorderLevel.Count ? reorderLevel[index] : 10,
+                    CostPerUnit = index < costPerUnit.Count ? costPerUnit[index] : 0m,
+                    ExpirationDate = index < expirationDate.Count ? expirationDate[index] : null
                 })
                 .Where(x => !string.IsNullOrWhiteSpace(x.Name))
                 .ToList();
@@ -103,7 +155,9 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             // Get user's branch context - managers create items for their branch only
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
+            var isOwner = User.HasAllBranchAccess();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
 
             var allItems = await _ingredients.GetAllByBranchAsync(userBranchId);
             var existingNames = allItems
@@ -142,7 +196,9 @@ namespace SelfOrderingSystemKiosk.Controllers
                     CurrentStock = Math.Max(0, row.Stock),
                     Unit = string.IsNullOrWhiteSpace(row.Unit) ? "g" : row.Unit,
                     ReorderLevel = Math.Max(0, row.ReorderLevel),
-                    BranchId = isOwner ? string.Empty : userBranchId ?? string.Empty // Owner creates shared items; managers create branch-specific
+                    CostPerUnit = Math.Max(0m, row.CostPerUnit),
+                    ExpirationDate = row.ExpirationDate,
+                    BranchId = isOwner ? string.Empty : userBranchId ?? string.Empty // Owner/Admin creates shared items; managers create branch-specific
                 };
 
                 await _ingredients.AddAsync(newItem);
@@ -155,7 +211,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Edit(string id, string item, string ingredientCategory)
+        public async Task<IActionResult> Edit(string id, string item, string ingredientCategory, string unit, decimal costPerUnit, DateTime? expirationDate)
         {
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(item))
             {
@@ -172,10 +228,13 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             // Branch managers can only edit items from their branch or shared items
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
-            if (!isOwner && !string.IsNullOrEmpty(userBranchId) && 
-                !string.IsNullOrEmpty(existing.BranchId) && 
-                existing.BranchId != userBranchId)
+            var isOwner = User.HasAllBranchAccess();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
+            if (!isOwner &&
+                (string.IsNullOrWhiteSpace(userBranchId) ||
+                 string.IsNullOrWhiteSpace(existing.BranchId) ||
+                 !string.Equals(existing.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase)))
             {
                 TempData["Message"] = "You can only edit items from your assigned branch.";
                 return RedirectToAction("Index");
@@ -200,11 +259,38 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             existing.Item = item.Trim();
             existing.IngredientCategory = ingredientCategory;
-            // Keep other fields unchanged
+            existing.Unit = string.IsNullOrWhiteSpace(unit) ? existing.Unit : unit.Trim();
+            existing.CostPerUnit = Math.Max(0m, costPerUnit);
+            existing.ExpirationDate = expirationDate;
 
             await _ingredients.UpdateAsync(existing);
             TempData["Message"] = $"Ingredient '{existing.Item}' updated.";
             return RedirectToAction("Index");
+        }
+
+        [HttpGet]
+        [Authorize(Roles = "Owner")]
+        public async Task<IActionResult> Transfer()
+        {
+            ViewData["Title"] = "Transfer supplies";
+            ViewBag.AllBranches = await _branchService.GetAllAsync();
+            return View(await _ingredients.GetAllAsync());
+        }
+
+        [HttpPost]
+        [Authorize(Roles = "Owner")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Transfer(string sourceIngredientId, string destinationBranchId, int quantity, string? note)
+        {
+            var result = await _ingredients.TransferAsync(
+                sourceIngredientId,
+                destinationBranchId,
+                quantity,
+                note,
+                User.Identity?.Name ?? "Owner");
+
+            TempData["Message"] = result.Message;
+            return RedirectToAction("Transfer");
         }
 
         [HttpPost]
@@ -219,10 +305,13 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             // Branch managers can only restock items from their branch or shared items
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
-            if (!isOwner && !string.IsNullOrEmpty(userBranchId) && 
-                !string.IsNullOrEmpty(item.BranchId) && 
-                item.BranchId != userBranchId)
+            var isOwner = User.HasAllBranchAccess();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
+            if (!isOwner &&
+                (string.IsNullOrWhiteSpace(userBranchId) ||
+                 string.IsNullOrWhiteSpace(item.BranchId) ||
+                 !string.Equals(item.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase)))
             {
                 TempData["Message"] = "You can only restock items from your assigned branch.";
                 return RedirectToAction("Index");
@@ -279,10 +368,13 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             // Branch managers can only clear items from their branch or shared items
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
-            if (!isOwner && !string.IsNullOrEmpty(userBranchId) && 
-                !string.IsNullOrEmpty(item.BranchId) && 
-                item.BranchId != userBranchId)
+            var isOwner = User.HasAllBranchAccess();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
+            if (!isOwner &&
+                (string.IsNullOrWhiteSpace(userBranchId) ||
+                 string.IsNullOrWhiteSpace(item.BranchId) ||
+                 !string.Equals(item.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase)))
             {
                 TempData["Message"] = "You can only clear items from your assigned branch.";
                 return RedirectToAction("Index");
@@ -309,7 +401,10 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             if (string.IsNullOrWhiteSpace(itemName)) return Json(new { category = "" });
             var userBranchId = User.GetBranchId();
-            var item = (await _ingredients.GetAllByBranchAsync(userBranchId)).FirstOrDefault(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (!User.HasAllBranchAccess() && string.IsNullOrWhiteSpace(userBranchId))
+                return Json(new { category = "" });
+            var effectiveBranchId = User.HasAllBranchAccess() ? null : userBranchId;
+            var item = (await _ingredients.GetAllByBranchAsync(effectiveBranchId)).FirstOrDefault(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
             return Json(new { category = item?.IngredientCategory ?? "" });
         }
 
@@ -318,8 +413,19 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             if (string.IsNullOrWhiteSpace(itemName)) return Json(new { exists = false });
             var userBranchId = User.GetBranchId();
-            var exists = (await _ingredients.GetAllByBranchAsync(userBranchId)).Any(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (!User.HasAllBranchAccess() && string.IsNullOrWhiteSpace(userBranchId))
+                return Json(new { exists = false });
+            var effectiveBranchId = User.HasAllBranchAccess() ? null : userBranchId;
+            var exists = (await _ingredients.GetAllByBranchAsync(effectiveBranchId)).Any(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
             return Json(new { exists });
         }
+    }
+
+    public class PrintStockSummary
+    {
+        public int BeginningStock { get; set; }
+        public int DeliveredStock { get; set; }
+        public int EndingStock { get; set; }
+        public int UsedStockEstimate { get; set; }
     }
 }

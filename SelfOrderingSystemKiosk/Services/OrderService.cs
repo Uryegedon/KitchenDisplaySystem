@@ -139,6 +139,21 @@ namespace SelfOrderingSystemKiosk.Services
             await _orders.UpdateOneAsync(o => o.Id == id, update);
         }
 
+        public async Task UpdateCompletionCostAsync(string id, decimal orderCost)
+        {
+            var roundedCost = Math.Round(Math.Max(0m, orderCost), 2, MidpointRounding.AwayFromZero);
+            var order = await GetByIdAsync(id);
+            if (order == null)
+                return;
+
+            var profit = Math.Round(order.Total - roundedCost, 2, MidpointRounding.AwayFromZero);
+            var update = Builders<Order>.Update
+                .Set(o => o.OrderCost, roundedCost)
+                .Set(o => o.Profit, profit)
+                .Set(o => o.CostedAtUtc, DateTime.UtcNow);
+            await _orders.UpdateOneAsync(o => o.Id == id, update);
+        }
+
         private async Task<DateTime> GetSessionStartForStaffStartAsync(Order order)
         {
             var existingSessionStart = GetSessionStartedAtUtc(order);

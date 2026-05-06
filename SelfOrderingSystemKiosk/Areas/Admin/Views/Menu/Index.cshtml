@@ -108,6 +108,7 @@
                     {
                         var menuLabel = i.Item ?? "";
                         var thumbSrc = KpImages.ResolveDisplayPath(i.Item, i.Image);
+                        var canManageItem = isOwner || !string.IsNullOrWhiteSpace(i.BranchId);
                         <tr class="menu-table-row">
                             <td>
                                 <div style="display: flex; align-items: center; gap: 10px;">
@@ -127,6 +128,7 @@
                                            class="availability-switch" 
                                            data-id="@i.Id"
                                            @(i.Availability == "Available" ? "checked" : "")
+                                           disabled="@(!canManageItem)"
                                            onchange="toggleAvailability('@i.Id', this.checked)" />
                                     <span class="toggle-slider"></span>
                                     <span class="availability-label" id="label-@i.Id">
@@ -136,22 +138,29 @@
                             </td>
                             <td style="font-size:0.9em;">@(i.Recipe?.Count ?? 0) ingredient(s)</td>
                             <td>
-                                <div class="action-buttons" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                                    <button type="button"
-                                            class="btn btn-edit edit-item-btn"
-                                            data-id="@i.Id"
-                                            data-name="@i.Item"
-                                            data-category="@i.Category"
-                                            data-price="@i.Price"
-                                            data-image="@thumbSrc">
-                                        Edit
-                                    </button>
-                                    <form method="post" asp-action="Delete" asp-controller="Menu" asp-area="Admin" style="display:inline; margin:0;">
-                                        @Html.AntiForgeryToken()
-                                        <input type="hidden" name="id" value="@i.Id" />
-                                        <button type="submit" class="btn btn-delete" onclick="confirmDelete(event, this.closest('form'))">Delete</button>
-                                    </form>
-                                </div>
+                                @if (canManageItem)
+                                {
+                                    <div class="action-buttons" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                                        <button type="button"
+                                                class="btn btn-edit edit-item-btn"
+                                                data-id="@i.Id"
+                                                data-name="@i.Item"
+                                                data-category="@i.Category"
+                                                data-price="@i.Price"
+                                                data-image="@thumbSrc">
+                                            Edit
+                                        </button>
+                                        <form method="post" asp-action="Delete" asp-controller="Menu" asp-area="Admin" style="display:inline; margin:0;">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@i.Id" />
+                                            <button type="submit" class="btn btn-delete" onclick="confirmDelete(event, this.closest('form'))">Delete</button>
+                                        </form>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span style="color:#999;font-size:0.85em;">Owner only</span>
+                                }
                             </td>
                         </tr>
                     }

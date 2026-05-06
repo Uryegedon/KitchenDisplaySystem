@@ -11,7 +11,7 @@ using SelfOrderingSystemKiosk.Areas.Admin.Models;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize]
+    [Authorize(Roles = "Owner,BranchManager,Admin")]
     public class OrdersController : Controller
     {
         private readonly OrderService _orderService;
@@ -29,7 +29,9 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             // Get user's branch context
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
+            var isOwner = User.HasAllBranchAccess();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
 
             // Get branch info for display
             Branch? userBranch = null;
@@ -73,9 +75,11 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (order != null)
             {
                 var userBranchId = User.GetBranchId();
-                var isOwner = User.IsOwner();
+                var isOwner = User.HasAllBranchAccess();
+                if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                    return Forbid();
 
-                if (!isOwner && !string.IsNullOrEmpty(userBranchId) && order.BranchId != userBranchId)
+                if (!isOwner && !string.Equals(order.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase))
                 {
                     TempData["Error"] = "You can only update orders from your assigned branch.";
                     return RedirectToAction("Index");

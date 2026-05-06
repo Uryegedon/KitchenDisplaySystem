@@ -89,8 +89,6 @@ builder.Services.AddSingleton<IngredientStockService>();
 builder.Services.AddSingleton<UserService>();
 builder.Services.AddSingleton<AuthService>();
 builder.Services.AddSingleton<BranchService>();
-builder.Services.AddSingleton<BranchAccessSeedService>();
-builder.Services.AddSingleton<BranchInventorySeedService>();
 
 // Other services
 builder.Services.AddSingleton<KitchenDatabase>();
@@ -102,8 +100,6 @@ builder.Services.AddScoped<ChickenService>();
 
 builder.Services.AddHostedService<OrderIndexesHostedService>();
 builder.Services.AddHostedService<OrderExpirationHostedService>();
-builder.Services.AddHostedService<MenuAndIngredientsBootstrapHostedService>();
-builder.Services.AddHostedService<BranchAccessBootstrapHostedService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>

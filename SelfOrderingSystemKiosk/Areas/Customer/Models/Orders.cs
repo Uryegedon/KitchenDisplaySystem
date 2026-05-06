@@ -58,6 +58,18 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
         [JsonPropertyName("total")]
         public decimal Total { get; set; }
 
+        [BsonElement("orderCost")]
+        [JsonPropertyName("orderCost")]
+        public decimal OrderCost { get; set; }
+
+        [BsonElement("profit")]
+        [JsonPropertyName("profit")]
+        public decimal Profit { get; set; }
+
+        [BsonElement("costedAtUtc")]
+        [JsonPropertyName("costedAtUtc")]
+        public DateTime? CostedAtUtc { get; set; }
+
         [BsonElement("status")]
         [JsonPropertyName("status")]
         public string Status { get; set; }
@@ -103,6 +115,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
             PaymentStatus = "Pending";
             BillArchived = false;
             BranchId = string.Empty;
+            OrderCost = 0m;
+            Profit = 0m;
         }
     }
 

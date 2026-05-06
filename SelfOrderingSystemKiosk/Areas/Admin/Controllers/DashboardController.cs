@@ -9,7 +9,7 @@ using Order = SelfOrderingSystemKiosk.Areas.Customer.Models.Order;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize]
+    [Authorize(Roles = "Owner,BranchManager,Admin")]
     public class DashboardController : Controller
     {
         private readonly MenuItemService _menuItems;
@@ -27,12 +27,14 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         public async Task<IActionResult> Index()
         {
-            ViewData["Title"] = User.IsOwner() ? "Owner Dashboard - All Branches" : "Branch Dashboard";
+            ViewData["Title"] = User.HasAllBranchAccess() ? "Owner Dashboard - All Branches" : "Branch Dashboard";
 
             // Get user's branch context
             var userBranchId = User.GetBranchId();
-            var isOwner = User.IsOwner();
+            var isOwner = User.HasAllBranchAccess();
             var isBranchManager = User.IsBranchManager();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
 
             // Get branch info for display
             Branch? userBranch = null;
@@ -69,6 +71,8 @@ namespace SelfOrderingSystemKiosk.Controllers
                         BranchName = branch.BranchName,
                         BranchCode = branch.BranchCode,
                         TodaysRevenue = billable.Sum(o => o.Total),
+                        TodaysCost = billable.Sum(o => o.OrderCost),
+                        TodaysProfit = billable.Sum(o => o.Profit),
                         TodaysOrders = branchOrders.Count,
                         TodaysBillableCount = billable.Count
                     });
@@ -106,6 +110,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                     Id = g.Id,
                     Name = g.Item ?? "",
                     Kind = "Ingredient",
+                    BranchId = g.BranchId,
                     CurrentStock = g.CurrentStock,
                     ReorderLevel = g.ReorderLevel
                 })
@@ -114,6 +119,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             ViewBag.LowStockList = lowRows;
             ViewBag.LowStockItems = lowRows.Count;
+            ViewBag.IsOwner = isOwner;
 
             return View();
         }
@@ -129,6 +135,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             ViewBag.TodaysSubtotal = billable.Sum(o => o.Subtotal);
             ViewBag.TodaysTax = billable.Sum(o => o.Tax);
             ViewBag.TodaysRevenue = billable.Sum(o => o.Total);
+            ViewBag.TodaysCost = billable.Sum(o => o.OrderCost);
+            ViewBag.TodaysProfit = billable.Sum(o => o.Profit);
             ViewBag.TodaysRevenueAlaCarte = billable
                 .Where(o => (o.OrderType ?? "AlaCarte") == "AlaCarte")
                 .Sum(o => o.Total);
@@ -172,6 +180,15 @@ namespace SelfOrderingSystemKiosk.Controllers
                 var ing = await _ingredients.GetByIdAsync(id);
                 if (ing != null)
                 {
+                    var userBranchId = User.GetBranchId();
+                    if (!User.HasAllBranchAccess() &&
+                        (string.IsNullOrWhiteSpace(ing.BranchId) ||
+                         string.IsNullOrWhiteSpace(userBranchId) ||
+                         !string.Equals(ing.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return Json(new { success = false, message = "You can only restock items from your assigned branch." });
+                    }
+
                     var ok = await _ingredients.IncreaseStockAsync(id, quantity, "Dashboard", null, "Dashboard restock");
                     if (!ok)
                         return Json(new { success = false, message = "Could not restock ingredient." });
@@ -199,5 +216,8 @@ namespace SelfOrderingSystemKiosk.Controllers
         public decimal TodaysRevenue { get; set; }
         public int TodaysOrders { get; set; }
         public int TodaysBillableCount { get; set; }
+        public decimal TodaysCost { get; set; }
+        public decimal TodaysProfit { get; set; }
     }
+
 }

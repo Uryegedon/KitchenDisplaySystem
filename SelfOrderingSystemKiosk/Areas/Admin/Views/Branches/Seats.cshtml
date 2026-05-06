@@ -1,0 +1,73 @@
+@model IEnumerable<SelfOrderingSystemKiosk.Controllers.SeatAvailabilityRow>
+@{
+    Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+    var branches = ViewBag.AllBranches as List<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch> ?? new();
+    var selectedBranchId = ViewBag.SelectedBranchId as string;
+    var selectedBranch = ViewBag.SelectedBranch as SelfOrderingSystemKiosk.Areas.Admin.Models.Branch;
+    var available = ViewBag.AvailableCount as int? ?? 0;
+    var unavailable = ViewBag.UnavailableCount as int? ?? 0;
+}
+
+<div class="dashboard-container">
+    <p><a asp-area="Admin" asp-controller="Branches" asp-action="Overview" style="color:#e67e22;font-weight:600;text-decoration:none;"><i class="bi bi-arrow-left"></i> Back to branches</a></p>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+        <div>
+            <h2 style="margin:0;color:#d35400;">Seat availability</h2>
+            <p style="margin:4px 0 0;color:#777;">@(selectedBranch == null ? "All branches" : selectedBranch.BranchName)</p>
+        </div>
+        <form method="get" asp-area="Admin" asp-controller="Branches" asp-action="Seats">
+            <select name="branchId" onchange="this.form.submit()" style="padding:10px 14px;border:2px solid #f0d7bf;border-radius:8px;min-width:220px;">
+                <option value="">All branches</option>
+                @foreach (var branch in branches.Where(b => b.IsActive))
+                {
+                    <option value="@branch.Id" selected="@(selectedBranchId == branch.Id)">@branch.BranchName</option>
+                }
+            </select>
+        </form>
+    </div>
+
+    <div class="dashboard-cards" style="margin-bottom:22px;">
+        <div class="stat-card">
+            <h3>Available</h3>
+            <div class="stat-value" style="color:#27ae60;">@available</div>
+        </div>
+        <div class="stat-card">
+            <h3>Unavailable</h3>
+            <div class="stat-value" style="color:#c0392b;">@unavailable</div>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Table</th>
+                    <th>Floor</th>
+                    <th>Status</th>
+                    <th>Last update</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var table in Model)
+                {
+                    <tr>
+                        <td>@table.TableNumber</td>
+                        <td>@(string.IsNullOrWhiteSpace(table.Floor) ? "-" : table.Floor)</td>
+                        <td>
+                            @if (table.IsUnavailable)
+                            {
+                                <span class="status-badge out">Unavailable</span>
+                            }
+                            else
+                            {
+                                <span class="status-badge in">Available</span>
+                            }
+                        </td>
+                        <td>@(table.UpdatedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

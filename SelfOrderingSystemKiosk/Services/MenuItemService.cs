@@ -154,7 +154,66 @@ namespace SelfOrderingSystemKiosk.Services
                 }
             }
 
+            var recipeIngredientIds = (item?.Recipe ?? new List<MenuRecipeLine>())
+                .Select(r => r.IngredientId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var sauceUse in (await BuildSauceUsageAsync(itemName, item?.Item ?? lookupName, quantity))
+                .Where(use => !recipeIngredientIds.Contains(use.IngredientId)))
+            {
+                try
+                {
+                    await _ingredients.DecrementForSaleAsync(
+                        sauceUse.IngredientId,
+                        sauceUse.Quantity,
+                        item?.Item ?? itemName,
+                        referenceType ?? "Order",
+                        referenceId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Sauce decrement failed for menu {Menu} ingredient {IngredientId}", itemName, sauceUse.IngredientId);
+                }
+            }
+
             return true;
+        }
+
+        public async Task<decimal> CalculateOrderCostAsync(IEnumerable<SelfOrderingSystemKiosk.Areas.Customer.Models.OrderItem>? orderItems)
+        {
+            var total = 0m;
+            foreach (var orderItem in orderItems ?? Enumerable.Empty<SelfOrderingSystemKiosk.Areas.Customer.Models.OrderItem>())
+            {
+                if (string.IsNullOrWhiteSpace(orderItem.ItemName) || orderItem.Quantity <= 0)
+                    continue;
+
+                var lookupName = NormalizeSubmittedItemName(orderItem.ItemName);
+                var item = await GetByNameAsync(lookupName);
+                if (item == null && lookupName.StartsWith("Coffee - ", StringComparison.OrdinalIgnoreCase))
+                    item = await GetByNameAsync("Coffee");
+
+                if (item?.Recipe is { Count: > 0 })
+                {
+                    foreach (var line in item.Recipe)
+                    {
+                        if (string.IsNullOrWhiteSpace(line.IngredientId) || line.QuantityPerUnit <= 0)
+                            continue;
+
+                        var totalQty = (long)line.QuantityPerUnit * orderItem.Quantity;
+                        total += await _ingredients.EstimateCostAsync(line.IngredientId, totalQty > int.MaxValue ? int.MaxValue : (int)totalQty);
+                    }
+                }
+
+                var recipeIngredientIds = (item?.Recipe ?? new List<MenuRecipeLine>())
+                    .Select(r => r.IngredientId)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (var sauceUse in (await BuildSauceUsageAsync(orderItem.ItemName, item?.Item ?? lookupName, orderItem.Quantity))
+                    .Where(use => !recipeIngredientIds.Contains(use.IngredientId)))
+                    total += await _ingredients.EstimateCostAsync(sauceUse.IngredientId, sauceUse.Quantity);
+            }
+
+            return Math.Round(total, 2, MidpointRounding.AwayFromZero);
         }
 
         private static string NormalizeSubmittedItemName(string itemName)
@@ -171,6 +230,127 @@ namespace SelfOrderingSystemKiosk.Services
             return normalized.StartsWith("Coffee - ", StringComparison.OrdinalIgnoreCase)
                 ? "Coffee"
                 : normalized;
+        }
+
+        private async Task<List<(string IngredientId, int Quantity)>> BuildSauceUsageAsync(string submittedItemName, string menuItemName, int orderQuantity)
+        {
+            if (orderQuantity <= 0)
+                return new List<(string IngredientId, int Quantity)>();
+
+            var chickenPieces = ExtractChickenPieceCount(submittedItemName);
+            if (chickenPieces <= 0 && IsChickenWingMenu(menuItemName))
+                chickenPieces = ExtractChickenPieceCount(menuItemName);
+            if (chickenPieces <= 0)
+                return new List<(string IngredientId, int Quantity)>();
+
+            var sauceNames = ExtractSubmittedFlavors(submittedItemName)
+                .Select(MapFlavorToSauceName)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (!sauceNames.Any())
+            {
+                var inferred = MapFlavorToSauceName(menuItemName);
+                if (!string.IsNullOrWhiteSpace(inferred))
+                    sauceNames.Add(inferred);
+            }
+
+            if (!sauceNames.Any())
+                return new List<(string IngredientId, int Quantity)>();
+
+            var totalMl = chickenPieces * 4 * orderQuantity;
+            var perSauce = Math.Max(1, (int)Math.Round(totalMl / (decimal)sauceNames.Count, MidpointRounding.AwayFromZero));
+            var usage = new List<(string IngredientId, int Quantity)>();
+            foreach (var sauceName in sauceNames)
+            {
+                var ingredient = await _ingredients.GetByNameAsync(sauceName);
+                if (ingredient == null || !string.Equals(ingredient.Unit, "ml", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                usage.Add((ingredient.Id, perSauce));
+            }
+
+            return usage;
+        }
+
+        private static bool IsChickenWingMenu(string? name)
+        {
+            return !string.IsNullOrWhiteSpace(name)
+                && name.Contains("wing", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int ExtractChickenPieceCount(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return 0;
+
+            var normalized = name.Replace("-", " ", StringComparison.Ordinal);
+            var tokens = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            for (var i = 0; i < tokens.Length; i++)
+            {
+                if (!int.TryParse(tokens[i], out var count) || count <= 0)
+                    continue;
+
+                var next = i + 1 < tokens.Length ? tokens[i + 1] : "";
+                var afterNext = i + 2 < tokens.Length ? tokens[i + 2] : "";
+                if (next.StartsWith("piece", StringComparison.OrdinalIgnoreCase)
+                    || next.StartsWith("pc", StringComparison.OrdinalIgnoreCase)
+                    || afterNext.Contains("wing", StringComparison.OrdinalIgnoreCase))
+                    return count;
+            }
+
+            return 0;
+        }
+
+        private static IEnumerable<string> ExtractSubmittedFlavors(string? submittedItemName)
+        {
+            if (string.IsNullOrWhiteSpace(submittedItemName))
+                yield break;
+
+            const string marker = "(Flavors:";
+            var start = submittedItemName.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (start < 0)
+                yield break;
+
+            start += marker.Length;
+            var end = submittedItemName.IndexOf(')', start);
+            var raw = end >= 0 ? submittedItemName[start..end] : submittedItemName[start..];
+            foreach (var part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                yield return part;
+        }
+
+        private static string? MapFlavorToSauceName(string? flavor)
+        {
+            if (string.IsNullOrWhiteSpace(flavor))
+                return null;
+
+            var norm = flavor.Trim();
+            if (norm.Contains("mayora sriracha original", StringComparison.OrdinalIgnoreCase))
+                return "Mayora Sriracha Original";
+            if (norm.Contains("sriracha mayo", StringComparison.OrdinalIgnoreCase) || norm.Contains("garlic mayo", StringComparison.OrdinalIgnoreCase))
+                return "Mayo Garlic";
+            if (norm.Contains("sriracha honey", StringComparison.OrdinalIgnoreCase))
+                return "Honey";
+            if (norm.Contains("chief parm", StringComparison.OrdinalIgnoreCase))
+                return "Chief Parm Base";
+            if (norm.Contains("colonel mustard", StringComparison.OrdinalIgnoreCase))
+                return "Colonel Mustard";
+            if (norm.Contains("konsi honey", StringComparison.OrdinalIgnoreCase))
+                return "Konsi Honeysoy";
+            if (norm.Contains("soy garlic", StringComparison.OrdinalIgnoreCase))
+                return "Mayo Garlic";
+            if (norm.Contains("soy spicy", StringComparison.OrdinalIgnoreCase))
+                return "Hot Sauce";
+            if (norm.Contains("vice thai", StringComparison.OrdinalIgnoreCase))
+                return "Vice Thai";
+            if (norm.Contains("teriyaki", StringComparison.OrdinalIgnoreCase))
+                return "Teriyaki Sen";
+            if (norm.Contains("salted egg", StringComparison.OrdinalIgnoreCase))
+                return "Salted Egg";
+            if (norm.Contains("buffalo", StringComparison.OrdinalIgnoreCase))
+                return "Hot Sauce";
+            return null;
         }
 
         public async Task<bool> IncreaseStockAsync(string menuItemId, int quantityAdded, string referenceType, string? referenceId, string? note = null)

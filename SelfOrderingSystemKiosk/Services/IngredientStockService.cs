@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using SelfOrderingSystemKiosk.Models;
 
@@ -65,11 +66,21 @@ namespace SelfOrderingSystemKiosk.Services
                     Reason = "Sale",
                     ReferenceType = referenceType ?? "Order",
                     ReferenceId = referenceId,
-                    Note = $"Recipe: {menuItemName}"
+                    Note = $"Recipe: {menuItemName}",
+                    BranchId = item.BranchId
                 });
             }
 
             return true;
+        }
+
+        public async Task<decimal> EstimateCostAsync(string ingredientId, int quantity)
+        {
+            if (quantity <= 0 || string.IsNullOrWhiteSpace(ingredientId))
+                return 0m;
+
+            var item = await GetByIdAsync(ingredientId.Trim());
+            return item == null ? 0m : Math.Max(0, quantity) * Math.Max(0m, item.CostPerUnit);
         }
 
         public async Task<List<IngredientItem>> GetAllAsync()
@@ -104,7 +115,8 @@ namespace SelfOrderingSystemKiosk.Services
                     Reason = "Initial",
                     ReferenceType = "Ingredient",
                     ReferenceId = item.Id,
-                    Note = "New ingredient"
+                    Note = "New ingredient",
+                    BranchId = item.BranchId
                 });
             }
         }
@@ -112,6 +124,7 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task UpdateAsync(IngredientItem item)
         {
             item.Status = item.CurrentStock == 0 ? "No Stock" : item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
+            item.CostPerUnit = Math.Max(0m, item.CostPerUnit);
             await _collection.ReplaceOneAsync(x => x.Id == item.Id, item);
         }
 
@@ -143,7 +156,8 @@ namespace SelfOrderingSystemKiosk.Services
                 Reason = "Restock",
                 ReferenceType = referenceType,
                 ReferenceId = referenceId,
-                Note = note
+                Note = note,
+                BranchId = item.BranchId
             });
 
             return true;
@@ -151,6 +165,7 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task RecordAdjustmentAsync(string ingredientId, string itemName, int stockBefore, int stockAfter, string note)
         {
+            var item = await GetByIdAsync(ingredientId);
             await _movements.InsertAsync(new StockMovement
             {
                 InventoryItemId = ingredientId,
@@ -161,8 +176,110 @@ namespace SelfOrderingSystemKiosk.Services
                 Reason = "Adjustment",
                 ReferenceType = "Ingredient",
                 ReferenceId = ingredientId,
-                Note = note
+                Note = note,
+                BranchId = item?.BranchId
             });
+        }
+
+        public async Task<(bool Success, string Message)> TransferAsync(
+            string sourceIngredientId,
+            string destinationBranchId,
+            int quantity,
+            string? note,
+            string? performedBy)
+        {
+            if (string.IsNullOrWhiteSpace(sourceIngredientId) || string.IsNullOrWhiteSpace(destinationBranchId))
+                return (false, "Source ingredient and destination branch are required.");
+            if (quantity <= 0)
+                return (false, "Transfer quantity must be greater than zero.");
+
+            var source = await GetByIdAsync(sourceIngredientId);
+            if (source == null)
+                return (false, "Source ingredient was not found.");
+            if (string.Equals(source.BranchId, destinationBranchId, StringComparison.OrdinalIgnoreCase))
+                return (false, "Choose a different destination branch.");
+            if (source.CurrentStock < quantity)
+                return (false, $"Not enough stock. Available: {source.CurrentStock} {source.Unit}.");
+
+            var destination = await _collection.Find(i =>
+                    i.BranchId == destinationBranchId &&
+                    i.Item == source.Item &&
+                    i.Unit == source.Unit)
+                .FirstOrDefaultAsync();
+
+            if (destination == null)
+            {
+                destination = new IngredientItem
+                {
+                    Id = ObjectId.GenerateNewId().ToString(),
+                    Item = source.Item,
+                    IngredientCategory = source.IngredientCategory,
+                    CurrentStock = 0,
+                    Unit = source.Unit,
+                    CostPerUnit = source.CostPerUnit,
+                    ExpirationDate = source.ExpirationDate,
+                    ReorderLevel = source.ReorderLevel,
+                    Status = "No Stock",
+                    BranchId = destinationBranchId
+                };
+                await _collection.InsertOneAsync(destination);
+            }
+
+            var transferGroupId = ObjectId.GenerateNewId().ToString();
+            var sourceBefore = source.CurrentStock;
+            var destinationBefore = destination.CurrentStock;
+
+            source.CurrentStock -= quantity;
+            source.Status = source.CurrentStock == 0 ? "No Stock" : source.CurrentStock <= source.ReorderLevel ? "Low Stock" : "In Stock";
+            destination.CurrentStock += quantity;
+            destination.Status = destination.CurrentStock == 0 ? "No Stock" : destination.CurrentStock <= destination.ReorderLevel ? "Low Stock" : "In Stock";
+
+            await _collection.ReplaceOneAsync(i => i.Id == source.Id, source);
+            try
+            {
+                await _collection.ReplaceOneAsync(i => i.Id == destination.Id, destination);
+            }
+            catch
+            {
+                source.CurrentStock = sourceBefore;
+                source.Status = source.CurrentStock == 0 ? "No Stock" : source.CurrentStock <= source.ReorderLevel ? "Low Stock" : "In Stock";
+                await _collection.ReplaceOneAsync(i => i.Id == source.Id, source);
+                throw;
+            }
+
+            var trimmedNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+            await _movements.InsertAsync(new StockMovement
+            {
+                InventoryItemId = source.Id,
+                ItemName = source.Item ?? "",
+                QuantityDelta = -quantity,
+                StockBefore = sourceBefore,
+                StockAfter = source.CurrentStock,
+                Reason = "Transfer Out",
+                ReferenceType = "Transfer",
+                ReferenceId = transferGroupId,
+                Note = trimmedNote,
+                BranchId = source.BranchId,
+                PerformedBy = performedBy,
+                TransferGroupId = transferGroupId
+            });
+            await _movements.InsertAsync(new StockMovement
+            {
+                InventoryItemId = destination.Id,
+                ItemName = destination.Item ?? "",
+                QuantityDelta = quantity,
+                StockBefore = destinationBefore,
+                StockAfter = destination.CurrentStock,
+                Reason = "Transfer In",
+                ReferenceType = "Transfer",
+                ReferenceId = transferGroupId,
+                Note = trimmedNote,
+                BranchId = destination.BranchId,
+                PerformedBy = performedBy,
+                TransferGroupId = transferGroupId
+            });
+
+            return (true, $"Transferred {quantity} {source.Unit} of {source.Item}.");
         }
 
         // ====================

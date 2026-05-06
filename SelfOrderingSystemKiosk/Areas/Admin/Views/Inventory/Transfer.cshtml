@@ -1,0 +1,54 @@
+@model IEnumerable<SelfOrderingSystemKiosk.Models.IngredientItem>
+@{
+    ViewData["Title"] = "Transfer supplies";
+    Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+    var branches = ViewBag.AllBranches as List<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch> ?? new();
+}
+
+<div class="dashboard-container">
+    @if (TempData["Message"] != null)
+    {
+        <div class="alert alert-success">@TempData["Message"]</div>
+    }
+
+    <p><a asp-area="Admin" asp-controller="Inventory" asp-action="Index" style="color:#e67e22;font-weight:600;text-decoration:none;"><i class="bi bi-arrow-left"></i> Back to inventory</a></p>
+
+    <form method="post" asp-area="Admin" asp-controller="Inventory" asp-action="Transfer" class="stat-card" style="max-width: 760px;">
+        @Html.AntiForgeryToken()
+        <h3 style="margin-top:0;">Move ingredient stock</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <label>
+                Source ingredient
+                <select name="sourceIngredientId" required style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;">
+                    <option value="">Select stock</option>
+                    @foreach (var item in Model.OrderBy(i => i.Item).ThenBy(i => i.BranchId))
+                    {
+                        var branch = branches.FirstOrDefault(b => b.Id == item.BranchId)?.BranchName ?? (string.IsNullOrWhiteSpace(item.BranchId) ? "Shared" : item.BranchId);
+                        <option value="@item.Id">@item.Item - @branch (@item.CurrentStock @item.Unit)</option>
+                    }
+                </select>
+            </label>
+            <label>
+                Destination branch
+                <select name="destinationBranchId" required style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;">
+                    <option value="">Select branch</option>
+                    @foreach (var branch in branches)
+                    {
+                        <option value="@branch.Id">@branch.BranchName</option>
+                    }
+                </select>
+            </label>
+            <label>
+                Quantity
+                <input type="number" name="quantity" min="1" value="1" required style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;" />
+            </label>
+            <label>
+                Note
+                <input type="text" name="note" maxlength="200" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;" />
+            </label>
+        </div>
+        <button type="submit" class="btn btn-add" style="margin-top:16px;">
+            <i class="bi bi-arrow-left-right"></i> Transfer stock
+        </button>
+    </form>
+</div>

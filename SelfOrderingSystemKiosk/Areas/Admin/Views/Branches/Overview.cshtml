@@ -12,12 +12,17 @@
 <div class="branch-overview-container">
     <div class="overview-header">
         <div>
-            <h1><i class="bi bi-graph-up-arrow"></i> Branch Overview</h1>
-            <p class="overview-subtitle">Multi-branch performance metrics and statistics</p>
+            <h1><i class="bi bi-geo-alt"></i> Branch Overview</h1>
+            <p class="overview-subtitle">Branch status, ordering channels, and seat availability</p>
         </div>
-        <a asp-action="Index" class="btn-secondary">
-            <i class="bi bi-grid"></i> Manage Branches
-        </a>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <a asp-action="Seats" class="btn-primary">
+                <i class="bi bi-grid-3x3-gap"></i> Seat Availability
+            </a>
+            <a asp-action="Index" class="btn-secondary">
+                <i class="bi bi-grid"></i> Manage Branches
+            </a>
+        </div>
     </div>
 
     <!-- Filters -->
@@ -81,16 +86,6 @@
                 </div>
 
                 <div class="stat-card">
-                    <div class="stat-icon" style="background: linear-gradient(135deg, #27ae60, #229954);">
-                        <i class="bi bi-currency-dollar"></i>
-                    </div>
-                    <div class="stat-details">
-                        <div class="stat-value">₱@totalRevenue.ToString("N2")</div>
-                        <div class="stat-label">Total Revenue</div>
-                    </div>
-                </div>
-
-                <div class="stat-card">
                     <div class="stat-icon" style="background: linear-gradient(135deg, #3498db, #2980b9);">
                         <i class="bi bi-house-door"></i>
                     </div>
@@ -131,27 +126,6 @@
                 </div>
             </div>
 
-            @if (billableOrders.Any())
-            {
-                <div class="orders-breakdown">
-                    <h3>Order Breakdown</h3>
-                    <div class="breakdown-grid">
-                        <div class="breakdown-item">
-                            <span class="breakdown-label">Subtotal</span>
-                            <span class="breakdown-value">₱@billableOrders.Sum(o => o.Subtotal).ToString("N2")</span>
-                        </div>
-                        <div class="breakdown-item">
-                            <span class="breakdown-label">Tax (12%)</span>
-                            <span class="breakdown-value">₱@billableOrders.Sum(o => o.Tax).ToString("N2")</span>
-                        </div>
-                        <div class="breakdown-item breakdown-total">
-                            <span class="breakdown-label">Grand Total</span>
-                            <span class="breakdown-value">₱@totalRevenue.ToString("N2")</span>
-                        </div>
-                    </div>
-                </div>
-            }
-
             <div class="recent-orders">
                 <h3>Recent Orders (@branchOrders.Count)</h3>
                 @if (branchOrders.Any())
@@ -166,7 +140,6 @@
                                     <th>Dining</th>
                                     <th>Channel</th>
                                     <th>Status</th>
-                                    <th>Total</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -179,7 +152,6 @@
                                         <td><span class="badge badge-dining">@order.DiningType</span></td>
                                         <td><span class="badge badge-channel">@order.OrderChannel</span></td>
                                         <td><span class="badge badge-@order.Status.ToLower().Replace(" ", "-")">@order.Status</span></td>
-                                        <td><strong>₱@order.Total.ToString("N2")</strong></td>
                                     </tr>
                                 }
                             </tbody>
@@ -225,19 +197,17 @@
                     <div class="summary-label">Total Orders</div>
                     <div class="summary-value">@branchStats.Sum(s => s.TotalOrders)</div>
                 </div>
-                <div class="summary-card highlight">
-                    <div class="summary-label">Total Revenue</div>
-                    <div class="summary-value">₱@branchStats.Sum(s => s.TotalRevenue).ToString("N2")</div>
-                </div>
                 <div class="summary-card">
-                    <div class="summary-label">Avg per Branch</div>
-                    <div class="summary-value">₱@(branchStats.Any() ? branchStats.Sum(s => s.TotalRevenue) / branchStats.Count : 0).ToString("N2")</div>
+                    <div class="summary-label">Unavailable Seats</div>
+                    <div class="summary-value">
+                        <a asp-action="Seats" style="color:inherit;text-decoration:none;">View</a>
+                    </div>
                 </div>
             </div>
 
             <!-- Branch Comparison Table -->
             <div class="branches-comparison">
-                <h3>Branch Performance Comparison</h3>
+                <h3>Branch Activity Comparison</h3>
                 <div class="comparison-table-container">
                     <table class="comparison-table">
                         <thead>
@@ -245,7 +215,6 @@
                                 <th>Branch</th>
                                 <th>Status</th>
                                 <th>Orders</th>
-                                <th>Revenue</th>
                                 <th>Dine-In</th>
                                 <th>Take-Out</th>
                                 <th>Kiosk</th>
@@ -270,7 +239,6 @@
                                         </span>
                                     </td>
                                     <td><strong>@stats.TotalOrders</strong></td>
-                                    <td><strong>₱@stats.TotalRevenue.ToString("N2")</strong></td>
                                     <td>@stats.DineInOrders</td>
                                     <td>@stats.TakeOutOrders</td>
                                     <td>@stats.KioskOrders</td>
@@ -284,28 +252,6 @@
                             }
                         </tbody>
                     </table>
-                </div>
-            </div>
-
-            <!-- Revenue by Branch Chart Placeholder -->
-            <div class="revenue-chart-card">
-                <h3>Revenue by Branch</h3>
-                <div class="revenue-bars">
-                    @if (branchStats.Any())
-                    {
-                        var maxRevenue = branchStats.Max(s => s.TotalRevenue);
-                        @foreach (var stats in branchStats.OrderByDescending(s => s.TotalRevenue))
-                        {
-                            var barWidth = maxRevenue > 0 ? (stats.TotalRevenue / maxRevenue * 100) : 0;
-                            <div class="revenue-bar-row">
-                                <div class="revenue-bar-label">@stats.BranchName</div>
-                                <div class="revenue-bar-container">
-                                    <div class="revenue-bar" style="width: @barWidth%;"></div>
-                                    <span class="revenue-bar-value">₱@stats.TotalRevenue.ToString("N2")</span>
-                                </div>
-                            </div>
-                        }
-                    }
                 </div>
             </div>
         }

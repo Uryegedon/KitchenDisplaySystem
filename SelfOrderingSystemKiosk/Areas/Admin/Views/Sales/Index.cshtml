@@ -7,17 +7,22 @@
     var rangeStart = ViewBag.RangeStart != null ? ((DateTime)ViewBag.RangeStart).ToLocalTime() : DateTime.UtcNow.ToLocalTime().Date;
     var rangeEnd = ViewBag.RangeEnd != null ? ((DateTime)ViewBag.RangeEnd).ToLocalTime() : DateTime.UtcNow.ToLocalTime().Date;
     var rangeRevenue = ViewBag.RangeRevenue != null ? (decimal)ViewBag.RangeRevenue : 0m;
+    var rangeCost = ViewBag.RangeCost != null ? (decimal)ViewBag.RangeCost : 0m;
+    var rangeProfit = ViewBag.RangeProfit != null ? (decimal)ViewBag.RangeProfit : 0m;
     var rangeRevenueAlaCarte = ViewBag.RangeRevenueAlaCarte != null ? (decimal)ViewBag.RangeRevenueAlaCarte : 0m;
     var rangeRevenueUnlimited = ViewBag.RangeRevenueUnlimited != null ? (decimal)ViewBag.RangeRevenueUnlimited : 0m;
     var rangeRevenueDineIn = ViewBag.RangeRevenueDineIn != null ? (decimal)ViewBag.RangeRevenueDineIn : 0m;
     var rangeRevenueTakeOut = ViewBag.RangeRevenueTakeOut != null ? (decimal)ViewBag.RangeRevenueTakeOut : 0m;
     var rangeOrderCount = ViewBag.RangeOrderCount != null ? (int)ViewBag.RangeOrderCount : 0;
     var chartData = ViewBag.ChartData as Dictionary<string, decimal> ?? new Dictionary<string, decimal>();
+    var branchRevenueStats = ViewBag.BranchRevenueStats as List<SelfOrderingSystemKiosk.Controllers.BranchRevenueSummary> ?? new();
     var chartLabelsJson = System.Text.Json.JsonSerializer.Serialize(chartData.Keys.OrderBy(k => k).Select(k => DateTime.Parse(k).ToString("MMM dd")).ToList());
     var chartValuesJson = System.Text.Json.JsonSerializer.Serialize(chartData.Keys.OrderBy(k => k).Select(k => chartData[k]).ToList());
     var hasCustomRange = ViewBag.HasCustomRange != null && (bool)ViewBag.HasCustomRange;
     var isOwner = ViewBag.IsOwner == true;
     var branchName = ViewData["BranchName"] as string ?? "Unknown";
+    var allBranches = ViewBag.AllBranches as List<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch> ?? new();
+    var branchFilter = ViewBag.BranchFilter as string ?? "all";
 }
 
 <div class="dashboard-container">
@@ -25,11 +30,21 @@
         <h2 style="margin: 0; font-size: 1.5em;">@branchName</h2>
         @if (isOwner)
         {
-            <span style="color: #888; font-size: 0.9em;">Viewing all branches</span>
+            <form method="get" asp-area="Admin" asp-controller="Sales" asp-action="Index" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="hidden" name="startDate" value="@rangeStart.ToString("yyyy-MM-dd")" />
+                <input type="hidden" name="endDate" value="@rangeEnd.ToString("yyyy-MM-dd")" />
+                <label for="branchFilter" style="color:#666;font-weight:600;">Branch</label>
+                <select name="branchFilter" id="branchFilter" onchange="this.form.submit()" style="padding:8px 12px;border:2px solid #ddd;border-radius:6px;min-width:220px;">
+                    <option value="all" selected="@(branchFilter == "all")">All branches</option>
+                    @foreach (var branch in allBranches)
+                    {
+                        <option value="@branch.Id" selected="@(branchFilter == branch.Id)">@branch.BranchName</option>
+                    }
+                </select>
+            </form>
         }
     </div>
     
-    <p style="margin-bottom: 8px;"><a asp-area="Admin" asp-controller="Dashboard" asp-action="Index" style="color: #e67e22; font-weight: 600; text-decoration: none;"><i class="bi bi-arrow-left"></i> Back to dashboard</a></p>
     <p style="margin-top: 0;">Revenue charts, date ranges, and best sellers</p>
 
     <div class="revenue-analytics-section" style="margin-top: 24px;">
@@ -46,10 +61,54 @@
         </div>
     </div>
 
-    <div class="stat-card highlight-card clickable-card" style="max-width: 420px; margin-bottom: 28px;" role="button" tabindex="0" onclick="showBestSellersModal()" onkeypress="if(event.key === 'Enter' || event.key === ' ') { showBestSellersModal(); }">
-        <h3><i class="bi bi-trophy"></i> Best sellers</h3>
-        <div class="stat-value" style="font-size: 1.2em;">Top 5</div>
-        <div style="color: #666; font-size: 0.85em; margin-top: 5px;">All time, this month, or today — click to view</div>
+    <div class="sales-top-grid">
+        @if (isOwner)
+        {
+            <div class="chart-container branch-revenue-card">
+                <h3 style="color:#e67e22;margin:0 0 15px;font-size:1.1em;">Revenue per branch</h3>
+                @if (branchRevenueStats.Any())
+                {
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align:left;padding:10px;border-bottom:1px solid #f0d7bf;">Branch</th>
+                                    <th style="text-align:right;padding:10px;border-bottom:1px solid #f0d7bf;">Orders</th>
+                                    <th style="text-align:right;padding:10px;border-bottom:1px solid #f0d7bf;">Revenue</th>
+                                    <th style="text-align:right;padding:10px;border-bottom:1px solid #f0d7bf;">COGS</th>
+                                    <th style="text-align:right;padding:10px;border-bottom:1px solid #f0d7bf;">Profit</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var branch in branchRevenueStats)
+                                {
+                                    <tr>
+                                        <td style="padding:10px;border-bottom:1px solid #f8e3cf;">
+                                            <strong>@branch.BranchName</strong>
+                                            <span style="color:#888;font-size:.85em;">@branch.BranchCode</span>
+                                        </td>
+                                        <td style="text-align:right;padding:10px;border-bottom:1px solid #f8e3cf;">@branch.OrderCount</td>
+                                        <td style="text-align:right;padding:10px;border-bottom:1px solid #f8e3cf;">₱@branch.Revenue.ToString("N2")</td>
+                                        <td style="text-align:right;padding:10px;border-bottom:1px solid #f8e3cf;">₱@branch.Cost.ToString("N2")</td>
+                                        <td style="text-align:right;padding:10px;border-bottom:1px solid #f8e3cf;font-weight:700;color:@(branch.Profit < 0 ? "#c0392b" : "#27ae60");">₱@branch.Profit.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <p style="color:#777;margin:0;">No branch revenue for this range.</p>
+                }
+            </div>
+        }
+
+        <div class="stat-card highlight-card clickable-card best-sellers-card" role="button" tabindex="0" onclick="showBestSellersModal()" onkeypress="if(event.key === 'Enter' || event.key === ' ') { showBestSellersModal(); }">
+            <h3><i class="bi bi-trophy"></i> Best sellers</h3>
+            <div class="stat-value" style="font-size: 1.2em;">Top 5</div>
+            <div style="color: #666; font-size: 0.85em; margin-top: 5px;">All time, this month, or today</div>
+        </div>
     </div>
 
     <div id="dateRangeModal" class="date-range-modal" aria-hidden="true">
@@ -59,6 +118,10 @@
                 <button type="button" class="date-range-close" aria-label="Close date range" onclick="closeDateRangePopup()">&times;</button>
             </div>
             <form method="get" asp-area="Admin" asp-controller="Sales" asp-action="Index" class="date-range-form" onsubmit="closeDateRangePopup()">
+                @if (isOwner)
+                {
+                    <input type="hidden" name="branchFilter" value="@branchFilter" />
+                }
                 <div class="date-range-fields">
                     <label>
                         From
@@ -73,6 +136,8 @@
                     <div class="range-title">Revenue (@rangeStart.ToString("MMM dd, yyyy") - @rangeEnd.ToString("MMM dd, yyyy"))</div>
                     <div class="range-total">Total: ₱@rangeRevenue.ToString("N2")</div>
                     <div class="range-breakdown">
+                        <span class="pill" style="background:#E2F0D9;color:#255625;border:1px solid #B7D7A8;">COGS: ₱@rangeCost.ToString("N2")</span>
+                        <span class="pill" style="background:#D1ECF1;color:#0C5460;border:1px solid #BEE5EB;">Profit: ₱@rangeProfit.ToString("N2")</span>
                         <span class="pill warning">Ala Carte: ₱@rangeRevenueAlaCarte.ToString("N2")</span>
                         <span class="pill muted">Unlimited: ₱@rangeRevenueUnlimited.ToString("N2")</span>
                         <span class="pill" style="background: #D1ECF1; color: #0C5460; border: 1px solid #BEE5EB;">Dine In: ₱@rangeRevenueDineIn.ToString("N2")</span>
@@ -176,9 +241,49 @@
 </div>
 
 @section Scripts {
+    <style>
+        .sales-top-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 4fr) minmax(180px, 1fr);
+            gap: 18px;
+            align-items: start;
+            margin-bottom: 36px;
+        }
+
+        .sales-top-grid > .best-sellers-card:only-child {
+            max-width: 260px;
+        }
+
+        .branch-revenue-card {
+            margin: 0;
+        }
+
+        .best-sellers-card {
+            box-sizing: border-box;
+            min-height: 132px;
+            height: auto;
+            justify-content: center;
+            align-items: flex-start;
+            flex-direction: column;
+            margin: 0;
+            overflow: visible;
+            padding: 18px;
+        }
+
+        @@media (max-width: 900px) {
+            .sales-top-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .sales-top-grid > .best-sellers-card:only-child {
+                max-width: none;
+            }
+        }
+    </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         const salesIndexUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("Index", "Sales", new { area = "Admin" })));
+        const selectedBranchFilter = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(branchFilter));
         const ctx = document.getElementById('revenueChart');
         let revenueChart;
         const chartLabels = @Html.Raw(chartLabelsJson);
@@ -274,6 +379,9 @@
             if (startDate && endDate) {
                 url.searchParams.set('startDate', startDate.toISOString().split('T')[0]);
                 url.searchParams.set('endDate', endDate.toISOString().split('T')[0]);
+            }
+            if (selectedBranchFilter) {
+                url.searchParams.set('branchFilter', selectedBranchFilter);
             }
 
             window.location.href = url.toString();
