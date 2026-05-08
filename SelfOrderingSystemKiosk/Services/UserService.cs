@@ -1,6 +1,7 @@
 ﻿using BCrypt.Net;
 using SelfOrderingSystemKiosk.Models;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
 
@@ -26,6 +27,7 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task CreateAdminAsync(AdminUser newUser)
         {
+            PrepareUserForSave(newUser);
             await _users.InsertOneAsync(newUser);
         }
 
@@ -33,6 +35,7 @@ namespace SelfOrderingSystemKiosk.Services
         
         public async Task CreateUserAsync(AdminUser user)
         {
+            PrepareUserForSave(user);
             await _users.InsertOneAsync(user);
         }
 
@@ -126,6 +129,7 @@ namespace SelfOrderingSystemKiosk.Services
         /// </summary>
         public async Task UpdateUserAsync(AdminUser user)
         {
+            PrepareUserForSave(user, generateId: false);
             var filter = Builders<AdminUser>.Filter.Eq(u => u.Id, user.Id);
             await _users.ReplaceOneAsync(filter, user);
         }
@@ -180,6 +184,18 @@ namespace SelfOrderingSystemKiosk.Services
             }
             var count = await _users.CountDocumentsAsync(filter);
             return count == 0;
+        }
+
+        private static void PrepareUserForSave(AdminUser user, bool generateId = true)
+        {
+            if (generateId && string.IsNullOrWhiteSpace(user.Id))
+                user.Id = ObjectId.GenerateNewId().ToString();
+
+            user.Username = user.Username?.Trim() ?? string.Empty;
+            user.Email = user.Email?.Trim() ?? string.Empty;
+            user.FullName = user.FullName?.Trim() ?? string.Empty;
+            user.Role = string.IsNullOrWhiteSpace(user.Role) ? UserRoles.Admin : user.Role.Trim();
+            user.BranchId = string.IsNullOrWhiteSpace(user.BranchId) ? null : user.BranchId.Trim();
         }
     }
 }

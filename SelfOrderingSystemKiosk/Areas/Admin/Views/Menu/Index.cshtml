@@ -10,6 +10,10 @@
     var menuFormCats = ViewBag.MenuCategoryFormList as IEnumerable<MenuCategoryOption>;
     var catFilter = ViewBag.CategoryFilter as string ?? "all";
     var ingredientsForRecipe = ViewBag.Ingredients as IEnumerable<IngredientItem> ?? Array.Empty<IngredientItem>();
+    var ingredientsById = ingredientsForRecipe
+        .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+        .GroupBy(x => x.Id)
+        .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
     var branchName = ViewData["BranchName"] as string ?? "Unknown";
     var isOwner = ViewBag.IsOwner == true;
     var allBranches = ViewBag.AllBranches as List<Branch> ?? new List<Branch>();
@@ -136,7 +140,26 @@
                                     </span>
                                 </label>
                             </td>
-                            <td style="font-size:0.9em;">@(i.Recipe?.Count ?? 0) ingredient(s)</td>
+                            <td style="font-size:0.9em;">
+                                @if (i.Recipe is { Count: > 0 })
+                                {
+                                    <div style="display:flex; flex-direction:column; gap:4px;">
+                                        @foreach (var line in i.Recipe)
+                                        {
+                                            var ingredient = !string.IsNullOrWhiteSpace(line.IngredientId) && ingredientsById.TryGetValue(line.IngredientId, out var found)
+                                                ? found
+                                                : null;
+                                            var ingredientName = ingredient?.Item ?? "Unknown ingredient";
+                                            var unit = ingredient?.Unit ?? "";
+                                            <span>@ingredientName: @line.QuantityPerUnit @unit</span>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span style="color:#999;">No recipe</span>
+                                }
+                            </td>
                             <td>
                                 @if (canManageItem)
                                 {

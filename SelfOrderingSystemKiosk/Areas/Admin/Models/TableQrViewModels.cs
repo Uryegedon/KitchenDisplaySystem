@@ -14,6 +14,9 @@ namespace SelfOrderingSystemKiosk.Areas.Admin.Models
         [Display(Name = "Floor or area (optional)")]
         public string? Floor { get; set; }
 
+        [Display(Name = "Branch")]
+        public string? BranchId { get; set; }
+
         /// <summary>Shown on GET; server-resolved URL used when the field above is empty.</summary>
         public string? ResolvedBaseUrlPreview { get; set; }
     }

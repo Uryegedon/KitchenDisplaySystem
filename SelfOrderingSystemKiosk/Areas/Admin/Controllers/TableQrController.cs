@@ -13,39 +13,45 @@ using SelfOrderingSystemKiosk.Services;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Owner")]
+    [Authorize(Roles = "Owner,BranchManager")]
     public class TableQrController : Controller
     {
         private readonly QrCodeService _qrCodeService;
         private readonly IOptions<QrOrderingSettings> _qrSettings;
         private readonly TableRegistryService _tableRegistry;
+        private readonly BranchService _branchService;
 
         public TableQrController(
             QrCodeService qrCodeService,
             IOptions<QrOrderingSettings> qrSettings,
-            TableRegistryService tableRegistry)
+            TableRegistryService tableRegistry,
+            BranchService branchService)
         {
             _qrCodeService = qrCodeService;
             _qrSettings = qrSettings;
             _tableRegistry = tableRegistry;
+            _branchService = branchService;
         }
 
         [HttpGet]
-        public IActionResult Index()
+        public async Task<IActionResult> Index()
         {
+            var branches = await GetAccessibleBranchesAsync();
             var vm = new TableQrIndexViewModel
             {
                 PublicSiteUrl = _qrSettings.Value.PublicSiteUrl,
                 TablesBulk = "1\n2\n3\n4\n5\n6\n7",
-                Floor = ""
+                Floor = "",
+                BranchId = branches.FirstOrDefault()?.Id
             };
             vm.ResolvedBaseUrlPreview = ResolvePublicBaseUrl(vm.PublicSiteUrl);
+            ViewBag.Branches = branches;
             return View(vm);
         }
 
         /// <summary>PNG for one table (for download or embedding).</summary>
         [HttpGet]
-        public async Task<IActionResult> Download(string table, string? floor = null, string? publicSiteUrl = null)
+        public async Task<IActionResult> Download(string table, string? floor = null, string? branchId = null, string? publicSiteUrl = null)
         {
             if (string.IsNullOrWhiteSpace(table))
                 return BadRequest("Table is required.");
@@ -54,10 +60,13 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (table.Length > 64)
                 return BadRequest("Table value is too long.");
 
-            await _tableRegistry.UpsertAsync(table, floor);
+            branchId = await ResolveBranchIdAsync(branchId);
+            var registeredTable = await _tableRegistry.UpsertAsync(table, floor, branchId);
+            if (registeredTable == null || string.IsNullOrWhiteSpace(registeredTable.QrToken))
+                return BadRequest("Could not create a secure QR code for this table.");
 
             var baseUrl = ResolvePublicBaseUrl(publicSiteUrl);
-            var payload = BuildOrderUrl(baseUrl, table, floor);
+            var payload = BuildOrderUrl(baseUrl, registeredTable.QrToken);
             var png = _qrCodeService.GetPngBytes(payload);
             var safeName = SanitizeFileSegment(table);
             return File(png, "image/png", $"qr-table-{safeName}.png");
@@ -67,22 +76,28 @@ namespace SelfOrderingSystemKiosk.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Print(TableQrIndexViewModel model)
         {
+            var branches = await GetAccessibleBranchesAsync();
             var tables = ParseTableList(model.TablesBulk);
             if (tables.Count == 0)
             {
                 ModelState.AddModelError(nameof(model.TablesBulk), "Please type at least one table number in the box (for example 1, 2, 3 on separate lines).");
                 model.ResolvedBaseUrlPreview = ResolvePublicBaseUrl(model.PublicSiteUrl);
+                ViewBag.Branches = branches;
                 return View("Index", model);
             }
 
             var baseUrl = ResolvePublicBaseUrl(model.PublicSiteUrl);
             var floor = string.IsNullOrWhiteSpace(model.Floor) ? null : model.Floor.Trim();
-            await _tableRegistry.UpsertManyAsync(tables, floor);
+            var branchId = await ResolveBranchIdAsync(model.BranchId);
 
             var items = new List<QrPrintItemViewModel>();
             foreach (var t in tables)
             {
-                var fullUrl = BuildOrderUrl(baseUrl, t, floor);
+                var registeredTable = await _tableRegistry.UpsertAsync(t, floor, branchId);
+                if (registeredTable == null || string.IsNullOrWhiteSpace(registeredTable.QrToken))
+                    continue;
+
+                var fullUrl = BuildOrderUrl(baseUrl, registeredTable.QrToken);
                 var png = _qrCodeService.GetPngBytes(fullUrl);
                 var dataUri = "data:image/png;base64," + Convert.ToBase64String(png);
                 var label = string.IsNullOrEmpty(floor) ? $"Table {t}" : $"Floor {floor} · Table {t}";
@@ -127,13 +142,45 @@ namespace SelfOrderingSystemKiosk.Controllers
             return $"{req.Scheme}://{req.Host.Value}".TrimEnd('/');
         }
 
-        private static string BuildOrderUrl(string baseUrl, string table, string? floor)
+        private static string BuildOrderUrl(string baseUrl, string qrToken)
         {
             var qb = new QueryBuilder();
-            qb.Add("table", table);
-            if (!string.IsNullOrWhiteSpace(floor))
-                qb.Add("floor", floor.Trim());
+            qb.Add("token", qrToken);
             return $"{baseUrl.TrimEnd('/')}/Customer/Kiosk/Qr{qb.ToQueryString()}";
+        }
+
+        private async Task<string> ResolveBranchIdAsync(string? branchId)
+        {
+            if (!User.HasAllBranchAccess())
+            {
+                var userBranchId = User.GetBranchId();
+                if (string.IsNullOrWhiteSpace(userBranchId))
+                    return string.Empty;
+
+                return await _branchService.GetByIdAsync(userBranchId.Trim()) != null
+                    ? userBranchId.Trim()
+                    : string.Empty;
+            }
+
+            if (!string.IsNullOrWhiteSpace(branchId) && await _branchService.GetByIdAsync(branchId.Trim()) != null)
+                return branchId.Trim();
+
+            return (await _branchService.GetActiveBranchesAsync()).FirstOrDefault()?.Id ?? string.Empty;
+        }
+
+        private async Task<List<Branch>> GetAccessibleBranchesAsync()
+        {
+            if (User.HasAllBranchAccess())
+                return await _branchService.GetActiveBranchesAsync();
+
+            var branchId = User.GetBranchId();
+            if (string.IsNullOrWhiteSpace(branchId))
+                return new List<Branch>();
+
+            var branch = await _branchService.GetByIdAsync(branchId.Trim());
+            return branch?.IsActive == true
+                ? new List<Branch> { branch }
+                : new List<Branch>();
         }
 
         private static List<string> ParseTableList(string? bulk)

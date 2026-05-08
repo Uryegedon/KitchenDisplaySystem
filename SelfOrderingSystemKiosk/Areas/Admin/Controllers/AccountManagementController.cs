@@ -105,6 +105,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             ViewData["Title"] = "Edit User";
             ViewBag.Roles = GetUserRoles();
+            id = string.IsNullOrWhiteSpace(id) ? user.Id : id;
 
             if (id != user.Id)
             {

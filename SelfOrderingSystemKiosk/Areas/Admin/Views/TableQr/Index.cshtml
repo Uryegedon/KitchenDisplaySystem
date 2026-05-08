@@ -2,6 +2,7 @@
 @{
     ViewData["Title"] = "Print QR codes for your tables";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+    var branches = ViewBag.Branches as List<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch> ?? new();
 }
 
 <style>
@@ -29,7 +30,19 @@
         @Html.AntiForgeryToken()
 
         <div class="qr-step">
-            <h3><span class="qr-step-num">1</span> List your table numbers</h3>
+            <h3><span class="qr-step-num">1</span> Choose the branch</h3>
+            <p class="hint" style="margin-top: 0;">The QR code will open the menu and kitchen queue for this branch.</p>
+            <label asp-for="BranchId" style="display: block; font-weight: 600; margin-bottom: 8px;">@Html.DisplayNameFor(m => m.BranchId)</label>
+            <select asp-for="BranchId" style="width: 100%; max-width: 360px; padding: 12px 14px; border: 2px solid #ddd; border-radius: 10px; font-size: 1.05rem;">
+                @foreach (var branch in branches)
+                {
+                    <option value="@branch.Id">@branch.BranchName (@branch.BranchCode)</option>
+                }
+            </select>
+        </div>
+
+        <div class="qr-step">
+            <h3><span class="qr-step-num">2</span> List your table numbers</h3>
             <p class="hint" style="margin-top: 0;">Put <strong>one number on each line</strong>. You can use numbers or names (e.g. <em>A1</em>, <em>Patio-3</em>). Skip empty lines.</p>
             <textarea asp-for="TablesBulk" rows="10" aria-label="Table numbers, one per line" style="width: 100%; max-width: 100%; padding: 14px 16px; border: 2px solid #ddd; border-radius: 10px; font-size: 1.1rem; line-height: 1.5;" placeholder="Example:&#10;1&#10;2&#10;3&#10;4&#10;5&#10;6&#10;7"></textarea>
             <span asp-validation-for="TablesBulk" style="color: #c0392b; display: block; margin-top: 10px; font-weight: 600;"></span>
@@ -37,7 +50,7 @@
         </div>
 
         <div class="qr-step">
-            <h3><span class="qr-step-num">2</span> Same floor for all? (optional)</h3>
+            <h3><span class="qr-step-num">3</span> Same floor for all? (optional)</h3>
             <p class="hint" style="margin-top: 0;">Only fill this if <strong>every</strong> table on your list is on the same floor or area. Leave blank if tables are mixed or you only have one level.</p>
             <label asp-for="Floor" style="display: block; font-weight: 600; margin-bottom: 8px;">@Html.DisplayNameFor(m => m.Floor)</label>
             <input asp-for="Floor" style="width: 100%; max-width: 320px; padding: 12px 14px; border: 2px solid #ddd; border-radius: 10px; font-size: 1.05rem;" placeholder="e.g. 2 or Upstairs" />
@@ -57,7 +70,7 @@
         </details>
 
         <div class="qr-step" style="border-color: #ff6b35; border-width: 2px;">
-            <h3><span class="qr-step-num">3</span> Make the printable page</h3>
+            <h3><span class="qr-step-num">4</span> Make the printable page</h3>
             <p class="hint" style="margin-top: 0;">Opens a new page with one QR picture per table. Then use <strong>Print</strong> on your computer or phone.</p>
             <button type="submit" class="btn btn-add qr-big-btn">
                 <i class="bi bi-printer" style="font-size: 1.2em;"></i> Make printable QR sheet
@@ -82,6 +95,15 @@
                 <input type="text" id="dlFloor" style="padding: 12px 14px; border: 2px solid #ddd; border-radius: 10px; width: 140px; font-size: 1.05rem;" placeholder="—" />
             </div>
             <div>
+                <label for="dlBranch" style="display: block; font-weight: 600; margin-bottom: 6px;">Branch</label>
+                <select id="dlBranch" style="padding: 12px 14px; border: 2px solid #ddd; border-radius: 10px; min-width: 200px; font-size: 1.05rem;">
+                    @foreach (var branch in branches)
+                    {
+                        <option value="@branch.Id" selected="@(Model.BranchId == branch.Id)">@branch.BranchName</option>
+                    }
+                </select>
+            </div>
+            <div>
                 <button type="button" class="btn btn-add qr-big-btn" id="btnDownloadQr" style="background: #444 !important;">
                     <i class="bi bi-download"></i> Download one QR picture
                 </button>
@@ -98,10 +120,12 @@
                 return;
             }
             const floor = document.getElementById('dlFloor').value.trim();
+            const branch = document.getElementById('dlBranch')?.value || '';
             const adv = document.querySelector('details.qr-advanced input[name="PublicSiteUrl"]');
             const pub = adv ? adv.value.trim() : '';
             let url = '@Url.Action("Download", "TableQr", new { area = "Admin" })' + '?table=' + encodeURIComponent(table);
             if (floor) url += '&floor=' + encodeURIComponent(floor);
+            if (branch) url += '&branchId=' + encodeURIComponent(branch);
             if (pub) url += '&publicSiteUrl=' + encodeURIComponent(pub);
             window.location.href = url;
         });

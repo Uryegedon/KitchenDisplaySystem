@@ -11,7 +11,7 @@
         <h1>Edit User</h1>
     </div>
 
-    <form asp-action="Edit" method="post" class="user-form">
+    <form asp-action="Edit" asp-route-id="@Model.Id" method="post" class="user-form">
         @Html.AntiForgeryToken()
         <input type="hidden" asp-for="Id" />
 

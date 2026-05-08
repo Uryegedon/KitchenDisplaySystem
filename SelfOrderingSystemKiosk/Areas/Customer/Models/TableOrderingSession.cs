@@ -11,6 +11,9 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
         [BsonElement("tableNumber")]
         public string TableNumber { get; set; } = string.Empty;
 
+        [BsonElement("branchId")]
+        public string BranchId { get; set; } = string.Empty;
+
         [BsonElement("personCount")]
         public int PersonCount { get; set; }
 

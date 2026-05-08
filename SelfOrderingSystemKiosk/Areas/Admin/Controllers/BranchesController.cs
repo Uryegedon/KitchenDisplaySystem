@@ -120,6 +120,15 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             var sessions = await _tableOrderingSessions.GetAllAsync();
             var registered = await _tableRegistry.GetAllAsync();
+            if (!string.IsNullOrWhiteSpace(branchId))
+            {
+                sessions = sessions
+                    .Where(s => string.Equals(s.BranchId, branchId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                registered = registered
+                    .Where(t => string.Equals(t.BranchId, branchId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
             var tableNumbers = registered.Select(t => t.TableNumber)
                 .Concat(new[] { "1", "2", "3", "4", "5", "6", "7" })
                 .Where(t => !string.IsNullOrWhiteSpace(t))

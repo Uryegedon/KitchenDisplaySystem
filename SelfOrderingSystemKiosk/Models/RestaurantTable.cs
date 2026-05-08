@@ -13,6 +13,12 @@ namespace SelfOrderingSystemKiosk.Models
         [BsonElement("floor")]
         public string Floor { get; set; } = string.Empty;
 
+        [BsonElement("branchId")]
+        public string BranchId { get; set; } = string.Empty;
+
+        [BsonElement("qrToken")]
+        public string QrToken { get; set; } = string.Empty;
+
         [BsonElement("createdAtUtc")]
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 

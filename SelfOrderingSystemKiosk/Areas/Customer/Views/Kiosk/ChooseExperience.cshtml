@@ -1,6 +1,7 @@
 @{
     ViewData["Title"] = "Choose Your Wing Experience";
     Layout = "~/Areas/Customer/Views/Shared/_Layout.cshtml";
+    var tableOrderingAvailable = !(ViewBag.IsQrFlow == true && ViewBag.TableOrderingAvailable == false);
 }
 <link rel="stylesheet" href="~/css/Kiosk.css" asp-append-version="true" />
 @await Html.PartialAsync("_Loader")
@@ -23,11 +24,18 @@
             <span style="color: #ff6b35; font-weight: 700;">@ViewBag.LocationLabel</span>
         </div>
     }
+    @if (!tableOrderingAvailable)
+    {
+        <div style="max-width: 640px; margin: 0 auto 24px; padding: 14px 18px; background: rgba(255,255,255,0.95); border-radius: 14px; border: 2px solid #c0392b; text-align: center; color:#721c24; font-weight:700;">
+            <i class="bi bi-lock-fill" style="font-size: 1.2rem; vertical-align: middle;"></i>
+            Ordering is unavailable for this table.
+        </div>
+    }
 
     <div class="choices">
         <form method="post" asp-action="SelectExperience">
             <input type="hidden" name="experienceType" value="Unlimited" />
-            <div class="card" onclick="this.parentElement.submit()">
+            <div class="card @(tableOrderingAvailable ? "" : "disabled-choice")" onclick="@(tableOrderingAvailable ? "this.parentElement.submit()" : "return false")">
                 <img src="~/images/unlimited.png" alt="Unlimited Wings" />
                 <h3 data-i18n="unlimited">Unlimited</h3>
                 <p data-i18n="unlimitedText">Endless wings with continuous service — our specialty!</p>
@@ -36,7 +44,7 @@
 
         <form method="post" asp-action="SelectExperience">
             <input type="hidden" name="experienceType" value="AlaCarte" />
-            <div class="card" onclick="this.parentElement.submit()">
+            <div class="card @(tableOrderingAvailable ? "" : "disabled-choice")" onclick="@(tableOrderingAvailable ? "this.parentElement.submit()" : "return false")">
                 <img src="~/images/alacarte.png" alt="Ala Carte" />
                 <h3 data-i18n="alaCarte">Ala Carte</h3>
                 <p data-i18n="alaCarteText">Perfect for trying different flavors or smaller appetites.</p>
@@ -47,6 +55,14 @@
 
 <!-- Bootstrap Icons -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+    .disabled-choice {
+        opacity: 0.45;
+        filter: grayscale(0.35);
+        cursor: not-allowed !important;
+        pointer-events: none;
+    }
+</style>
 <script>
     function showLoader() {
         const loader = document.getElementById("loader");

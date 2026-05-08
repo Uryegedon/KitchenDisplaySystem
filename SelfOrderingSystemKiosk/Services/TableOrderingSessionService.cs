@@ -14,13 +14,18 @@ namespace SelfOrderingSystemKiosk.Services
             _sessions = db.Database.GetCollection<TableOrderingSession>("TableOrderingSessions");
         }
 
-        public async Task<TableOrderingSession?> GetAsync(string tableNumber)
+        public async Task<TableOrderingSession?> GetAsync(string tableNumber, string? branchId = null)
         {
-            var id = BuildId(tableNumber);
+            var id = BuildId(tableNumber, branchId);
             if (string.IsNullOrEmpty(id))
                 return null;
 
-            return await _sessions.Find(s => s.Id == id).FirstOrDefaultAsync();
+            var session = await _sessions.Find(s => s.Id == id).FirstOrDefaultAsync();
+            if (session != null || string.IsNullOrWhiteSpace(branchId))
+                return session;
+
+            var legacyId = BuildId(tableNumber, null);
+            return await _sessions.Find(s => s.Id == legacyId).FirstOrDefaultAsync();
         }
 
         public async Task<List<TableOrderingSession>> GetAllAsync()
@@ -28,9 +33,9 @@ namespace SelfOrderingSystemKiosk.Services
             return await _sessions.Find(_ => true).ToListAsync();
         }
 
-        public async Task<TableOrderingSession?> OpenOrderingAsync(string tableNumber)
+        public async Task<TableOrderingSession?> OpenOrderingAsync(string tableNumber, string? branchId = null)
         {
-            var id = BuildId(tableNumber);
+            var id = BuildId(tableNumber, branchId);
             if (string.IsNullOrEmpty(id))
                 return null;
 
@@ -39,6 +44,7 @@ namespace SelfOrderingSystemKiosk.Services
             {
                 Id = id,
                 TableNumber = tableNumber.Trim(),
+                BranchId = branchId?.Trim() ?? string.Empty,
                 PersonCount = 0,
                 BilledPersonCount = 0,
                 WingFlavors = new List<string>(),
@@ -62,15 +68,15 @@ namespace SelfOrderingSystemKiosk.Services
             await ClearAsync(tableNumber);
         }
 
-        public async Task<bool> IsOrderingOpenAsync(string tableNumber)
+        public async Task<bool> IsOrderingOpenAsync(string tableNumber, string? branchId = null)
         {
-            var session = await GetAsync(tableNumber);
+            var session = await GetAsync(tableNumber, branchId);
             return session?.IsOrderingOpen == true;
         }
 
-        public async Task<TableOrderingSession?> SavePersonCountAsync(string tableNumber, int personCount)
+        public async Task<TableOrderingSession?> SavePersonCountAsync(string tableNumber, int personCount, string? branchId = null)
         {
-            var id = BuildId(tableNumber);
+            var id = BuildId(tableNumber, branchId);
             if (string.IsNullOrEmpty(id) || personCount <= 0)
                 return null;
 
@@ -78,6 +84,7 @@ namespace SelfOrderingSystemKiosk.Services
             var update = Builders<TableOrderingSession>.Update
                 .SetOnInsert(s => s.Id, id)
                 .SetOnInsert(s => s.TableNumber, tableNumber.Trim())
+                .SetOnInsert(s => s.BranchId, branchId?.Trim() ?? string.Empty)
                 .SetOnInsert(s => s.CreatedAtUtc, now)
                 .SetOnInsert(s => s.BilledPersonCount, 0)
                 .SetOnInsert(s => s.IsOrderingOpen, true)
@@ -124,7 +131,8 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task ReplaceFromExistingOrdersAsync(
             string tableNumber,
             int personCount,
-            IEnumerable<string> wingFlavors)
+            IEnumerable<string> wingFlavors,
+            string? branchId = null)
         {
             var id = BuildId(tableNumber);
             if (string.IsNullOrEmpty(id))
@@ -142,6 +150,7 @@ namespace SelfOrderingSystemKiosk.Services
             {
                 Id = id,
                 TableNumber = tableNumber.Trim(),
+                BranchId = branchId?.Trim() ?? string.Empty,
                 PersonCount = personCount,
                 BilledPersonCount = personCount,
                 WingFlavors = normalizedFlavors,
@@ -160,9 +169,10 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task<TableOrderingSessionReserveResult> ReserveUnlimitedOrderAsync(
             string tableNumber,
             int personCount,
-            IEnumerable<string> wingFlavors)
+            IEnumerable<string> wingFlavors,
+            string? branchId = null)
         {
-            var id = BuildId(tableNumber);
+            var id = BuildId(tableNumber, branchId);
             if (string.IsNullOrEmpty(id) || personCount <= 0)
                 return TableOrderingSessionReserveResult.Fail("Please enter a valid person count.");
 
@@ -171,10 +181,10 @@ namespace SelfOrderingSystemKiosk.Services
             {
                 try
                 {
-                    var previous = await ReserveAsync(id, tableNumber.Trim(), personCount, normalizedFlavors, attempt == 0);
+                    var previous = await ReserveAsync(id, tableNumber.Trim(), personCount, normalizedFlavors, attempt == 0, branchId);
                     if (previous == null && attempt > 0)
                     {
-                        var current = await GetAsync(tableNumber);
+                        var current = await GetAsync(tableNumber, branchId);
                         if (current != null)
                             return BuildFlavorLimitFailure(current);
 
@@ -198,7 +208,7 @@ namespace SelfOrderingSystemKiosk.Services
                 }
             }
 
-            var existing = await GetAsync(tableNumber);
+            var existing = await GetAsync(tableNumber, branchId);
             return existing != null
                 ? BuildFlavorLimitFailure(existing)
                 : TableOrderingSessionReserveResult.Fail("Unable to reserve this table session. Please try again.");
@@ -218,7 +228,8 @@ namespace SelfOrderingSystemKiosk.Services
             string tableNumber,
             int personCount,
             List<string> wingFlavors,
-            bool isUpsert)
+            bool isUpsert,
+            string? branchId)
         {
             var flavorArray = new BsonArray(wingFlavors);
             var existingFlavors = new BsonDocument("$ifNull", new BsonArray { "$wingFlavors", new BsonArray() });
@@ -245,6 +256,7 @@ namespace SelfOrderingSystemKiosk.Services
                     new BsonDocument("$set", new BsonDocument
                     {
                         { "tableNumber", new BsonDocument("$ifNull", new BsonArray { "$tableNumber", tableNumber }) },
+                        { "branchId", branchId?.Trim() ?? string.Empty },
                         { "isOrderingOpen", true },
                         { "personCount", new BsonDocument("$max", new BsonArray
                             {
@@ -297,11 +309,15 @@ namespace SelfOrderingSystemKiosk.Services
                 .Distinct(StringComparer.OrdinalIgnoreCase);
         }
 
-        private static string BuildId(string tableNumber)
+        private static string BuildId(string tableNumber, string? branchId = null)
         {
-            return string.IsNullOrWhiteSpace(tableNumber)
-                ? string.Empty
-                : $"unlimited:{tableNumber.Trim().ToUpperInvariant()}";
+            if (string.IsNullOrWhiteSpace(tableNumber))
+                return string.Empty;
+
+            var tableKey = tableNumber.Trim().ToUpperInvariant();
+            return string.IsNullOrWhiteSpace(branchId)
+                ? $"unlimited:{tableKey}"
+                : $"unlimited:{branchId.Trim().ToUpperInvariant()}:{tableKey}";
         }
     }
 

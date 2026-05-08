@@ -43,7 +43,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         [HttpGet]
         public async Task<IActionResult> Index([FromQuery] string? dateFilter = "all")
         {
-            var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter);
+            var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter, GetKitchenBranchFilter());
             ViewBag.DateFilter = dateFilter;
             return View(orders.OrderByDescending(o => o.OrderDate).ToList());
         }
@@ -82,6 +82,14 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
                 return RedirectToAction("Index", "Kiosk", new { area = "Customer" });
             }
+            var kitchenBranchId = GetKitchenBranchFilter();
+            if (isSignedIn &&
+                !string.IsNullOrWhiteSpace(kitchenBranchId) &&
+                !string.IsNullOrWhiteSpace(anchorOrder.BranchId) &&
+                !string.Equals(anchorOrder.BranchId, kitchenBranchId, StringComparison.OrdinalIgnoreCase))
+            {
+                return Forbid();
+            }
             if (!isSignedIn && !HasPublicReceiptAccess(anchorOrder, accessToken))
                 return RedirectToAction("Index", "Kiosk", new { area = "Customer" });
 
@@ -100,10 +108,20 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         [HttpGet]
         public async Task<IActionResult> Receipts([FromQuery] string? dateFilter = "all", [FromQuery] bool showArchived = false)
         {
-            var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter);
+            var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter, GetKitchenBranchFilter());
             var receipts = await BuildReceiptsAsync(orders);
+            var kitchenBranchId = GetKitchenBranchFilter();
             var tableSessions = await _tableOrderingSessions.GetAllAsync();
             var knownTables = await _tableRegistry.GetAllAsync();
+            if (!string.IsNullOrWhiteSpace(kitchenBranchId))
+            {
+                tableSessions = tableSessions
+                    .Where(s => string.Equals(s.BranchId, kitchenBranchId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                knownTables = knownTables
+                    .Where(t => string.Equals(t.BranchId, kitchenBranchId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
             var tables = BuildTableOverviews(receipts, tableSessions, knownTables, showArchived);
 
             ViewBag.DateFilter = dateFilter;
@@ -131,8 +149,8 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             if (table.Length > 32)
                 table = table[..32];
 
-            await _tableRegistry.UpsertAsync(table);
-            await _tableOrderingSessions.OpenOrderingAsync(table);
+            await _tableRegistry.UpsertAsync(table, branchId: GetKitchenBranchFilter());
+            await _tableOrderingSessions.OpenOrderingAsync(table, GetKitchenBranchFilter());
             var activeOrders = (await _orderService.GetOrdersByTableAsync(table))
                 .Where(o => !o.BillArchived)
                 .ToList();
@@ -147,7 +165,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                     .Max();
                 var wingFlavors = await ExtractUnlimitedWingFlavorsAsync(
                     activeUnlimitedOrders.SelectMany(o => o.Items ?? new List<OrderItem>()));
-                await _tableOrderingSessions.ReplaceFromExistingOrdersAsync(table, personCount, wingFlavors);
+                await _tableOrderingSessions.ReplaceFromExistingOrdersAsync(table, personCount, wingFlavors, GetKitchenBranchFilter());
             }
 
             TempData["SuccessMessage"] = $"Table {table} is now occupied and QR ordering is enabled.";
@@ -238,7 +256,14 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
                 var key = NormalizeTableKey(knownTable.TableNumber);
                 if (!byKey.TryGetValue(key, out var table))
-                    continue;
+                {
+                    table = new TableOverviewViewModel
+                    {
+                        TableNumber = knownTable.TableNumber,
+                        CanManageOrdering = IsDiningTable(knownTable.TableNumber)
+                    };
+                    byKey[key] = table;
+                }
 
                 table.TableNumber = knownTable.TableNumber;
                 table.Floor = knownTable.Floor;
@@ -253,7 +278,14 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
                 var key = NormalizeTableKey(session.TableNumber);
                 if (!byKey.TryGetValue(key, out var table))
-                    continue;
+                {
+                    table = new TableOverviewViewModel
+                    {
+                        TableNumber = session.TableNumber,
+                        CanManageOrdering = IsDiningTable(session.TableNumber)
+                    };
+                    byKey[key] = table;
+                }
 
                 table.IsOccupied = session.IsOrderingOpen;
                 table.OrderingSession = session;
@@ -271,7 +303,16 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
                 var key = GetReceiptServiceTableKey(receipt);
                 if (!byKey.TryGetValue(key, out var table))
-                    continue;
+                {
+                    table = new TableOverviewViewModel
+                    {
+                        TableNumber = receipt.TableNumber,
+                        Floor = receipt.Floor,
+                        LocationLabel = receipt.LocationLabel,
+                        CanManageOrdering = IsDiningTable(receipt.TableNumber)
+                    };
+                    byKey[key] = table;
+                }
 
                 var nextReceiptDate = receipt.Orders.Select(o => o.OrderDate).DefaultIfEmpty().Max();
                 table.Receipts.Add(receipt);
@@ -295,7 +336,11 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             }
 
             return byKey.Values
-                .Where(t => IsDiningTable(t.TableNumber) || IsDefaultServiceTable(t.TableNumber))
+                .Where(t => IsDiningTable(t.TableNumber)
+                    || IsDefaultServiceTable(t.TableNumber)
+                    || t.IsOccupied
+                    || t.HasBill
+                    || t.OrderingSession != null)
                 .OrderBy(t => GetTableSortValue(t.TableNumber))
                 .ThenBy(t => t.LocationLabel, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -386,6 +431,12 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             if (isTableSession)
             {
                 var tableOrders = await _orderService.GetOrdersByTableAsync(anchorOrder.TableNumber);
+                if (!string.IsNullOrWhiteSpace(anchorOrder.BranchId))
+                {
+                    tableOrders = tableOrders
+                        .Where(o => string.Equals(o.BranchId, anchorOrder.BranchId, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                }
                 orders = GetOrdersInSameSession(tableOrders, anchorOrder);
             }
 
@@ -685,6 +736,14 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 return RedirectToAction("Index");
             }
 
+            var kitchenBranchId = GetKitchenBranchFilter();
+            if (!string.IsNullOrWhiteSpace(kitchenBranchId) &&
+                !string.IsNullOrWhiteSpace(order.BranchId) &&
+                !string.Equals(order.BranchId, kitchenBranchId, StringComparison.OrdinalIgnoreCase))
+            {
+                return Forbid();
+            }
+
             if (order.Status.Equals("Canceled", StringComparison.OrdinalIgnoreCase))
             {
                 TempData["ErrorMessage"] = "This order was canceled because it was not started within 24 hours.";
@@ -735,6 +794,15 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             // Update the order status
             await _orderService.UpdateStatusAsync(id, status, sessionStartedAtUtc);
             return RedirectToAction("Index");
+        }
+
+        private string? GetKitchenBranchFilter()
+        {
+            if (User.HasAllBranchAccess())
+                return null;
+
+            var branchId = User.GetBranchId();
+            return string.IsNullOrWhiteSpace(branchId) ? null : branchId;
         }
     }
 }

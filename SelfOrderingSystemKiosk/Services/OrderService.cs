@@ -53,19 +53,37 @@ namespace SelfOrderingSystemKiosk.Services
             return orders;
         }
 
-        /// <summary>Numeric order id (6 digits). Table orders replace the first digit with the table digit.</summary>
+        /// <summary>Sequential numeric order id (6 digits). Table orders replace the first digit with the table digit.</summary>
         public async Task<string> CreateUniqueOrderNumberAsync(string? tableNumber = null, CancellationToken cancellationToken = default)
         {
-            for (var attempt = 0; attempt < 16; attempt++)
+            var nextBase = await GetNextSequentialOrderNumberAsync(cancellationToken);
+            for (var attempt = 0; attempt < 100; attempt++)
             {
-                var candidate = ApplyTablePrefix(Random.Shared.Next(100000, 1000000).ToString(), tableNumber);
+                var candidate = ApplyTablePrefix(nextBase.ToString("D6"), tableNumber);
                 var count = await _orders.CountDocumentsAsync(o => o.OrderNumber == candidate, cancellationToken: cancellationToken);
                 if (count == 0)
                     return candidate;
-                await Task.Delay(50, cancellationToken);
+
+                nextBase++;
             }
 
-            return ApplyTablePrefix(Random.Shared.Next(1000000, 10000000).ToString(), tableNumber);
+            return ApplyTablePrefix(nextBase.ToString("D6"), tableNumber);
+        }
+
+        private async Task<int> GetNextSequentialOrderNumberAsync(CancellationToken cancellationToken)
+        {
+            var latestOrders = await _orders
+                .Find(o => o.OrderNumber != null && o.OrderNumber != "")
+                .SortByDescending(o => o.OrderDate)
+                .Limit(250)
+                .ToListAsync(cancellationToken);
+
+            var max = latestOrders
+                .Select(o => int.TryParse(o.OrderNumber, out var number) ? number : 0)
+                .DefaultIfEmpty(99999)
+                .Max();
+
+            return Math.Max(100000, max + 1);
         }
 
         private static string ApplyTablePrefix(string candidate, string? tableNumber)
