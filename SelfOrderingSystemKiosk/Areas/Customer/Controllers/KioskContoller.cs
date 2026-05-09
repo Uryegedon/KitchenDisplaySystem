@@ -18,6 +18,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private readonly TableRegistryService _tableRegistry;
         private readonly MenuItemService _menuItems;
         private readonly MenuCategoryRegistry _menuCategories;
+        private readonly BranchService _branches;
         private readonly ILogger<KioskController> _logger;
         private bool _skipRememberedPersonCountRestore;
 
@@ -47,6 +48,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             TableRegistryService tableRegistry,
             MenuItemService menuItems,
             MenuCategoryRegistry menuCategories,
+            BranchService branches,
             ILogger<KioskController> logger)
         {
             _orderService = orderService;
@@ -54,6 +56,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             _tableRegistry = tableRegistry;
             _menuItems = menuItems;
             _menuCategories = menuCategories;
+            _branches = branches;
             _logger = logger;
         }
 
@@ -62,10 +65,17 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             HttpContext.Session.SetString(SessionOrderChannel, OrderChannelKiosk);
             HttpContext.Session.Remove(SessionServiceTable);
             HttpContext.Session.Remove(SessionServiceFloor);
-            HttpContext.Session.Remove(SessionServiceBranch);
             Response.Cookies.Delete(CookieServiceTable);
             Response.Cookies.Delete(CookieServiceFloor);
-            Response.Cookies.Delete(CookieServiceBranch);
+        }
+
+        private bool HasRememberedQrTableContext()
+        {
+            if (!string.IsNullOrWhiteSpace(HttpContext.Session.GetString(SessionServiceTable)))
+                return true;
+
+            return Request.Cookies.TryGetValue(CookieServiceTable, out var table) &&
+                !string.IsNullOrWhiteSpace(table);
         }
 
         private async Task ApplyOrderingSessionToViewBagAsync()
@@ -85,11 +95,13 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     await RestoreSharedTablePersonCountAsync(table);
                 }
 
-                var branchId = HttpContext.Session.GetString(SessionServiceBranch);
+                var branchId = await ResolveOrderBranchIdAsync(table);
+                if (!string.IsNullOrWhiteSpace(branchId))
+                    HttpContext.Session.SetString(SessionServiceBranch, branchId);
                 var tableSession = !string.IsNullOrWhiteSpace(table)
                     ? await _tableOrderingSessions.GetAsync(table, branchId)
                     : null;
-                ViewBag.TableOrderingAvailable = tableSession?.IsOrderingOpen == true;
+                ViewBag.TableOrderingAvailable = true;
                 ViewBag.SharedWingFlavors = tableSession?.WingFlavors ?? new List<string>();
                 ViewBag.PersonCount = GetSessionInt(SessionPersonCount);
                 ApplyOrderingWindowToViewBag();
@@ -686,9 +698,17 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private void SetQrTableContext(string table, string? floor, string? branchId = null)
         {
             var previousTable = HttpContext.Session.GetString(SessionServiceTable);
+            var previousBranchId = HttpContext.Session.GetString(SessionServiceBranch);
             var normalizedTable = table.Trim();
+            var normalizedBranchId = branchId?.Trim();
             var tableChanged = !string.IsNullOrWhiteSpace(previousTable) &&
                 !string.Equals(previousTable, normalizedTable, StringComparison.OrdinalIgnoreCase);
+            var branchChanged = !string.Equals(
+                previousBranchId ?? string.Empty,
+                normalizedBranchId ?? string.Empty,
+                StringComparison.OrdinalIgnoreCase);
+            var timerHasNoTableContext = string.IsNullOrWhiteSpace(previousTable) &&
+                !string.IsNullOrWhiteSpace(HttpContext.Session.GetString(SessionFirstOrderTime));
 
             HttpContext.Session.SetString(SessionOrderChannel, OrderChannelQr);
             HttpContext.Session.SetString(SessionServiceTable, normalizedTable);
@@ -697,10 +717,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             else
                 HttpContext.Session.Remove(SessionServiceFloor);
 
-            if (!string.IsNullOrWhiteSpace(branchId))
-                HttpContext.Session.SetString(SessionServiceBranch, branchId.Trim());
+            if (!string.IsNullOrWhiteSpace(normalizedBranchId))
+                HttpContext.Session.SetString(SessionServiceBranch, normalizedBranchId);
 
-            if (tableChanged)
+            if (tableChanged || branchChanged || timerHasNoTableContext)
             {
                 HttpContext.Session.Remove(SessionFirstOrderTime);
                 HttpContext.Session.Remove(SessionPersonCount);
@@ -709,9 +729,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             }
         }
 
-        public async Task<IActionResult> Index(bool startNewSession = false)
+        public async Task<IActionResult> Index(bool startNewSession = false, string? branchId = null, string? branchCode = null)
         {
-            SetKioskChannelDefaults();
+            if (!HasRememberedQrTableContext())
+                SetKioskChannelDefaults();
+
+            await ApplyKioskBranchContextAsync(branchId, branchCode);
             if (startNewSession)
                 _skipRememberedPersonCountRestore = true;
 
@@ -726,9 +749,25 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             return View();
         }
 
+        private async Task ApplyKioskBranchContextAsync(string? branchId, string? branchCode)
+        {
+            var branch = !string.IsNullOrWhiteSpace(branchId)
+                ? await _branches.GetByIdAsync(branchId.Trim())
+                : null;
+
+            if (branch == null && !string.IsNullOrWhiteSpace(branchCode))
+                branch = await _branches.GetByCodeAsync(branchCode.Trim());
+
+            if (branch?.IsActive != true)
+                return;
+
+            HttpContext.Session.SetString(SessionServiceBranch, branch.Id);
+            SaveOrderingCookies(null, null, GetSessionInt(SessionPersonCount), branch.Id);
+        }
+
         /// <summary>Table QR entry point. Example: /Customer/Kiosk/Qr?token=secure-random-token</summary>
         [HttpGet]
-        public async Task<IActionResult> Qr(string? token = null)
+        public async Task<IActionResult> Qr(string? token = null, string? branchId = null)
         {
             if (string.IsNullOrWhiteSpace(token))
             {
@@ -750,14 +789,18 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (floor != null && floor.Length > 32)
                 floor = floor[..32];
 
-            var effectiveBranchId = registeredTable.BranchId?.Trim() ?? string.Empty;
-            if (!await _tableOrderingSessions.IsOrderingOpenAsync(table, effectiveBranchId))
+            var effectiveBranchId = !string.IsNullOrWhiteSpace(registeredTable.BranchId)
+                ? registeredTable.BranchId.Trim()
+                : await ResolveQrBranchIdAsync(table, branchId);
+            if (string.IsNullOrWhiteSpace(effectiveBranchId))
             {
-                TempData["ErrorMessage"] = "Ordering for this table is not available yet. Please ask staff to seat/open your table.";
+                TempData["ErrorMessage"] = "This table QR code is not assigned to a branch. Please ask staff to regenerate the QR code for the correct branch.";
                 return RedirectToAction("Index");
             }
 
             SetQrTableContext(table, floor, effectiveBranchId);
+            SaveOrderingCookies(table, floor, GetSessionInt(SessionPersonCount), effectiveBranchId);
+
             HttpContext.Session.SetString(SessionDiningType, "DineIn");
             await ResetEndedTableSessionPersonCountAsync(table);
             await RestoreSharedTablePersonCountAsync(table);
@@ -769,7 +812,13 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         [HttpPost]
         public IActionResult SelectDining(string diningType)
         {
-            SetKioskChannelDefaults();
+            RestoreOrderingCookiesToSession();
+            var hasQrTableContext = HasRememberedQrTableContext();
+            if (!string.Equals(diningType, "DineIn", StringComparison.OrdinalIgnoreCase) || !hasQrTableContext)
+                SetKioskChannelDefaults();
+            else
+                HttpContext.Session.SetString(SessionOrderChannel, OrderChannelQr);
+
             TempData["DiningType"] = diningType;
             HttpContext.Session.SetString(SessionDiningType, diningType);
 
@@ -796,14 +845,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             RestoreOrderingCookiesToSession();
             var channel = HttpContext.Session.GetString(SessionOrderChannel) ?? OrderChannelKiosk;
             var table = HttpContext.Session.GetString(SessionServiceTable);
-            if (string.Equals(channel, OrderChannelQr, StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrWhiteSpace(table) &&
-                !await _tableOrderingSessions.IsOrderingOpenAsync(table, HttpContext.Session.GetString(SessionServiceBranch)))
-            {
-                TempData["ErrorMessage"] = "Ordering for this table is unavailable. Please ask staff to seat/open your table.";
-                return RedirectToAction("Index");
-            }
-
             TempData["ExperienceType"] = experienceType;
             if (experienceType == "Unlimited") return RedirectToAction("UnlimitedMenu");
             if (experienceType == "AlaCarte") return RedirectToAction("AlaCarteMenu");
@@ -812,6 +853,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
         public async Task<IActionResult> AlaCarteMenu(bool isReorder = false, string previousOrderNumber = null)
         {
+            RestoreOrderingCookiesToSession();
             // Set experience type and keep it for the next request
             TempData["ExperienceType"] = "AlaCarte";
             TempData.Keep("ExperienceType");
@@ -827,7 +869,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 .Where(c => !string.Equals(c.Key, "Wings", StringComparison.Ordinal))
                 .ToList();
             ViewBag.DefaultMenuCategory = "Sulit Kap Meals";
-            RestoreOrderingCookiesToSession();
             var channel = HttpContext.Session.GetString(SessionOrderChannel) ?? OrderChannelKiosk;
             ViewBag.OrderChannel = channel;
             ViewBag.IsQrFlow = channel == OrderChannelQr;
@@ -835,12 +876,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             {
                 var table = HttpContext.Session.GetString(SessionServiceTable);
                 var floor = HttpContext.Session.GetString(SessionServiceFloor);
-                if (!string.IsNullOrWhiteSpace(table) && !await _tableOrderingSessions.IsOrderingOpenAsync(table, HttpContext.Session.GetString(SessionServiceBranch)))
-                {
-                    TempData["ErrorMessage"] = "Ordering for this table is unavailable. Please ask staff to seat/open your table.";
-                    return RedirectToAction("Index");
-                }
-
                 ViewBag.ServiceTable = table;
                 ViewBag.ServiceFloor = floor;
                 ViewBag.LocationLabel = BuildLocationLabel(floor, table);
@@ -850,6 +885,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
         public async Task<IActionResult> UnlimitedMenu(bool isReorder = false, string previousOrderNumber = null)
         {
+            RestoreOrderingCookiesToSession();
             // Set experience type and keep it for the next request
             TempData["ExperienceType"] = "Unlimited";
             TempData.Keep("ExperienceType");
@@ -898,12 +934,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 .ThenBy(i => i.Item)
                 .ToList();
             await ApplyOrderingSessionToViewBagAsync();
-            if (ViewBag.IsQrFlow == true && ViewBag.TableOrderingAvailable == false)
-            {
-                TempData["ErrorMessage"] = "Ordering for this table is unavailable. Please ask staff to seat/open your table.";
-                return RedirectToAction("Index");
-            }
-
             return View(items);
         }
 
@@ -952,6 +982,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         {
             try
             {
+                RestoreOrderingCookiesToSession();
+
                 if (Items == null || !Items.Any())
                     return Json(new { success = false, message = "No items in the order" });
 
@@ -1014,15 +1046,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     && string.Equals(diningType, "DineIn", StringComparison.OrdinalIgnoreCase)
                     && !IsDefaultServiceTable(tableNumber);
 
-                if (isRealQrTableOrder && !await _tableOrderingSessions.IsOrderingOpenAsync(tableNumber, await ResolveOrderBranchIdAsync(tableNumber)))
-                {
-                    return Json(new
-                    {
-                        success = false,
-                        message = "Ordering for this table is not available. Please ask staff to seat/open your table."
-                    });
-                }
-
                 if (isRealQrTableOrder &&
                     isUnlimitedOrder &&
                     await HasEndedTableSessionReadyForNewSessionAsync(tableNumber) &&
@@ -1037,7 +1060,21 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     });
                 }
 
-                SaveOrderingCookies(isRealQrTableOrder ? tableNumber : null, isRealQrTableOrder ? floor : null, personCount);
+                var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+                if (string.IsNullOrWhiteSpace(branchId))
+                {
+                    return Json(new
+                    {
+                        success = false,
+                        message = "Branch is not selected for this order. Please open the kiosk using the correct branch link or scan a branch table QR code."
+                    });
+                }
+
+                SaveOrderingCookies(
+                    isRealQrTableOrder ? tableNumber : null,
+                    isRealQrTableOrder ? floor : null,
+                    personCount,
+                    branchId);
 
                 var tableGate = isRealQrTableOrder && isUnlimitedOrder
                     ? await CheckTableOrderingGateAsync(tableNumber)
@@ -1071,14 +1108,13 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                         personCount = reservation.PersonCount;
                         chargeablePersonCount = reservation.ChargeablePersonCount;
                         HttpContext.Session.SetInt32(SessionPersonCount, personCount.Value);
-                        SaveOrderingCookies(tableNumber, floor, personCount);
+                        SaveOrderingCookies(tableNumber, floor, personCount, branchId);
                     }
 
                     subtotal = (chargeablePersonCount * pricePerHead) + alaCarteAddOnSubtotal;
                     total = subtotal;
                 }
 
-                var branchId = await ResolveOrderBranchIdAsync(tableNumber);
                 var orderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber, branchId);
 
                 if (isUnlimitedOrder)
@@ -1148,15 +1184,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
             RestoreOrderingCookiesToSession();
             var table = HttpContext.Session.GetString(SessionServiceTable);
-            if (!string.IsNullOrWhiteSpace(table) && !await _tableOrderingSessions.IsOrderingOpenAsync(table, HttpContext.Session.GetString(SessionServiceBranch)))
-            {
-                return Json(new
-                {
-                    success = false,
-                    message = "Ordering for this table is not available. Please ask staff to seat/open your table."
-                });
-            }
-
             if (!string.IsNullOrWhiteSpace(table) &&
                 await HasEndedTableSessionReadyForNewSessionAsync(table) &&
                 !WasEndedTableSessionReset(table))
@@ -1305,9 +1332,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     && !IsDefaultServiceTable(tableNumber)
                     && string.Equals(anchorOrder.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase);
 
-                if (isRealQrTableOrder && !await _tableOrderingSessions.IsOrderingOpenAsync(tableNumber, await ResolveOrderBranchIdAsync(tableNumber)))
-                    return Json(new { success = false, message = "Ordering for this table is currently closed. Please ask staff for help." });
-
                 var personCount = isRealQrTableOrder
                     ? await GetSharedTablePersonCountAsync(tableNumber)
                     : GetOrderPersonCount(anchorOrder) ?? 0;
@@ -1342,6 +1366,15 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 var alaCarteAddOnSubtotal = validation.Items.Sum(i => i.Price * i.Quantity);
                 var subtotal = (chargeablePersonCount * pricePerHead) + alaCarteAddOnSubtotal;
                 var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+                if (string.IsNullOrWhiteSpace(branchId))
+                {
+                    return Json(new
+                    {
+                        success = false,
+                        message = "Branch is not selected for this order. Please open the kiosk using the correct branch link or scan a branch table QR code."
+                    });
+                }
+
                 var order = new Order
                 {
                     OrderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber, branchId),
@@ -1368,7 +1401,11 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     await _orderService.UpdateOpenUnlimitedPersonCountForTableAsync(tableNumber, personCount, branchId);
 
                 RememberOrderAccess(order);
-                SaveOrderingCookies(isRealQrTableOrder ? tableNumber : null, isRealQrTableOrder ? floor : null, personCount);
+                SaveOrderingCookies(
+                    isRealQrTableOrder ? tableNumber : null,
+                    isRealQrTableOrder ? floor : null,
+                    personCount,
+                    branchId);
 
                 return Json(new
                 {

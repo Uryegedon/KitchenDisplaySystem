@@ -117,10 +117,16 @@ namespace SelfOrderingSystemKiosk.Services
                 return await _collection.Find(x => x.Item == itemName).FirstOrDefaultAsync();
 
             var trimmedBranchId = branchId.Trim();
-            return await _collection.Find(x =>
-                    x.Item == itemName &&
-                    (x.BranchId == trimmedBranchId || x.BranchId == string.Empty))
-                .SortByDescending(x => x.BranchId == trimmedBranchId)
+            var branchItem = await _collection
+                .Find(x => x.Item == itemName && x.BranchId == trimmedBranchId)
+                .FirstOrDefaultAsync();
+            if (branchItem != null)
+                return branchItem;
+
+            return await _collection
+                .Find(Builders<MenuItem>.Filter.And(
+                    Builders<MenuItem>.Filter.Eq(x => x.Item, itemName),
+                    SharedBranchFilter()))
                 .FirstOrDefaultAsync();
         }
 
@@ -503,6 +509,14 @@ namespace SelfOrderingSystemKiosk.Services
                 || string.Equals(ingredientBranchId, menuBranchId, StringComparison.OrdinalIgnoreCase);
         }
 
+        private static FilterDefinition<MenuItem> SharedBranchFilter()
+        {
+            return Builders<MenuItem>.Filter.Or(
+                Builders<MenuItem>.Filter.Eq(i => i.BranchId, (string)null!),
+                Builders<MenuItem>.Filter.Eq(i => i.BranchId, string.Empty),
+                Builders<MenuItem>.Filter.Not(Builders<MenuItem>.Filter.Exists(i => i.BranchId)));
+        }
+
         private static bool IsChickenWingMenu(string? name)
         {
             return !string.IsNullOrWhiteSpace(name)
@@ -623,7 +637,7 @@ namespace SelfOrderingSystemKiosk.Services
                 validItemFilter,
                 Builders<MenuItem>.Filter.Or(
                     Builders<MenuItem>.Filter.Eq(i => i.BranchId, branchId),
-                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, string.Empty)
+                    SharedBranchFilter()
                 )
             );
             var branchItems = await _collection.Find(branchFilter).ToListAsync();
@@ -666,7 +680,7 @@ namespace SelfOrderingSystemKiosk.Services
                 availableOrUnset,
                 Builders<MenuItem>.Filter.Or(
                     Builders<MenuItem>.Filter.Eq(i => i.BranchId, branchId),
-                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, string.Empty)
+                    SharedBranchFilter()
                 )
             );
             var branchItems = await _collection.Find(branchFilter).ToListAsync();
@@ -695,7 +709,7 @@ namespace SelfOrderingSystemKiosk.Services
                 validItemFilter,
                 Builders<MenuItem>.Filter.Or(
                     Builders<MenuItem>.Filter.Eq(i => i.BranchId, branchId),
-                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, string.Empty)
+                    SharedBranchFilter()
                 )
             );
             return await _collection.CountDocumentsAsync(filter);

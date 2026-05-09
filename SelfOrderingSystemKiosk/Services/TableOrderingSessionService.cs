@@ -1,4 +1,3 @@
-using MongoDB.Bson;
 using MongoDB.Driver;
 using SelfOrderingSystemKiosk.Areas.Customer.Models;
 
@@ -239,64 +238,38 @@ namespace SelfOrderingSystemKiosk.Services
             bool isUpsert,
             string? branchId)
         {
-            var flavorArray = new BsonArray(wingFlavors);
-            var existingFlavors = new BsonDocument("$ifNull", new BsonArray { "$wingFlavors", new BsonArray() });
-            var filter = new BsonDocument
-            {
-                { "_id", id },
-                {
-                    "$expr",
-                    new BsonDocument("$lte", new BsonArray
-                    {
-                        new BsonDocument("$size", new BsonDocument("$setUnion", new BsonArray
-                        {
-                            existingFlavors,
-                            flavorArray
-                        })),
-                        MaxWingFlavors
-                    })
-                }
-            };
+            var previous = await _sessions.Find(s => s.Id == id).FirstOrDefaultAsync();
+            if (previous == null && !isUpsert)
+                return null;
+
+            var mergedFlavors = NormalizeFlavors((previous?.WingFlavors ?? new List<string>()).Concat(wingFlavors)).ToList();
+            if (mergedFlavors.Count > MaxWingFlavors)
+                return null;
 
             var now = DateTime.UtcNow;
-            var pipeline = new EmptyPipelineDefinition<TableOrderingSession>()
-                .AppendStage<TableOrderingSession, TableOrderingSession, TableOrderingSession>(
-                    new BsonDocument("$set", new BsonDocument
-                    {
-                        { "tableNumber", new BsonDocument("$ifNull", new BsonArray { "$tableNumber", tableNumber }) },
-                        { "branchId", branchId?.Trim() ?? string.Empty },
-                        { "isOrderingOpen", true },
-                        { "personCount", new BsonDocument("$max", new BsonArray
-                            {
-                                new BsonDocument("$ifNull", new BsonArray { "$personCount", 0 }),
-                                personCount
-                            })
-                        },
-                        { "billedPersonCount", new BsonDocument("$max", new BsonArray
-                            {
-                                new BsonDocument("$ifNull", new BsonArray { "$billedPersonCount", 0 }),
-                                new BsonDocument("$ifNull", new BsonArray { "$personCount", 0 }),
-                                personCount
-                            })
-                        },
-                        { "wingFlavors", new BsonDocument("$setUnion", new BsonArray
-                            {
-                                existingFlavors,
-                                flavorArray
-                            })
-                        },
-                        { "createdAtUtc", new BsonDocument("$ifNull", new BsonArray { "$createdAtUtc", now }) },
-                        { "updatedAtUtc", now }
-                    }));
+            var replacement = new TableOrderingSession
+            {
+                Id = id,
+                TableNumber = previous?.TableNumber ?? tableNumber,
+                BranchId = branchId?.Trim() ?? previous?.BranchId ?? string.Empty,
+                PersonCount = Math.Max(personCount, previous?.PersonCount ?? 0),
+                BilledPersonCount = Math.Max(
+                    Math.Max(previous?.BilledPersonCount ?? 0, previous?.PersonCount ?? 0),
+                    personCount),
+                WingFlavors = mergedFlavors,
+                IsOrderingOpen = true,
+                OrderingOpenedAtUtc = previous?.OrderingOpenedAtUtc ?? now,
+                OrderingClosedAtUtc = null,
+                CreatedAtUtc = previous?.CreatedAtUtc ?? now,
+                UpdatedAtUtc = now
+            };
 
-            return await _sessions.FindOneAndUpdateAsync(
-                filter,
-                Builders<TableOrderingSession>.Update.Pipeline(pipeline),
-                new FindOneAndUpdateOptions<TableOrderingSession>
-                {
-                    IsUpsert = isUpsert,
-                    ReturnDocument = ReturnDocument.Before
-                });
+            await _sessions.ReplaceOneAsync(
+                s => s.Id == id,
+                replacement,
+                new ReplaceOptions { IsUpsert = isUpsert });
+
+            return previous;
         }
 
         private static TableOrderingSessionReserveResult BuildFlavorLimitFailure(TableOrderingSession session)

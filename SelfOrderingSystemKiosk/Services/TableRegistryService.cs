@@ -25,8 +25,18 @@ namespace SelfOrderingSystemKiosk.Services
 
             var id = BuildId(tableNumber, branchId);
             var table = await _tables.Find(t => t.Id == id).FirstOrDefaultAsync();
-            if (table != null || string.IsNullOrWhiteSpace(branchId))
+            if (table != null)
                 return table;
+
+            if (string.IsNullOrWhiteSpace(branchId))
+            {
+                var matches = await _tables
+                    .Find(t => t.TableNumber == tableNumber.Trim())
+                    .Limit(2)
+                    .ToListAsync();
+
+                return matches.Count == 1 ? matches[0] : null;
+            }
 
             var legacyId = BuildId(tableNumber, null);
             return await _tables.Find(t => t.Id == legacyId).FirstOrDefaultAsync();

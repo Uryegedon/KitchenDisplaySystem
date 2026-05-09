@@ -142,6 +142,45 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ToggleTable(string table, string? branchId = null, bool occupied = false, string? dateFilter = "all", bool showArchived = false)
+        {
+            if (!TryGetKitchenBranchFilter(out _))
+                return Forbid();
+
+            if (string.IsNullOrWhiteSpace(table))
+            {
+                TempData["ErrorMessage"] = "Choose a table to update.";
+                return RedirectToAction("Receipts", new { dateFilter, showArchived });
+            }
+
+            table = table.Trim();
+            if (!IsDiningTable(table))
+            {
+                TempData["ErrorMessage"] = $"Table {table} is not part of the 7 dine-in tables.";
+                return RedirectToAction("Receipts", new { dateFilter, showArchived });
+            }
+
+            if (table.Length > 32)
+                table = table[..32];
+
+            var effectiveBranchId = await GetEffectiveKitchenBranchIdAsync(table, branchId);
+            if (occupied)
+            {
+                await _tableRegistry.UpsertAsync(table, branchId: effectiveBranchId);
+                await _tableOrderingSessions.OpenOrderingAsync(table, effectiveBranchId);
+                TempData["SuccessMessage"] = $"Table {table} is now occupied and QR ordering is enabled.";
+            }
+            else
+            {
+                await _tableOrderingSessions.CloseOrderingAsync(table, effectiveBranchId);
+                TempData["SuccessMessage"] = $"Table {table} is now available and QR ordering is disabled.";
+            }
+
+            return RedirectToAction("Receipts", new { dateFilter, showArchived });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> OpenTable(string table, string? branchId = null, string? dateFilter = "all", bool showArchived = false)
         {
             if (!TryGetKitchenBranchFilter(out _))
@@ -163,7 +202,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             if (table.Length > 32)
                 table = table[..32];
 
-            var effectiveBranchId = GetEffectiveKitchenBranchId(branchId);
+            var effectiveBranchId = await GetEffectiveKitchenBranchIdAsync(table, branchId);
             await _tableRegistry.UpsertAsync(table, branchId: effectiveBranchId);
             await _tableOrderingSessions.OpenOrderingAsync(table, effectiveBranchId);
             var activeOrders = (await _orderService.GetOrdersByTableAsync(table, effectiveBranchId))
@@ -207,7 +246,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 return RedirectToAction("Receipts", new { dateFilter, showArchived });
             }
 
-            await _tableOrderingSessions.CloseOrderingAsync(table, GetEffectiveKitchenBranchId(branchId));
+            await _tableOrderingSessions.CloseOrderingAsync(table, await GetEffectiveKitchenBranchIdAsync(table, branchId));
             TempData["SuccessMessage"] = $"Table {table} is now available and QR ordering is disabled.";
             return RedirectToAction("Receipts", new { dateFilter, showArchived });
         }
@@ -888,6 +927,27 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             return string.IsNullOrWhiteSpace(requestedBranchId)
                 ? null
                 : requestedBranchId.Trim();
+        }
+
+        private async Task<string?> GetEffectiveKitchenBranchIdAsync(string table, string? requestedBranchId)
+        {
+            var effectiveBranchId = GetEffectiveKitchenBranchId(requestedBranchId);
+            if (!string.IsNullOrWhiteSpace(effectiveBranchId))
+                return effectiveBranchId;
+
+            var registeredTable = await _tableRegistry.GetByTableNumberAsync(table);
+            if (!string.IsNullOrWhiteSpace(registeredTable?.BranchId))
+                return registeredTable.BranchId.Trim();
+
+            var latestOrderBranchId = (await _orderService.GetOrdersByTableAsync(table))
+                .Where(o => !string.IsNullOrWhiteSpace(o.BranchId))
+                .OrderByDescending(o => o.OrderDate)
+                .Select(o => o.BranchId.Trim())
+                .FirstOrDefault();
+
+            return string.IsNullOrWhiteSpace(latestOrderBranchId)
+                ? null
+                : latestOrderBranchId;
         }
     }
 }

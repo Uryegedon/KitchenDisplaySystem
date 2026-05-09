@@ -316,12 +316,24 @@
             {
                 var receipts = table.Receipts;
                 var receipt = table.Receipt;
+                var timerReceipt = receipts
+                    .Where(r => r.IsTableSession
+                        && r.HasSessionStarted
+                        && string.Equals(r.TableNumber, table.TableNumber, StringComparison.OrdinalIgnoreCase)
+                        && (string.IsNullOrWhiteSpace(table.BranchId)
+                            || string.IsNullOrWhiteSpace(r.BranchId)
+                            || string.Equals(r.BranchId, table.BranchId, StringComparison.OrdinalIgnoreCase))
+                        && r.Orders.Any(o => o.SessionStartedAtUtc.HasValue
+                            && string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase)
+                            && string.Equals(o.TableNumber, table.TableNumber, StringComparison.OrdinalIgnoreCase)))
+                    .OrderByDescending(r => r.SessionStartUtc)
+                    .FirstOrDefault();
                 var isPaid = table.IsPaid;
-                var isExpired = receipt?.HasSessionStarted == true && receipt.SessionEndUtc <= DateTime.UtcNow;
+                var isExpired = timerReceipt?.SessionEndUtc <= DateTime.UtcNow;
                 var isClosed = !table.IsOccupied && table.HasBill && (isPaid || receipt?.Orders.All(o => o.BillArchived) == true);
                 var isExpiredBill = !table.IsOccupied && table.HasBill && isExpired;
                 var needsPayment = !table.IsOccupied && table.HasBill && !isPaid && !isExpiredBill;
-                var endIso = receipt?.SessionEndUtc.ToUniversalTime().ToString("O") ?? "";
+                var endIso = timerReceipt?.SessionEndUtc.ToUniversalTime().ToString("O") ?? "";
                 var stateLabel = table.IsOccupied ? "Occupied" : isExpiredBill ? "Expired Bill" : needsPayment ? "Needs Payment" : isClosed ? "Closed" : table.HasBill ? "Open Bills" : "Available";
                 var stateIcon = table.IsOccupied ? "bi-person-check" : isExpiredBill ? "bi-hourglass-bottom" : needsPayment ? "bi-cash-coin" : isClosed ? "bi-check-circle" : "bi-door-open";
                 var searchText = string.Join(" ", new[]
@@ -364,7 +376,7 @@
                                     <i class="bi bi-cash-coin"></i> @(isPaid ? "Paid" : "Pending")
                                 </span>
                             }
-                            @if (receipt?.HasSessionStarted == true)
+                            @if (timerReceipt != null)
                             {
                                 <span class="pill session-timer" data-session-end="@endIso">
                                     <i class="bi bi-hourglass-split"></i> <span>Checking</span>
@@ -420,28 +432,19 @@
                         @if (table.CanManageOrdering)
                         {
                             var actionBranchId = table.OrderingSession?.BranchId ?? table.BranchId ?? table.Receipt?.AnchorOrder?.BranchId ?? string.Empty;
-                            @if (table.IsOccupied)
-                            {
-                                <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="CloseTable">
-                                    @Html.AntiForgeryToken()
-                                    <input type="hidden" name="table" value="@table.TableNumber" />
-                                    <input type="hidden" name="branchId" value="@actionBranchId" />
-                                    <input type="hidden" name="dateFilter" value="@dateFilter" />
-                                    <input type="hidden" name="showArchived" value="@showArchived.ToString().ToLowerInvariant()" />
-                                    <button class="btn subtle" type="submit"><i class="bi bi-door-open"></i> Close Table</button>
-                                </form>
-                            }
-                            else
-                            {
-                                <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="OpenTable">
-                                    @Html.AntiForgeryToken()
-                                    <input type="hidden" name="table" value="@table.TableNumber" />
-                                    <input type="hidden" name="branchId" value="@actionBranchId" />
-                                    <input type="hidden" name="dateFilter" value="@dateFilter" />
-                                    <input type="hidden" name="showArchived" value="@showArchived.ToString().ToLowerInvariant()" />
-                                    <button class="btn" type="submit"><i class="bi bi-person-check"></i> Seat Table</button>
-                                </form>
-                            }
+                            var nextOccupiedState = !table.IsOccupied;
+                            <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="ToggleTable">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="table" value="@table.TableNumber" />
+                                <input type="hidden" name="branchId" value="@actionBranchId" />
+                                <input type="hidden" name="occupied" value="@nextOccupiedState.ToString().ToLowerInvariant()" />
+                                <input type="hidden" name="dateFilter" value="@dateFilter" />
+                                <input type="hidden" name="showArchived" value="@showArchived.ToString().ToLowerInvariant()" />
+                                <button class="btn @(table.IsOccupied ? "subtle" : "")" type="submit">
+                                    <i class="bi bi-@(table.IsOccupied ? "toggle-on" : "toggle-off")"></i>
+                                    @(table.IsOccupied ? "Occupied" : "Available")
+                                </button>
+                            </form>
                         }
                         @if (table.CanManageOrdering && receipt?.AnchorOrder != null)
                         {

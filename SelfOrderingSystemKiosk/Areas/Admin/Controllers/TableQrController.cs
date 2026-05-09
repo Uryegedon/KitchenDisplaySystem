@@ -66,7 +66,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return BadRequest("Could not create a secure QR code for this table.");
 
             var baseUrl = ResolvePublicBaseUrl(publicSiteUrl);
-            var payload = BuildOrderUrl(baseUrl, registeredTable.QrToken);
+            var payload = BuildOrderUrl(baseUrl, registeredTable.QrToken, branchId);
             var png = _qrCodeService.GetPngBytes(payload);
             var safeName = SanitizeFileSegment(table);
             return File(png, "image/png", $"qr-table-{safeName}.png");
@@ -97,7 +97,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 if (registeredTable == null || string.IsNullOrWhiteSpace(registeredTable.QrToken))
                     continue;
 
-                var fullUrl = BuildOrderUrl(baseUrl, registeredTable.QrToken);
+                var fullUrl = BuildOrderUrl(baseUrl, registeredTable.QrToken, branchId);
                 var png = _qrCodeService.GetPngBytes(fullUrl);
                 var dataUri = "data:image/png;base64," + Convert.ToBase64String(png);
                 var label = string.IsNullOrEmpty(floor) ? $"Table {t}" : $"Floor {floor} · Table {t}";
@@ -142,10 +142,12 @@ namespace SelfOrderingSystemKiosk.Controllers
             return $"{req.Scheme}://{req.Host.Value}".TrimEnd('/');
         }
 
-        private static string BuildOrderUrl(string baseUrl, string qrToken)
+        private static string BuildOrderUrl(string baseUrl, string qrToken, string? branchId)
         {
             var qb = new QueryBuilder();
             qb.Add("token", qrToken);
+            if (!string.IsNullOrWhiteSpace(branchId))
+                qb.Add("branchId", branchId.Trim());
             return $"{baseUrl.TrimEnd('/')}/Customer/Kiosk/Qr{qb.ToQueryString()}";
         }
 

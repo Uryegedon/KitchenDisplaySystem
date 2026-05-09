@@ -1,6 +1,7 @@
 using MongoDB.Driver;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
 using SelfOrderingSystemKiosk.Models;
+using System.Text.RegularExpressions;
 
 namespace SelfOrderingSystemKiosk.Services
 {
@@ -25,7 +26,14 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task<Branch?> GetByCodeAsync(string branchCode)
         {
-            return await _branches.Find(b => b.BranchCode == branchCode).FirstOrDefaultAsync();
+            if (string.IsNullOrWhiteSpace(branchCode))
+                return null;
+
+            var code = branchCode.Trim();
+            var regex = new MongoDB.Bson.BsonRegularExpression($"^{Regex.Escape(code)}$", "i");
+            return await _branches
+                .Find(Builders<Branch>.Filter.Regex(b => b.BranchCode, regex))
+                .FirstOrDefaultAsync();
         }
 
         public async Task<List<Branch>> GetActiveBranchesAsync()

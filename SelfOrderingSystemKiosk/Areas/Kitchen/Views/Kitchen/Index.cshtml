@@ -1,6 +1,7 @@
 @model IEnumerable<SelfOrderingSystemKiosk.Areas.Customer.Models.Order>
 @{
     ViewData["Title"] = "Kitchen Dashboard";
+    var currentReturnUrl = Context.Request.Path + Context.Request.QueryString;
     var totalOrders = Model.Count();
     var pendingOrders = Model.Count(o => string.Equals(o.Status, "Pending", StringComparison.OrdinalIgnoreCase));
     var inProgressOrders = Model.Count(o => string.Equals(o.Status, "In Progress", StringComparison.OrdinalIgnoreCase));
@@ -168,6 +169,16 @@
         .order-number {
             font-size: 1.5rem;
             font-weight: bold;
+        }
+
+        .order-number a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .order-number a:hover {
+            color: #FF5722;
+            text-decoration: underline;
         }
 
         .order-time {
@@ -463,7 +474,11 @@
             <div class="order-card @statusClass" data-status="@statusClass" style="@hideByDefault">
                 <div class="order-header">
                     <div>
-                        <div class="order-number">Order #@order.OrderNumber</div>
+                        <div class="order-number">
+                            <a asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipt" asp-route-id="@order.Id" asp-route-returnUrl="@currentReturnUrl">
+                                Order #@order.OrderNumber
+                            </a>
+                        </div>
                         <div class="table-info">
                             <span style="background: @(order.OrderType == "Unlimited" ? "#9C27B0" : "#FF5722"); color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; margin-right: 8px;">
                                 @(order.OrderType ?? "AlaCarte")
@@ -535,21 +550,24 @@
                 }
 
                 <div class="order-actions">
+                    <a class="action-btn btn-receipt" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipt" asp-route-id="@order.Id" asp-route-returnUrl="@currentReturnUrl">
+                        <i class="bi bi-receipt"></i> Open Bill
+                    </a>
                     @if (string.Equals(order.Status, "Pending", StringComparison.OrdinalIgnoreCase))
                     {
-                        <button type="button" class="action-btn btn-start" onclick="updateStatus('@order.Id', 'In Progress', event)" style="grid-column: 1 / -1; width: 100%;">
+                        <button type="button" class="action-btn btn-start" onclick="updateStatus('@order.Id', 'In Progress', event)">
                             <i class="bi bi-play-fill"></i> Start
                         </button>
                     }
                     else if (string.Equals(order.Status, "In Progress", StringComparison.OrdinalIgnoreCase))
                     {
-                        <button type="button" class="action-btn btn-done" onclick="updateStatus('@order.Id', 'Completed', event)" style="grid-column: 1 / -1; width: 100%;">
+                        <button type="button" class="action-btn btn-done" onclick="updateStatus('@order.Id', 'Completed', event)">
                             <i class="bi bi-check-circle"></i> Done
                         </button>
                     }
                     else
                     {
-                        <button type="button" class="action-btn btn-done" style="grid-column: 1 / -1; width: 100%;" disabled>
+                        <button type="button" class="action-btn btn-done" disabled>
                             Order @order.Status
                         </button>
                     }

@@ -101,10 +101,16 @@ namespace SelfOrderingSystemKiosk.Services
                 return await _collection.Find(x => x.Item == itemName).FirstOrDefaultAsync();
 
             var trimmedBranchId = branchId.Trim();
-            return await _collection.Find(x =>
-                    x.Item == itemName &&
-                    (x.BranchId == trimmedBranchId || x.BranchId == string.Empty))
-                .SortByDescending(x => x.BranchId == trimmedBranchId)
+            var branchItem = await _collection
+                .Find(x => x.Item == itemName && x.BranchId == trimmedBranchId)
+                .FirstOrDefaultAsync();
+            if (branchItem != null)
+                return branchItem;
+
+            return await _collection
+                .Find(Builders<IngredientItem>.Filter.And(
+                    Builders<IngredientItem>.Filter.Eq(x => x.Item, itemName),
+                    SharedBranchFilter()))
                 .FirstOrDefaultAsync();
         }
 
@@ -309,7 +315,7 @@ namespace SelfOrderingSystemKiosk.Services
             // Return items for specific branch OR shared items (empty BranchId)
             var filter = Builders<IngredientItem>.Filter.Or(
                 Builders<IngredientItem>.Filter.Eq(i => i.BranchId, branchId),
-                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, string.Empty)
+                SharedBranchFilter()
             );
             var list = await _collection.Find(filter).ToListAsync();
             return list
@@ -332,7 +338,7 @@ namespace SelfOrderingSystemKiosk.Services
             var filter = Builders<IngredientItem>.Filter.And(
                 Builders<IngredientItem>.Filter.Or(
                     Builders<IngredientItem>.Filter.Eq(i => i.BranchId, branchId),
-                    Builders<IngredientItem>.Filter.Eq(i => i.BranchId, string.Empty)
+                    SharedBranchFilter()
                 ),
                 Builders<IngredientItem>.Filter.Where(i => i.CurrentStock <= i.ReorderLevel)
             );
@@ -355,9 +361,17 @@ namespace SelfOrderingSystemKiosk.Services
 
             var filter = Builders<IngredientItem>.Filter.Or(
                 Builders<IngredientItem>.Filter.Eq(i => i.BranchId, branchId),
-                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, string.Empty)
+                SharedBranchFilter()
             );
             return await _collection.CountDocumentsAsync(filter);
+        }
+
+        private static FilterDefinition<IngredientItem> SharedBranchFilter()
+        {
+            return Builders<IngredientItem>.Filter.Or(
+                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, (string)null!),
+                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, string.Empty),
+                Builders<IngredientItem>.Filter.Not(Builders<IngredientItem>.Filter.Exists(i => i.BranchId)));
         }
     }
 }
