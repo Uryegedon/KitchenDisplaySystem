@@ -43,7 +43,10 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         [HttpGet]
         public async Task<IActionResult> Index([FromQuery] string? dateFilter = "all")
         {
-            var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter, GetKitchenBranchFilter());
+            if (!TryGetKitchenBranchFilter(out var kitchenBranchId))
+                return Forbid();
+
+            var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter, kitchenBranchId);
             ViewBag.DateFilter = dateFilter;
             return View(orders.OrderByDescending(o => o.OrderDate).ToList());
         }
@@ -75,10 +78,15 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             if (isSignedIn && !string.IsNullOrWhiteSpace(id))
                 anchorOrder = await _orderService.GetByIdAsync(id);
             else if (!string.IsNullOrWhiteSpace(orderNumber))
+            {
+                if (isSignedIn && !TryGetKitchenBranchFilter(out _))
+                    return Forbid();
+
                 anchorOrder = await _orderService.GetByOrderNumberAsync(
                     orderNumber,
                     isSignedIn ? GetKitchenBranchFilter() : null,
                     accessToken);
+            }
 
             if (anchorOrder == null)
             {
@@ -109,9 +117,11 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         [HttpGet]
         public async Task<IActionResult> Receipts([FromQuery] string? dateFilter = "all", [FromQuery] bool showArchived = false)
         {
-            var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter, GetKitchenBranchFilter());
+            if (!TryGetKitchenBranchFilter(out var kitchenBranchId))
+                return Forbid();
+
+            var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter, kitchenBranchId);
             var receipts = await BuildReceiptsAsync(orders);
-            var kitchenBranchId = GetKitchenBranchFilter();
             var tableSessions = await _tableOrderingSessions.GetAllAsync();
             var knownTables = await _tableRegistry.GetAllAsync();
             if (!string.IsNullOrWhiteSpace(kitchenBranchId))
@@ -134,6 +144,9 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> OpenTable(string table, string? branchId = null, string? dateFilter = "all", bool showArchived = false)
         {
+            if (!TryGetKitchenBranchFilter(out _))
+                return Forbid();
+
             if (string.IsNullOrWhiteSpace(table))
             {
                 TempData["ErrorMessage"] = "Choose a table to seat/open.";
@@ -178,6 +191,9 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> CloseTable(string table, string? branchId = null, string? dateFilter = "all", bool showArchived = false)
         {
+            if (!TryGetKitchenBranchFilter(out _))
+                return Forbid();
+
             if (string.IsNullOrWhiteSpace(table))
             {
                 TempData["ErrorMessage"] = "Choose a table to close.";
@@ -829,18 +845,38 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
         private string? GetKitchenBranchFilter()
         {
-            if (User.HasAllBranchAccess())
-                return null;
+            return TryGetKitchenBranchFilter(out var branchId) ? branchId : null;
+        }
 
-            var branchId = User.GetBranchId();
-            return string.IsNullOrWhiteSpace(branchId) ? null : branchId;
+        private bool TryGetKitchenBranchFilter(out string? branchId)
+        {
+            if (User.HasAllBranchAccess())
+            {
+                branchId = null;
+                return true;
+            }
+
+            branchId = User.GetBranchId();
+            if (string.IsNullOrWhiteSpace(branchId))
+            {
+                branchId = null;
+                return false;
+            }
+
+            branchId = branchId.Trim();
+            return true;
         }
 
         private bool CanAccessOrder(Order order)
         {
-            var branchId = GetKitchenBranchFilter();
-            return string.IsNullOrWhiteSpace(branchId)
-                || string.Equals(order.BranchId, branchId, StringComparison.OrdinalIgnoreCase);
+            if (!TryGetKitchenBranchFilter(out var branchId))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(branchId))
+                return true;
+
+            return !string.IsNullOrWhiteSpace(order.BranchId)
+                && string.Equals(order.BranchId, branchId, StringComparison.OrdinalIgnoreCase);
         }
 
         private string? GetEffectiveKitchenBranchId(string? requestedBranchId)

@@ -26,8 +26,15 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         [HttpGet]
         [AllowAnonymous]
-        public IActionResult Login()
+        public async Task<IActionResult> Login(bool logout = false)
         {
+            if (logout && User.Identity?.IsAuthenticated == true)
+            {
+                HttpContext.Session.Clear();
+                await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                return View();
+            }
+
             // If user is already authenticated, redirect to appropriate dashboard
             if (User.Identity?.IsAuthenticated == true)
             {

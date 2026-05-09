@@ -127,7 +127,7 @@ namespace SelfOrderingSystemKiosk.Services
         /// <summary>
         /// Updates a user's information
         /// </summary>
-        public async Task UpdateUserAsync(AdminUser user)
+        public async Task<bool> UpdateUserAsync(AdminUser user)
         {
             PrepareUserForSave(user, generateId: false);
             var filter = Builders<AdminUser>.Filter.Eq(u => u.Id, user.Id);
@@ -139,7 +139,8 @@ namespace SelfOrderingSystemKiosk.Services
                 .Set(u => u.BranchId, user.BranchId)
                 .Set(u => u.Password, user.Password);
 
-            await _users.UpdateOneAsync(filter, update);
+            var result = await _users.UpdateOneAsync(filter, update);
+            return result.MatchedCount > 0;
         }
 
         /// <summary>

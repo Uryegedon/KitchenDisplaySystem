@@ -114,7 +114,11 @@ namespace SelfOrderingSystemKiosk.Controllers
             ViewData["Title"] = "Edit User";
             ViewBag.Roles = GetUserRoles();
             await PopulateBranchesAsync();
-            id = string.IsNullOrWhiteSpace(id) ? user.Id : id;
+            id = string.IsNullOrWhiteSpace(id) ? user.Id : id.Trim();
+            user.Id = id;
+
+            ModelState.Remove(nameof(AdminUser.Id));
+            ModelState.Remove(nameof(AdminUser.Password));
 
             if (id != user.Id)
             {
@@ -161,7 +165,12 @@ namespace SelfOrderingSystemKiosk.Controllers
             // Preserve the existing password
             user.Password = existingUser.Password;
             
-            await _userService.UpdateUserAsync(user);
+            var updated = await _userService.UpdateUserAsync(user);
+            if (!updated)
+            {
+                TempData["Error"] = "User changes were not saved. Please refresh and try again.";
+                return RedirectToAction("Edit", new { id });
+            }
 
             TempData["Success"] = "User updated successfully!";
             return RedirectToAction("Index");
@@ -312,7 +321,12 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             var branch = await _branchService.GetByIdAsync(user.BranchId.Trim());
             if (branch == null || !branch.IsActive)
+            {
                 ModelState.AddModelError("BranchId", "Choose an active branch.");
+                return;
+            }
+
+            user.BranchId = branch.Id;
         }
     }
 
