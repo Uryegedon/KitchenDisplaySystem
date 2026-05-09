@@ -19,9 +19,9 @@
             
             <div class="form-group">
                 <label asp-for="BranchCode">Branch Code <span class="required">*</span></label>
-                <input asp-for="BranchCode" class="form-control" placeholder="e.g., BR001, MAIN, DOWNTOWN" />
+                <input asp-for="BranchCode" class="form-control" placeholder="e.g., MAIN1, B2, NOVA9" />
                 <span asp-validation-for="BranchCode" class="text-danger"></span>
-                <small class="form-text">A unique short code to identify this branch (e.g., BR001, MAIN, DOWNTOWN)</small>
+                <small class="form-text">The last digit in the code becomes the first number in that branch's order references, e.g. BR001 uses 1.</small>
             </div>
 
             <div class="form-group">

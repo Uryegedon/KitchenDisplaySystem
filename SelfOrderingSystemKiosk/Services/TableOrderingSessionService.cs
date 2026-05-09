@@ -19,12 +19,7 @@ namespace SelfOrderingSystemKiosk.Services
             if (string.IsNullOrEmpty(id))
                 return null;
 
-            var session = await _sessions.Find(s => s.Id == id).FirstOrDefaultAsync();
-            if (session != null || string.IsNullOrWhiteSpace(branchId))
-                return session;
-
-            var legacyId = BuildId(tableNumber, null);
-            return await _sessions.Find(s => s.Id == legacyId).FirstOrDefaultAsync();
+            return await _sessions.Find(s => s.Id == id).FirstOrDefaultAsync();
         }
 
         public async Task<List<TableOrderingSession>> GetAllAsync()

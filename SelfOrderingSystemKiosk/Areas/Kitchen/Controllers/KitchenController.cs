@@ -164,6 +164,12 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 table = table[..32];
 
             var effectiveBranchId = await GetEffectiveKitchenBranchIdAsync(table, branchId);
+            if (string.IsNullOrWhiteSpace(effectiveBranchId))
+            {
+                TempData["ErrorMessage"] = "Choose a branch-specific table before changing availability.";
+                return RedirectToAction("Receipts", new { dateFilter, showArchived });
+            }
+
             if (occupied)
             {
                 await _tableRegistry.UpsertAsync(table, branchId: effectiveBranchId);
@@ -203,6 +209,12 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 table = table[..32];
 
             var effectiveBranchId = await GetEffectiveKitchenBranchIdAsync(table, branchId);
+            if (string.IsNullOrWhiteSpace(effectiveBranchId))
+            {
+                TempData["ErrorMessage"] = "Choose a branch-specific table before opening it.";
+                return RedirectToAction("Receipts", new { dateFilter, showArchived });
+            }
+
             await _tableRegistry.UpsertAsync(table, branchId: effectiveBranchId);
             await _tableOrderingSessions.OpenOrderingAsync(table, effectiveBranchId);
             var activeOrders = (await _orderService.GetOrdersByTableAsync(table, effectiveBranchId))
@@ -246,7 +258,14 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 return RedirectToAction("Receipts", new { dateFilter, showArchived });
             }
 
-            await _tableOrderingSessions.CloseOrderingAsync(table, await GetEffectiveKitchenBranchIdAsync(table, branchId));
+            var effectiveBranchId = await GetEffectiveKitchenBranchIdAsync(table, branchId);
+            if (string.IsNullOrWhiteSpace(effectiveBranchId))
+            {
+                TempData["ErrorMessage"] = "Choose a branch-specific table before closing it.";
+                return RedirectToAction("Receipts", new { dateFilter, showArchived });
+            }
+
+            await _tableOrderingSessions.CloseOrderingAsync(table, effectiveBranchId);
             TempData["SuccessMessage"] = $"Table {table} is now available and QR ordering is disabled.";
             return RedirectToAction("Receipts", new { dateFilter, showArchived });
         }
@@ -935,19 +954,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             if (!string.IsNullOrWhiteSpace(effectiveBranchId))
                 return effectiveBranchId;
 
-            var registeredTable = await _tableRegistry.GetByTableNumberAsync(table);
-            if (!string.IsNullOrWhiteSpace(registeredTable?.BranchId))
-                return registeredTable.BranchId.Trim();
-
-            var latestOrderBranchId = (await _orderService.GetOrdersByTableAsync(table))
-                .Where(o => !string.IsNullOrWhiteSpace(o.BranchId))
-                .OrderByDescending(o => o.OrderDate)
-                .Select(o => o.BranchId.Trim())
-                .FirstOrDefault();
-
-            return string.IsNullOrWhiteSpace(latestOrderBranchId)
-                ? null
-                : latestOrderBranchId;
+            return null;
         }
     }
 }

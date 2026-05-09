@@ -156,6 +156,9 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
             else
             {
+                branch.BranchCode = branch.BranchCode.Trim();
+                await ValidateBranchReferenceDigitAsync(branch.BranchCode);
+
                 var isUnique = await _branchService.IsBranchCodeUniqueAsync(branch.BranchCode);
                 if (!isUnique)
                 {
@@ -166,6 +169,10 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (string.IsNullOrWhiteSpace(branch.BranchName))
             {
                 ModelState.AddModelError("BranchName", "Branch name is required.");
+            }
+            else
+            {
+                branch.BranchName = branch.BranchName.Trim();
             }
 
             if (!ModelState.IsValid)
@@ -209,14 +216,24 @@ namespace SelfOrderingSystemKiosk.Controllers
             {
                 ModelState.AddModelError("BranchCode", "Branch code is required.");
             }
-            else if (!await _branchService.IsBranchCodeUniqueAsync(branch.BranchCode, id))
+            else
             {
-                ModelState.AddModelError("BranchCode", "A branch with this code already exists.");
+                branch.BranchCode = branch.BranchCode.Trim();
+                await ValidateBranchReferenceDigitAsync(branch.BranchCode, id);
+
+                if (!await _branchService.IsBranchCodeUniqueAsync(branch.BranchCode, id))
+                {
+                    ModelState.AddModelError("BranchCode", "A branch with this code already exists.");
+                }
             }
 
             if (string.IsNullOrWhiteSpace(branch.BranchName))
             {
                 ModelState.AddModelError("BranchName", "Branch name is required.");
+            }
+            else
+            {
+                branch.BranchName = branch.BranchName.Trim();
             }
 
             if (!ModelState.IsValid)
@@ -255,11 +272,51 @@ namespace SelfOrderingSystemKiosk.Controllers
             var branch = await _branchService.GetByIdAsync(id);
             if (branch != null)
             {
+                if (!branch.IsActive)
+                {
+                    var activationError = await GetReferenceDigitValidationErrorAsync(branch.BranchCode, id);
+                    if (!string.IsNullOrWhiteSpace(activationError))
+                    {
+                        return Json(new { success = false, message = activationError });
+                    }
+                }
+
                 branch.IsActive = !branch.IsActive;
                 await _branchService.UpdateAsync(branch);
                 return Json(new { success = true, isActive = branch.IsActive });
             }
             return Json(new { success = false, message = "Branch not found." });
+        }
+
+        private async Task ValidateBranchReferenceDigitAsync(string branchCode, string? excludeId = null)
+        {
+            var error = await GetReferenceDigitValidationErrorAsync(branchCode, excludeId);
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                ModelState.AddModelError("BranchCode", error);
+            }
+        }
+
+        private async Task<string?> GetReferenceDigitValidationErrorAsync(string branchCode, string? excludeId = null)
+        {
+            if (!branchCode.Any(char.IsDigit))
+            {
+                return "Branch code must include a reference digit, for example BR001, BR002, or NOVA9. The last digit is used for order references.";
+            }
+
+            var referenceDigit = BranchService.GetReferenceDigit(branchCode);
+            if (!referenceDigit.HasValue)
+            {
+                return "Branch code must include a reference digit, for example BR001, BR002, or NOVA9. The last digit is used for order references.";
+            }
+
+            var existing = await _branchService.GetBranchUsingReferenceDigitAsync(referenceDigit.Value, excludeId);
+            if (existing != null)
+            {
+                return $"Reference digit {referenceDigit.Value} is already used by {existing.BranchName} ({existing.BranchCode}). Choose another digit.";
+            }
+
+            return null;
         }
     }
 

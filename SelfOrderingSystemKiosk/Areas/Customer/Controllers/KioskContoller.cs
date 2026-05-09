@@ -88,16 +88,17 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             {
                 var table = HttpContext.Session.GetString(SessionServiceTable);
                 var floor = HttpContext.Session.GetString(SessionServiceFloor);
-                if (!string.IsNullOrWhiteSpace(table))
-                {
-                    await ResetEndedTableSessionPersonCountAsync(table);
-                    await CheckTableOrderingGateAsync(table);
-                    await RestoreSharedTablePersonCountAsync(table);
-                }
-
                 var branchId = await ResolveOrderBranchIdAsync(table);
                 if (!string.IsNullOrWhiteSpace(branchId))
                     HttpContext.Session.SetString(SessionServiceBranch, branchId);
+
+                if (!string.IsNullOrWhiteSpace(table))
+                {
+                    await ResetEndedTableSessionPersonCountAsync(table, branchId);
+                    await CheckTableOrderingGateAsync(table, branchId);
+                    await RestoreSharedTablePersonCountAsync(table, branchId);
+                }
+
                 var tableSession = !string.IsNullOrWhiteSpace(table)
                     ? await _tableOrderingSessions.GetAsync(table, branchId)
                     : null;
@@ -154,7 +155,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 Response.Cookies.Append(CookiePersonCount, personCount.Value.ToString(), options);
         }
 
-        private async Task ClearRememberedPersonCountAsync(string tableNumber = null)
+        private async Task ClearRememberedPersonCountAsync(string tableNumber = null, string? branchId = null)
         {
             _skipRememberedPersonCountRestore = true;
             HttpContext.Session.Remove(SessionPersonCount);
@@ -162,21 +163,21 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             Response.Cookies.Delete(CookiePersonCount);
             if (!string.IsNullOrWhiteSpace(tableNumber))
             {
-                await _tableOrderingSessions.ClearAsync(tableNumber, await ResolveOrderBranchIdAsync(tableNumber));
+                await _tableOrderingSessions.ClearAsync(tableNumber, await ResolveTableBranchContextAsync(tableNumber, branchId));
                 HttpContext.Session.SetString(SessionEndedTableReset, tableNumber);
             }
         }
 
-        private async Task ResetEndedTableSessionPersonCountAsync(string tableNumber)
+        private async Task ResetEndedTableSessionPersonCountAsync(string tableNumber, string? branchId = null)
         {
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return;
 
-            if (await HasEndedTableSessionReadyForNewSessionAsync(tableNumber))
-                await ClearRememberedPersonCountAsync(tableNumber);
+            if (await HasEndedTableSessionReadyForNewSessionAsync(tableNumber, branchId))
+                await ClearRememberedPersonCountAsync(tableNumber, branchId);
         }
 
-        private async Task RestoreSharedTablePersonCountAsync(string tableNumber)
+        private async Task RestoreSharedTablePersonCountAsync(string tableNumber, string? branchId = null)
         {
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return;
@@ -184,7 +185,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (GetSessionInt(SessionPersonCount) is > 0)
                 return;
 
-            var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+            branchId = await ResolveTableBranchContextAsync(tableNumber, branchId);
             var tableSession = await _tableOrderingSessions.GetAsync(tableNumber, branchId);
             if (tableSession?.PersonCount > 0)
             {
@@ -203,12 +204,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 HttpContext.Session.SetInt32(SessionPersonCount, sharedCount.Value);
         }
 
-        private async Task<int> GetSharedTablePersonCountAsync(string tableNumber)
+        private async Task<int> GetSharedTablePersonCountAsync(string tableNumber, string? branchId = null)
         {
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return 0;
 
-            var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+            branchId = await ResolveTableBranchContextAsync(tableNumber, branchId);
             var tableSession = await _tableOrderingSessions.GetAsync(tableNumber, branchId);
             if (tableSession?.PersonCount > 0)
                 return tableSession.PersonCount;
@@ -223,12 +224,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 .Max();
         }
 
-        private async Task SeedSharedTableSessionFromOrdersAsync(string tableNumber)
+        private async Task SeedSharedTableSessionFromOrdersAsync(string tableNumber, string? branchId = null)
         {
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return;
 
-            var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+            branchId = await ResolveTableBranchContextAsync(tableNumber, branchId);
             if (await _tableOrderingSessions.GetAsync(tableNumber, branchId) != null)
                 return;
 
@@ -251,12 +252,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             await _tableOrderingSessions.SeedFromExistingOrdersAsync(tableNumber, personCount, wingFlavors, branchId);
         }
 
-        private async Task RebuildSharedTableSessionFromOrdersAsync(string tableNumber)
+        private async Task RebuildSharedTableSessionFromOrdersAsync(string tableNumber, string? branchId = null)
         {
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return;
 
-            var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+            branchId = await ResolveTableBranchContextAsync(tableNumber, branchId);
             var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, branchId);
             var openUnlimitedOrders = tableOrders
                 .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
@@ -280,7 +281,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 tableNumber,
                 personCount,
                 wingFlavors,
-                await ResolveOrderBranchIdAsync(tableNumber));
+                branchId);
         }
 
         private static int? GetOrderPersonCount(Order order)
@@ -295,12 +296,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             return null;
         }
 
-        private async Task<bool> HasEndedTableSessionReadyForNewSessionAsync(string tableNumber)
+        private async Task<bool> HasEndedTableSessionReadyForNewSessionAsync(string tableNumber, string? branchId = null)
         {
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return false;
 
-            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, await ResolveOrderBranchIdAsync(tableNumber));
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, await ResolveTableBranchContextAsync(tableNumber, branchId));
             if (!tableOrders.Any())
                 return false;
 
@@ -420,12 +421,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             ViewBag.OrderingSessionExpired = remaining == TimeSpan.Zero;
         }
 
-        private async Task<TableOrderingGateResult> CheckTableOrderingGateAsync(string tableNumber)
+        private async Task<TableOrderingGateResult> CheckTableOrderingGateAsync(string tableNumber, string? branchId = null)
         {
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return TableOrderingGateResult.Allowed();
 
-            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, await ResolveOrderBranchIdAsync(tableNumber));
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, await ResolveTableBranchContextAsync(tableNumber, branchId));
             var latestSession = GetLatestTableSession(tableOrders);
             if (!latestSession.Any())
             {
@@ -741,10 +742,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             RestoreOrderingCookiesToSession();
             var table = HttpContext.Session.GetString(SessionServiceTable);
             if (startNewSession)
-                await ClearRememberedPersonCountAsync(table);
+                await ClearRememberedPersonCountAsync(table, HttpContext.Session.GetString(SessionServiceBranch));
 
             if (!string.IsNullOrWhiteSpace(table))
-                await ResetEndedTableSessionPersonCountAsync(table);
+                await ResetEndedTableSessionPersonCountAsync(table, HttpContext.Session.GetString(SessionServiceBranch));
 
             return View();
         }
@@ -802,8 +803,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             SaveOrderingCookies(table, floor, GetSessionInt(SessionPersonCount), effectiveBranchId);
 
             HttpContext.Session.SetString(SessionDiningType, "DineIn");
-            await ResetEndedTableSessionPersonCountAsync(table);
-            await RestoreSharedTablePersonCountAsync(table);
+            await ResetEndedTableSessionPersonCountAsync(table, effectiveBranchId);
+            await RestoreSharedTablePersonCountAsync(table, effectiveBranchId);
             SaveOrderingCookies(table, floor, GetSessionInt(SessionPersonCount), effectiveBranchId);
             TempData["DiningType"] = "DineIn";
             return RedirectToAction("ChooseExperience");
@@ -905,7 +906,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                         isReorder = false;
                         ViewBag.IsReorder = false;
                         RestoreQrSessionFromOrder(previousOrder);
-                        await ClearRememberedPersonCountAsync(previousOrder.TableNumber);
+                        await ClearRememberedPersonCountAsync(previousOrder.TableNumber, previousOrder.BranchId);
                     }
                     else
                     {
@@ -1046,20 +1047,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     && string.Equals(diningType, "DineIn", StringComparison.OrdinalIgnoreCase)
                     && !IsDefaultServiceTable(tableNumber);
 
-                if (isRealQrTableOrder &&
-                    isUnlimitedOrder &&
-                    await HasEndedTableSessionReadyForNewSessionAsync(tableNumber) &&
-                    !WasEndedTableSessionReset(tableNumber))
-                {
-                    await ClearRememberedPersonCountAsync(tableNumber);
-                    return Json(new
-                    {
-                        success = false,
-                        resetPersonCount = true,
-                        message = "The previous table session has ended. Please enter the number of persons for this new session."
-                    });
-                }
-
                 var branchId = await ResolveOrderBranchIdAsync(tableNumber);
                 if (string.IsNullOrWhiteSpace(branchId))
                 {
@@ -1070,6 +1057,20 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     });
                 }
 
+                if (isRealQrTableOrder &&
+                    isUnlimitedOrder &&
+                    await HasEndedTableSessionReadyForNewSessionAsync(tableNumber, branchId) &&
+                    !WasEndedTableSessionReset(tableNumber))
+                {
+                    await ClearRememberedPersonCountAsync(tableNumber, branchId);
+                    return Json(new
+                    {
+                        success = false,
+                        resetPersonCount = true,
+                        message = "The previous table session has ended. Please enter the number of persons for this new session."
+                    });
+                }
+
                 SaveOrderingCookies(
                     isRealQrTableOrder ? tableNumber : null,
                     isRealQrTableOrder ? floor : null,
@@ -1077,7 +1078,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     branchId);
 
                 var tableGate = isRealQrTableOrder && isUnlimitedOrder
-                    ? await CheckTableOrderingGateAsync(tableNumber)
+                    ? await CheckTableOrderingGateAsync(tableNumber, branchId)
                     : TableOrderingGateResult.Allowed();
                 if (!tableGate.CanOrder)
                 {
@@ -1089,7 +1090,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 }
 
                 if (isRealQrTableOrder && isUnlimitedOrder)
-                    await SeedSharedTableSessionFromOrdersAsync(tableNumber);
+                    await SeedSharedTableSessionFromOrdersAsync(tableNumber, branchId);
 
                 if (isUnlimitedOrder)
                 {
@@ -1101,7 +1102,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                         tableNumber,
                         personCount.Value,
                         validation.UnlimitedWingFlavors,
-                        await ResolveOrderBranchIdAsync(tableNumber));
+                        branchId);
                         if (!reservation.Success)
                             return Json(new { success = false, message = reservation.Message });
 
@@ -1184,11 +1185,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
             RestoreOrderingCookiesToSession();
             var table = HttpContext.Session.GetString(SessionServiceTable);
+            var branchId = HttpContext.Session.GetString(SessionServiceBranch);
             if (!string.IsNullOrWhiteSpace(table) &&
-                await HasEndedTableSessionReadyForNewSessionAsync(table) &&
+                await HasEndedTableSessionReadyForNewSessionAsync(table, branchId) &&
                 !WasEndedTableSessionReset(table))
             {
-                await ClearRememberedPersonCountAsync(table);
+                await ClearRememberedPersonCountAsync(table, branchId);
                 return Json(new
                 {
                     success = false,
@@ -1199,7 +1201,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
             if (!string.IsNullOrWhiteSpace(table))
             {
-                var branchId = HttpContext.Session.GetString(SessionServiceBranch);
                 var existingSession = await _tableOrderingSessions.GetAsync(table, branchId);
                 var openUnlimitedOrders = (await _orderService.GetOrdersByTableAsync(table, branchId))
                     .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
@@ -1321,6 +1322,17 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     return Json(new { success = false, message = "Quick reorder is only available for Unlimited orders." });
                 if (anchorOrder.BillArchived || IsOrderingSessionExpired(anchorOrder))
                     return Json(new { success = false, sessionEnded = true, message = "This unlimited ordering session has ended." });
+                RestoreQrSessionFromOrder(anchorOrder);
+
+                var branchId = anchorOrder.BranchId?.Trim();
+                if (string.IsNullOrWhiteSpace(branchId))
+                {
+                    return Json(new
+                    {
+                        success = false,
+                        message = "Branch is not selected for this order. Please open the kiosk using the correct branch link or scan a branch table QR code."
+                    });
+                }
 
                 var validation = await ValidateSubmittedItemsAsync(items, true);
                 if (!validation.Success)
@@ -1333,19 +1345,19 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     && string.Equals(anchorOrder.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase);
 
                 var personCount = isRealQrTableOrder
-                    ? await GetSharedTablePersonCountAsync(tableNumber)
+                    ? await GetSharedTablePersonCountAsync(tableNumber, branchId)
                     : GetOrderPersonCount(anchorOrder) ?? 0;
                 if (personCount <= 0)
                     return Json(new { success = false, message = "Unable to find the person count for this unlimited session." });
 
                 var tableGate = isRealQrTableOrder
-                    ? await CheckTableOrderingGateAsync(tableNumber)
+                    ? await CheckTableOrderingGateAsync(tableNumber, branchId)
                     : TableOrderingGateResult.Allowed();
                 if (!tableGate.CanOrder)
                     return Json(new { success = false, message = tableGate.Message });
 
                 if (isRealQrTableOrder)
-                    await SeedSharedTableSessionFromOrdersAsync(tableNumber);
+                    await SeedSharedTableSessionFromOrdersAsync(tableNumber, branchId);
 
                 var chargeablePersonCount = 0;
                 if (isRealQrTableOrder)
@@ -1354,7 +1366,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                         tableNumber,
                         personCount,
                         validation.UnlimitedWingFlavors,
-                        await ResolveOrderBranchIdAsync(tableNumber));
+                        branchId);
                     if (!reservation.Success)
                         return Json(new { success = false, message = reservation.Message });
 
@@ -1365,15 +1377,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 const decimal pricePerHead = 477m;
                 var alaCarteAddOnSubtotal = validation.Items.Sum(i => i.Price * i.Quantity);
                 var subtotal = (chargeablePersonCount * pricePerHead) + alaCarteAddOnSubtotal;
-                var branchId = await ResolveOrderBranchIdAsync(tableNumber);
-                if (string.IsNullOrWhiteSpace(branchId))
-                {
-                    return Json(new
-                    {
-                        success = false,
-                        message = "Branch is not selected for this order. Please open the kiosk using the correct branch link or scan a branch table QR code."
-                    });
-                }
 
                 var order = new Order
                 {
@@ -1435,6 +1438,14 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             return registeredTable?.BranchId ?? string.Empty;
         }
 
+        private async Task<string> ResolveTableBranchContextAsync(string? tableNumber, string? branchId = null)
+        {
+            if (!string.IsNullOrWhiteSpace(branchId))
+                return branchId.Trim();
+
+            return await ResolveOrderBranchIdAsync(tableNumber);
+        }
+
         private async Task<string> ResolveQrBranchIdAsync(string tableNumber, string? branchId)
         {
             if (!string.IsNullOrWhiteSpace(branchId))
@@ -1473,7 +1484,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 if (order.BillArchived)
                 {
                     HttpContext.Session.Remove(SessionFirstOrderTime);
-                    await ClearRememberedPersonCountAsync(order.TableNumber);
+                    await ClearRememberedPersonCountAsync(order.TableNumber, order.BranchId);
                     return Json(new
                     {
                         hasSession = false,
@@ -1490,7 +1501,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 if (!string.IsNullOrWhiteSpace(order.TableNumber) &&
                     string.Equals(order.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase))
                 {
-                    await CheckTableOrderingGateAsync(order.TableNumber);
+                    await CheckTableOrderingGateAsync(order.TableNumber, order.BranchId);
                 }
                 else if (orderSessionStart.HasValue)
                 {
@@ -1507,9 +1518,9 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             {
                 var table = HttpContext.Session.GetString(SessionServiceTable);
                 if (!string.IsNullOrWhiteSpace(table) &&
-                    await HasEndedTableSessionReadyForNewSessionAsync(table))
+                    await HasEndedTableSessionReadyForNewSessionAsync(table, HttpContext.Session.GetString(SessionServiceBranch)))
                 {
-                    await ClearRememberedPersonCountAsync(table);
+                    await ClearRememberedPersonCountAsync(table, HttpContext.Session.GetString(SessionServiceBranch));
                     return Json(new
                     {
                         hasSession = false,
@@ -1521,8 +1532,9 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
                 if (!string.IsNullOrWhiteSpace(table))
                 {
-                    await CheckTableOrderingGateAsync(table);
-                    await RestoreSharedTablePersonCountAsync(table);
+                    var branchId = HttpContext.Session.GetString(SessionServiceBranch);
+                    await CheckTableOrderingGateAsync(table, branchId);
+                    await RestoreSharedTablePersonCountAsync(table, branchId);
                 }
             }
 
@@ -1639,7 +1651,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     string.Equals(order.OrderChannel, OrderChannelQr, StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrWhiteSpace(order.TableNumber))
                 {
-                    await RebuildSharedTableSessionFromOrdersAsync(order.TableNumber);
+                    await RebuildSharedTableSessionFromOrdersAsync(order.TableNumber, order.BranchId);
                 }
 
                 return Json(new { success = true, message = "Order cancelled successfully" });

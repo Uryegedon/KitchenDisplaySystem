@@ -45,6 +45,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             ViewData["Title"] = "Create User";
             ViewBag.Roles = GetUserRoles();
             await PopulateBranchesAsync();
+            ModelState.Remove(nameof(AdminUser.Id));
+            NormalizeOptionalEmail(user);
 
             // Validate username uniqueness
             if (!await _userService.IsUsernameUniqueAsync(user.Username))
@@ -119,6 +121,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             ModelState.Remove(nameof(AdminUser.Id));
             ModelState.Remove(nameof(AdminUser.Password));
+            NormalizeOptionalEmail(user);
 
             if (id != user.Id)
             {
@@ -327,6 +330,18 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
 
             user.BranchId = branch.Id;
+        }
+
+        private void NormalizeOptionalEmail(AdminUser user)
+        {
+            if (!string.IsNullOrWhiteSpace(user.Email))
+            {
+                user.Email = user.Email.Trim();
+                return;
+            }
+
+            user.Email = string.Empty;
+            ModelState.Remove(nameof(AdminUser.Email));
         }
     }
 

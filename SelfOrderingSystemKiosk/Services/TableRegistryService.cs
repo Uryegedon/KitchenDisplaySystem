@@ -38,8 +38,7 @@ namespace SelfOrderingSystemKiosk.Services
                 return matches.Count == 1 ? matches[0] : null;
             }
 
-            var legacyId = BuildId(tableNumber, null);
-            return await _tables.Find(t => t.Id == legacyId).FirstOrDefaultAsync();
+            return null;
         }
 
         public async Task<RestaurantTable?> GetByQrTokenAsync(string qrToken)

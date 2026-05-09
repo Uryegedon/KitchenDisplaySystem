@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using SelfOrderingSystemKiosk.Models;
 
@@ -7,8 +8,11 @@ namespace SelfOrderingSystemKiosk.Services
     public class MenuItemService
     {
         private readonly IMongoCollection<MenuItem> _collection;
+        private readonly IMongoCollection<BsonDocument> _rawCollection;
         private readonly IngredientStockService _ingredients;
         private readonly ILogger<MenuItemService> _logger;
+        private readonly SemaphoreSlim _branchFieldNormalizeLock = new(1, 1);
+        private bool _branchFieldsNormalized;
 
         public MenuItemService(
             IMongoClient mongoClient,
@@ -18,7 +22,9 @@ namespace SelfOrderingSystemKiosk.Services
         {
             var dbName = config["KitchenDatabase:DatabaseName"] ?? "Kitchen";
             var collectionName = config["KitchenDatabase:MenuItemsCollectionName"] ?? "MenuItems";
-            _collection = mongoClient.GetDatabase(dbName).GetCollection<MenuItem>(collectionName);
+            var database = mongoClient.GetDatabase(dbName);
+            _collection = database.GetCollection<MenuItem>(collectionName);
+            _rawCollection = database.GetCollection<BsonDocument>(collectionName);
             _ingredients = ingredients;
             _logger = logger;
         }
@@ -31,6 +37,8 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task<List<MenuItem>> GetAllAsync()
         {
+            await NormalizeLegacyBranchFieldAsync();
+
             var validItemFilter = Builders<MenuItem>.Filter.And(
                 Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
                 Builders<MenuItem>.Filter.Ne(x => x.Item, ""));
@@ -45,6 +53,8 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task<List<MenuItem>> GetAvailableAsync()
         {
+            await NormalizeLegacyBranchFieldAsync();
+
             var availableOrUnset = Builders<MenuItem>.Filter.Or(
                 Builders<MenuItem>.Filter.Eq(x => x.Availability, (string)null!),
                 Builders<MenuItem>.Filter.Eq(x => x.Availability, ""),
@@ -64,11 +74,16 @@ namespace SelfOrderingSystemKiosk.Services
                 .ToList();
         }
 
-        public async Task<MenuItem?> GetByIdAsync(string id) =>
-            await _collection.Find(x => x.Id == id).FirstOrDefaultAsync();
+        public async Task<MenuItem?> GetByIdAsync(string id)
+        {
+            await NormalizeLegacyBranchFieldAsync();
+            return await _collection.Find(x => x.Id == id).FirstOrDefaultAsync();
+        }
 
         public async Task AddAsync(MenuItem item)
         {
+            item.BranchId = item.BranchId?.Trim() ?? string.Empty;
+
             if (string.Equals(item.Category, "Unavailable", StringComparison.Ordinal))
                 item.Availability = "Unavailable";
             else if (string.IsNullOrEmpty(item.Availability))
@@ -79,6 +94,8 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task<bool> UpdateAsync(MenuItem item)
         {
+            item.BranchId = item.BranchId?.Trim() ?? string.Empty;
+
             if (string.Equals(item.Category, "Unavailable", StringComparison.Ordinal))
                 item.Availability = "Unavailable";
             else if (string.IsNullOrEmpty(item.Availability))
@@ -96,7 +113,9 @@ namespace SelfOrderingSystemKiosk.Services
                 .Set(x => x.Status, item.Status)
                 .Set(x => x.Availability, item.Availability)
                 .Set(x => x.Image, item.Image)
-                .Set(x => x.Recipe, item.Recipe);
+                .Set(x => x.Recipe, item.Recipe)
+                .Set(x => x.BranchId, item.BranchId)
+                .Unset("branchId");
 
             var result = await _collection.UpdateOneAsync(x => x.Id == item.Id, update);
             return result.MatchedCount > 0;
@@ -113,12 +132,16 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task<MenuItem?> GetByNameAsync(string itemName, string? branchId = null)
         {
+            await NormalizeLegacyBranchFieldAsync();
+
             if (string.IsNullOrWhiteSpace(branchId))
                 return await _collection.Find(x => x.Item == itemName).FirstOrDefaultAsync();
 
             var trimmedBranchId = branchId.Trim();
             var branchItem = await _collection
-                .Find(x => x.Item == itemName && x.BranchId == trimmedBranchId)
+                .Find(Builders<MenuItem>.Filter.And(
+                    Builders<MenuItem>.Filter.Eq(x => x.Item, itemName),
+                    BranchRecordFilter(trimmedBranchId)))
                 .FirstOrDefaultAsync();
             if (branchItem != null)
                 return branchItem;
@@ -511,10 +534,77 @@ namespace SelfOrderingSystemKiosk.Services
 
         private static FilterDefinition<MenuItem> SharedBranchFilter()
         {
-            return Builders<MenuItem>.Filter.Or(
-                Builders<MenuItem>.Filter.Eq(i => i.BranchId, (string)null!),
-                Builders<MenuItem>.Filter.Eq(i => i.BranchId, string.Empty),
-                Builders<MenuItem>.Filter.Not(Builders<MenuItem>.Filter.Exists(i => i.BranchId)));
+            var filter = Builders<MenuItem>.Filter;
+            return filter.Or(
+                filter.Eq("BranchId", BsonNull.Value),
+                filter.Eq("BranchId", string.Empty),
+                filter.Not(filter.Exists("BranchId")));
+        }
+
+        private static FilterDefinition<MenuItem> BranchRecordFilter(string branchId)
+        {
+            return Builders<MenuItem>.Filter.Eq("BranchId", branchId);
+        }
+
+        private async Task NormalizeLegacyBranchFieldAsync()
+        {
+            if (_branchFieldsNormalized)
+                return;
+
+            await _branchFieldNormalizeLock.WaitAsync();
+            try
+            {
+                if (_branchFieldsNormalized)
+                    return;
+
+                var filter = Builders<BsonDocument>.Filter.Exists("branchId");
+                var docs = await _rawCollection.Find(filter)
+                    .Project(Builders<BsonDocument>.Projection
+                        .Include("_id")
+                        .Include("BranchId")
+                        .Include("branchId"))
+                    .ToListAsync();
+
+                foreach (var doc in docs)
+                {
+                    var legacyBranchId = doc.GetValue("branchId", BsonNull.Value);
+                    var hasCanonicalBranchId = doc.TryGetValue("BranchId", out var canonicalBranchId)
+                        && !canonicalBranchId.IsBsonNull
+                        && !string.IsNullOrWhiteSpace(canonicalBranchId.ToString());
+
+                    var update = Builders<BsonDocument>.Update.Unset("branchId");
+                    if (!hasCanonicalBranchId && !legacyBranchId.IsBsonNull)
+                        update = update.Set("BranchId", legacyBranchId.IsString ? legacyBranchId.AsString.Trim() : legacyBranchId.ToString());
+
+                    await _rawCollection.UpdateOneAsync(
+                        Builders<BsonDocument>.Filter.Eq("_id", doc["_id"]),
+                        update);
+                }
+
+                _branchFieldsNormalized = true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to normalize legacy menu item branch fields.");
+            }
+            finally
+            {
+                _branchFieldNormalizeLock.Release();
+            }
+        }
+
+        private static List<MenuItem> PreferBranchItems(IEnumerable<MenuItem> items, string? branchId)
+        {
+            var trimmedBranchId = branchId?.Trim();
+            return items
+                .Where(i => !string.IsNullOrWhiteSpace(i.Item))
+                .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(g => g
+                    .OrderByDescending(i => !string.IsNullOrWhiteSpace(trimmedBranchId) &&
+                        string.Equals(i.BranchId, trimmedBranchId, StringComparison.OrdinalIgnoreCase))
+                    .ThenBy(i => string.IsNullOrWhiteSpace(i.BranchId) ? 1 : 0)
+                    .First())
+                .ToList();
         }
 
         private static bool IsChickenWingMenu(string? name)
@@ -618,6 +708,8 @@ namespace SelfOrderingSystemKiosk.Services
         /// </summary>
         public async Task<List<MenuItem>> GetAllByBranchAsync(string? branchId)
         {
+            await NormalizeLegacyBranchFieldAsync();
+
             var validItemFilter = Builders<MenuItem>.Filter.And(
                 Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
                 Builders<MenuItem>.Filter.Ne(x => x.Item, ""));
@@ -636,11 +728,12 @@ namespace SelfOrderingSystemKiosk.Services
             var branchFilter = Builders<MenuItem>.Filter.And(
                 validItemFilter,
                 Builders<MenuItem>.Filter.Or(
-                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, branchId),
+                    BranchRecordFilter(branchId),
                     SharedBranchFilter()
                 )
             );
             var branchItems = await _collection.Find(branchFilter).ToListAsync();
+            branchItems = PreferBranchItems(branchItems, branchId);
             return branchItems
                 .OrderBy(i => IsAvailableForCustomerMenu(i.Availability) ? 0 : 1)
                 .ThenByDescending(i => i.MenuOrder)
@@ -653,6 +746,8 @@ namespace SelfOrderingSystemKiosk.Services
         /// </summary>
         public async Task<List<MenuItem>> GetAvailableByBranchAsync(string? branchId)
         {
+            await NormalizeLegacyBranchFieldAsync();
+
             var availableOrUnset = Builders<MenuItem>.Filter.Or(
                 Builders<MenuItem>.Filter.Eq(x => x.Availability, (string)null!),
                 Builders<MenuItem>.Filter.Eq(x => x.Availability, ""),
@@ -679,12 +774,13 @@ namespace SelfOrderingSystemKiosk.Services
                 validItemFilter,
                 availableOrUnset,
                 Builders<MenuItem>.Filter.Or(
-                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, branchId),
+                    BranchRecordFilter(branchId),
                     SharedBranchFilter()
                 )
             );
             var branchItems = await _collection.Find(branchFilter).ToListAsync();
             branchItems = await FilterCurrentlyStockedAsync(branchItems);
+            branchItems = PreferBranchItems(branchItems, branchId);
             return branchItems
                 .OrderByDescending(i => i.MenuOrder)
                 .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
@@ -696,6 +792,8 @@ namespace SelfOrderingSystemKiosk.Services
         /// </summary>
         public async Task<long> GetCountByBranchAsync(string? branchId)
         {
+            await NormalizeLegacyBranchFieldAsync();
+
             var validItemFilter = Builders<MenuItem>.Filter.And(
                 Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
                 Builders<MenuItem>.Filter.Ne(x => x.Item, ""));
@@ -708,7 +806,7 @@ namespace SelfOrderingSystemKiosk.Services
             var filter = Builders<MenuItem>.Filter.And(
                 validItemFilter,
                 Builders<MenuItem>.Filter.Or(
-                    Builders<MenuItem>.Filter.Eq(i => i.BranchId, branchId),
+                    BranchRecordFilter(branchId),
                     SharedBranchFilter()
                 )
             );

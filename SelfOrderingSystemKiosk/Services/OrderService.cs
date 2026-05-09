@@ -9,10 +9,6 @@ namespace SelfOrderingSystemKiosk.Services
     {
         private const string PendingStatus = "Pending";
         private const string CanceledStatus = "Canceled";
-        private static readonly Dictionary<string, char> BranchDigitOverrides = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["69fd9dc484fd8e2bd6aba7a5"] = '9'
-        };
         private static readonly TimeSpan PendingOrderExpiration = TimeSpan.FromHours(24);
         private readonly IMongoCollection<Order> _orders;
         private readonly IMongoCollection<Branch> _branches;
@@ -64,11 +60,11 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task<string> CreateUniqueOrderNumberAsync(string? tableNumber = null, string? branchId = null, CancellationToken cancellationToken = default)
         {
             var prefix = await BuildOrderNumberPrefixAsync(tableNumber, branchId, cancellationToken);
-            var nextBase = await GetNextSequentialOrderNumberAsync(branchId, prefix, cancellationToken);
+            var nextBase = await GetNextSequentialOrderNumberAsync(prefix, cancellationToken);
             for (var attempt = 0; attempt < 100 && nextBase <= 9999; attempt++)
             {
                 var candidate = $"{prefix}{nextBase:D4}";
-                var count = await CountOrderNumberAsync(candidate, branchId, cancellationToken);
+                var count = await CountOrderNumberAsync(candidate, cancellationToken);
                 if (count == 0)
                     return candidate;
 
@@ -78,28 +74,19 @@ namespace SelfOrderingSystemKiosk.Services
             throw new InvalidOperationException($"Order number sequence is full for prefix {prefix}.");
         }
 
-        private async Task<int> GetNextSequentialOrderNumberAsync(string? branchId, string prefix, CancellationToken cancellationToken)
+        private async Task<int> GetNextSequentialOrderNumberAsync(string prefix, CancellationToken cancellationToken)
         {
             var filter = Builders<Order>.Filter.And(
                 Builders<Order>.Filter.Ne(o => o.OrderNumber, null),
                 Builders<Order>.Filter.Ne(o => o.OrderNumber, ""),
                 Builders<Order>.Filter.Regex(o => o.OrderNumber, new MongoDB.Bson.BsonRegularExpression($"^{prefix}\\d{{4}}$")));
 
-            if (!string.IsNullOrWhiteSpace(branchId))
-                filter &= Builders<Order>.Filter.Eq(o => o.BranchId, branchId.Trim());
-
-            var latestOrders = await _orders
+            var latestOrder = await _orders
                 .Find(filter)
-                .SortByDescending(o => o.OrderDate)
-                .Limit(250)
-                .ToListAsync(cancellationToken);
+                .SortByDescending(o => o.OrderNumber)
+                .FirstOrDefaultAsync(cancellationToken);
 
-            var max = latestOrders
-                .Select(o => GetSequenceSuffix(o.OrderNumber))
-                .DefaultIfEmpty(0)
-                .Max();
-
-            return Math.Clamp(max + 1, 1, 9999);
+            return Math.Clamp(GetSequenceSuffix(latestOrder?.OrderNumber) + 1, 1, 9999);
         }
 
         private async Task<string> BuildOrderNumberPrefixAsync(string? tableNumber, string? branchId, CancellationToken cancellationToken)
@@ -114,38 +101,11 @@ namespace SelfOrderingSystemKiosk.Services
             if (string.IsNullOrWhiteSpace(branchId))
                 return '0';
 
-            var trimmedBranchId = branchId.Trim();
-            if (BranchDigitOverrides.TryGetValue(trimmedBranchId, out var overriddenDigit))
-                return overriddenDigit;
-
             var branch = await _branches
-                .Find(b => b.Id == trimmedBranchId)
+                .Find(b => b.Id == branchId.Trim())
                 .FirstOrDefaultAsync(cancellationToken);
 
-            var branchDigit = branch?.BranchCode?.FirstOrDefault(char.IsDigit);
-            if (branchDigit is not null and not '\0')
-                return branchDigit.Value;
-
-            var branchNameDigit = branch?.BranchName?.FirstOrDefault(char.IsDigit);
-            if (branchNameDigit is not null and not '\0')
-                return branchNameDigit.Value;
-
-            var namedBranchDigit = ResolveNamedBranchDigit(branch);
-            if (namedBranchDigit.HasValue)
-                return namedBranchDigit.Value;
-
-            return '0';
-        }
-
-        private static char? ResolveNamedBranchDigit(Branch? branch)
-        {
-            var name = $"{branch?.BranchCode} {branch?.BranchName}";
-            if (name.Contains("main", StringComparison.OrdinalIgnoreCase))
-                return '1';
-            if (name.Contains("nova", StringComparison.OrdinalIgnoreCase))
-                return '9';
-
-            return null;
+            return BranchService.GetEffectiveReferenceDigit(branch) ?? '0';
         }
 
         private static char ResolveTableDigit(string? tableNumber)
@@ -169,12 +129,9 @@ namespace SelfOrderingSystemKiosk.Services
             return int.Parse(trimmed[2..]);
         }
 
-        private async Task<long> CountOrderNumberAsync(string orderNumber, string? branchId, CancellationToken cancellationToken)
+        private async Task<long> CountOrderNumberAsync(string orderNumber, CancellationToken cancellationToken)
         {
             var filter = Builders<Order>.Filter.Eq(o => o.OrderNumber, orderNumber);
-            if (!string.IsNullOrWhiteSpace(branchId))
-                filter &= Builders<Order>.Filter.Eq(o => o.BranchId, branchId.Trim());
-
             return await _orders.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
         }
 

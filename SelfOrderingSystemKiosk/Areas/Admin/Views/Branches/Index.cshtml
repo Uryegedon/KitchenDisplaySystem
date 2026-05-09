@@ -1,7 +1,13 @@
 @model IEnumerable<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch>
+@using SelfOrderingSystemKiosk.Services
 @{
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     var branches = Model?.ToList() ?? new List<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch>();
+    var referenceDigitCounts = branches
+        .Select(BranchService.GetEffectiveReferenceDigit)
+        .Where(d => d.HasValue)
+        .GroupBy(d => d!.Value)
+        .ToDictionary(g => g.Key, g => g.Count());
 }
 
 <div class="branches-container">
@@ -31,11 +37,24 @@
         <div class="branches-grid">
             @foreach (var branch in branches)
             {
+                var referenceDigit = BranchService.GetEffectiveReferenceDigit(branch);
+                var hasReferenceConflict = referenceDigit.HasValue
+                    && referenceDigitCounts.TryGetValue(referenceDigit.Value, out var referenceCount)
+                    && referenceCount > 1;
+                var hasInvalidBranchCode = !branch.BranchCode.Any(char.IsDigit);
                 <div class="branch-card @(branch.IsActive ? "" : "branch-inactive")">
                     <div class="branch-card-header">
                         <div>
                             <h3>@branch.BranchName</h3>
                             <span class="branch-code">@branch.BranchCode</span>
+                            @if (referenceDigit.HasValue)
+                            {
+                                <span class="reference-digit">Ref @($"{referenceDigit.Value}xxxxx")</span>
+                            }
+                            @if (hasInvalidBranchCode || hasReferenceConflict)
+                            {
+                                <span class="reference-warning">Fix reference digit</span>
+                            }
                         </div>
                         <span class="status-badge @(branch.IsActive ? "status-active" : "status-inactive")">
                             @(branch.IsActive ? "Active" : "Inactive")
@@ -230,6 +249,25 @@
             font-size: 0.85rem;
             color: #e67e22;
             font-family: monospace;
+        }
+
+        .reference-digit {
+            display: inline-flex;
+            margin-left: 8px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: #eef7ff;
+            color: #21618c;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+
+        .reference-warning {
+            display: block;
+            margin-top: 6px;
+            color: #c0392b;
+            font-size: 0.78rem;
+            font-weight: 700;
         }
 
         .status-badge {
