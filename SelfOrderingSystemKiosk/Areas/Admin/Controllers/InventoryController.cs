@@ -11,13 +11,15 @@ namespace SelfOrderingSystemKiosk.Controllers
     public class InventoryController : Controller
     {
         private readonly IngredientStockService _ingredients;
+        private readonly MenuItemService _menuItems;
         private readonly IngredientCategoryRegistry _ingredientCategories;
         private readonly BranchService _branchService;
         private readonly StockMovementService _stockMovements;
 
-        public InventoryController(IngredientStockService ingredients, IngredientCategoryRegistry ingredientCategories, BranchService branchService, StockMovementService stockMovements)
+        public InventoryController(IngredientStockService ingredients, MenuItemService menuItems, IngredientCategoryRegistry ingredientCategories, BranchService branchService, StockMovementService stockMovements)
         {
             _ingredients = ingredients;
+            _menuItems = menuItems;
             _ingredientCategories = ingredientCategories;
             _branchService = branchService;
             _stockMovements = stockMovements;
@@ -93,7 +95,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             var todayLocal = DateTime.Today;
             var startUtc = todayLocal.ToUniversalTime();
             var endUtc = todayLocal.AddDays(1).ToUniversalTime();
-            var movements = await _stockMovements.GetForInventoryItemsAsync(items.Select(i => i.Id), startUtc, endUtc);
+            var movements = await _stockMovements.GetForInventoryItemsAsync(items.Select(i => i.Id), startUtc, endUtc, User.GetBranchId());
             var byItem = movements
                 .GroupBy(m => m.InventoryItemId ?? "", StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.OrderBy(m => m.TimestampUtc).ToList(), StringComparer.OrdinalIgnoreCase);
@@ -131,7 +133,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             List<string> unit,
             List<int> reorderLevel,
             List<decimal> costPerUnit,
-            List<DateTime?> expirationDate)
+            List<DateTime?> expirationDate,
+            string? branchFilter = null)
         {
             var rows = item
                 .Select((name, index) => new
@@ -159,7 +162,22 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
                 return Forbid();
 
-            var allItems = await _ingredients.GetAllByBranchAsync(userBranchId);
+            var effectiveBranchId = isOwner && !string.IsNullOrWhiteSpace(branchFilter)
+                ? branchFilter.Trim()
+                : userBranchId;
+
+            if (isOwner && string.IsNullOrWhiteSpace(effectiveBranchId))
+            {
+                TempData["Message"] = "Choose a branch before adding ingredients.";
+                return RedirectToAction("Index");
+            }
+            if (isOwner && await _branchService.GetByIdAsync(effectiveBranchId!) == null)
+            {
+                TempData["Message"] = "Choose a valid branch before adding ingredients.";
+                return RedirectToAction("Index");
+            }
+
+            var allItems = await _ingredients.GetAllByBranchAsync(effectiveBranchId);
             var existingNames = allItems
                 .Select(i => i.Item ?? "")
                 .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -198,11 +216,13 @@ namespace SelfOrderingSystemKiosk.Controllers
                     ReorderLevel = Math.Max(0, row.ReorderLevel),
                     CostPerUnit = Math.Max(0m, row.CostPerUnit),
                     ExpirationDate = row.ExpirationDate,
-                    BranchId = isOwner ? string.Empty : userBranchId ?? string.Empty // Owner/Admin creates shared items; managers create branch-specific
+                    BranchId = effectiveBranchId ?? string.Empty
                 };
 
                 await _ingredients.AddAsync(newItem);
+                await _menuItems.SyncAvailabilityForIngredientAsync(newItem.Id);
             }
+            await _menuItems.SeedRecipesFromMenuItemNamesAsync();
 
             TempData["Message"] = rows.Count == 1
                 ? "Ingredient added!"
@@ -264,6 +284,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             existing.ExpirationDate = expirationDate;
 
             await _ingredients.UpdateAsync(existing);
+            await _menuItems.SeedRecipesFromMenuItemNamesAsync();
+            await _menuItems.SyncAvailabilityForIngredientAsync(existing.Id);
             TempData["Message"] = $"Ingredient '{existing.Item}' updated.";
             return RedirectToAction("Index");
         }
@@ -288,6 +310,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 quantity,
                 note,
                 User.Identity?.Name ?? "Owner");
+            await _menuItems.SyncAvailabilityForIngredientAsync(sourceIngredientId);
 
             TempData["Message"] = result.Message;
             return RedirectToAction("Transfer");
@@ -349,6 +372,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 string.IsNullOrWhiteSpace(batchNote)
                     ? $"Restock by {amount} units"
                     : $"Restock by {amount} units - Batch/Delivery: {batchNote.Trim()}");
+            await _menuItems.SyncAvailabilityForIngredientAsync(item.Id);
 
             TempData["Message"] = string.IsNullOrWhiteSpace(batchNote)
                 ? $"Restocked '{item.Item}' by {amount} units."
@@ -391,6 +415,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 previousStock,
                 item.CurrentStock,
                 "Stock cleared to 0");
+            await _menuItems.SyncAvailabilityForIngredientAsync(item.Id);
 
             TempData["Message"] = $"Stock for '{item.Item}' was cleared to 0.";
             return RedirectToAction("Index");

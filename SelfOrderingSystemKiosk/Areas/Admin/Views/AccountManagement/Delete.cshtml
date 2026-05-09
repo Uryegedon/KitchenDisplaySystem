@@ -1,6 +1,12 @@
 @model SelfOrderingSystemKiosk.Models.AdminUser
 @{
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+    var branchNames = ViewBag.BranchNames as Dictionary<string, string> ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var branchDisplay = string.IsNullOrEmpty(Model.BranchId)
+        ? "All Branches"
+        : branchNames.TryGetValue(Model.BranchId, out var branchName)
+            ? branchName
+            : $"Unknown Branch ({Model.BranchId})";
 }
 
 <div class="user-delete-container">
@@ -31,7 +37,7 @@
                 </div>
                 <div class="meta-item">
                     <i class="bi bi-diagram-3"></i>
-                    <span>@(string.IsNullOrEmpty(Model.BranchId) ? "All Branches" : Model.BranchId)</span>
+                    <span>@branchDisplay</span>
                 </div>
             </div>
         </div>

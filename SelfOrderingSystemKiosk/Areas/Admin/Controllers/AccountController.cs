@@ -25,6 +25,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
 
         [HttpGet]
+        [AllowAnonymous]
         public IActionResult Login()
         {
             // If user is already authenticated, redirect to appropriate dashboard
@@ -44,6 +45,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [AllowAnonymous]
         public async Task<IActionResult> Login(AdminUser user)
         {
             if (user == null || string.IsNullOrEmpty(user.Username) || string.IsNullOrEmpty(user.Password))
@@ -94,18 +96,21 @@ namespace SelfOrderingSystemKiosk.Controllers
 
 
         [HttpGet]
+        [AllowAnonymous]
         public IActionResult AccessDenied()
         {
             return View();
         }
 
         [HttpGet]
+        [AllowAnonymous]
         public IActionResult ForgotPassword()
         {
             return View();
         }
 
         [HttpPost]
+        [AllowAnonymous]
         public IActionResult ForgotPassword(string email)
         {
             if (string.IsNullOrEmpty(email))
@@ -118,6 +123,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             return View();
         }
 
+        [Authorize]
         public async Task<IActionResult> Logout()
         {
             HttpContext.Session.Clear();
@@ -125,14 +131,14 @@ namespace SelfOrderingSystemKiosk.Controllers
             return RedirectToAction("Login", "Account");
         }
 
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Owner")]
         [HttpGet]
         public IActionResult Signup()
         {
             return View();
         }
 
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Owner")]
         [HttpPost]
         public async Task<IActionResult> Signup(AdminUser user)
         {

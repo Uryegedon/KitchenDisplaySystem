@@ -131,7 +131,15 @@ namespace SelfOrderingSystemKiosk.Services
         {
             PrepareUserForSave(user, generateId: false);
             var filter = Builders<AdminUser>.Filter.Eq(u => u.Id, user.Id);
-            await _users.ReplaceOneAsync(filter, user);
+            var update = Builders<AdminUser>.Update
+                .Set(u => u.Username, user.Username)
+                .Set(u => u.FullName, user.FullName)
+                .Set(u => u.Email, user.Email)
+                .Set(u => u.Role, user.Role)
+                .Set(u => u.BranchId, user.BranchId)
+                .Set(u => u.Password, user.Password);
+
+            await _users.UpdateOneAsync(filter, update);
         }
 
         /// <summary>

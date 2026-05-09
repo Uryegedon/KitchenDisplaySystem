@@ -748,6 +748,7 @@
             <button type="button" class="close-modal" onclick="closeAddModal()">&times;</button>
         </div>
         <form method="post" asp-action="Add" id="addItemForm" class="modal-form" enctype="multipart/form-data">
+            <input type="hidden" name="branchFilter" value="@ViewBag.BranchFilter" />
             <div class="form-group">
                 <label>Menu Item Name *</label>
                 <input type="text" name="name" placeholder="e.g., Buffalo Wings" required />

@@ -13,12 +13,9 @@
     <div class="overview-header">
         <div>
             <h1><i class="bi bi-geo-alt"></i> Branch Overview</h1>
-            <p class="overview-subtitle">Branch status, ordering channels, and seat availability</p>
+            <p class="overview-subtitle">Branch status and ordering channels</p>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <a asp-action="Seats" class="btn-primary">
-                <i class="bi bi-grid-3x3-gap"></i> Seat Availability
-            </a>
             <a asp-action="Index" class="btn-secondary">
                 <i class="bi bi-grid"></i> Manage Branches
             </a>
@@ -196,12 +193,6 @@
                 <div class="summary-card">
                     <div class="summary-label">Total Orders</div>
                     <div class="summary-value">@branchStats.Sum(s => s.TotalOrders)</div>
-                </div>
-                <div class="summary-card">
-                    <div class="summary-label">Unavailable Seats</div>
-                    <div class="summary-value">
-                        <a asp-action="Seats" style="color:inherit;text-decoration:none;">View</a>
-                    </div>
                 </div>
             </div>
 

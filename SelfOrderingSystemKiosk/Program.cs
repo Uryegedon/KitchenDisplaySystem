@@ -100,6 +100,7 @@ builder.Services.AddScoped<ChickenService>();
 
 builder.Services.AddHostedService<OrderIndexesHostedService>();
 builder.Services.AddHostedService<OrderExpirationHostedService>();
+builder.Services.AddHostedService<MenuRecipeSeedHostedService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>

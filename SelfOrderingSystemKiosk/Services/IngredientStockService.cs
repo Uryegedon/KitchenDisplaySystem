@@ -95,8 +95,18 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task<IngredientItem?> GetByIdAsync(string id) =>
             await _collection.Find(x => x.Id == id).FirstOrDefaultAsync();
 
-        public async Task<IngredientItem?> GetByNameAsync(string itemName) =>
-            await _collection.Find(x => x.Item == itemName).FirstOrDefaultAsync();
+        public async Task<IngredientItem?> GetByNameAsync(string itemName, string? branchId = null)
+        {
+            if (string.IsNullOrWhiteSpace(branchId))
+                return await _collection.Find(x => x.Item == itemName).FirstOrDefaultAsync();
+
+            var trimmedBranchId = branchId.Trim();
+            return await _collection.Find(x =>
+                    x.Item == itemName &&
+                    (x.BranchId == trimmedBranchId || x.BranchId == string.Empty))
+                .SortByDescending(x => x.BranchId == trimmedBranchId)
+                .FirstOrDefaultAsync();
+        }
 
         public async Task AddAsync(IngredientItem item)
         {

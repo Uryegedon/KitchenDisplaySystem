@@ -1,6 +1,8 @@
 @model SelfOrderingSystemKiosk.Models.AdminUser
+@using SelfOrderingSystemKiosk.Areas.Admin.Models
 @{
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+    var branches = ViewBag.Branches as List<Branch> ?? new List<Branch>();
 }
 
 <div class="user-form-container">
@@ -19,7 +21,7 @@
 
             <div class="form-group">
                 <label for="Username">Username <span class="required">*</span></label>
-                <input type="text" id="Username" name="Username" class="form-control" placeholder="e.g., john.doe" required />
+                <input type="text" id="Username" name="Username" value="@Model?.Username" class="form-control" placeholder="e.g., john.doe" required />
                 <span asp-validation-for="Username" class="text-danger"></span>
             </div>
 
@@ -31,13 +33,13 @@
 
             <div class="form-group">
                 <label for="FullName">Full Name <span class="required">*</span></label>
-                <input type="text" id="FullName" name="FullName" class="form-control" placeholder="e.g., John Doe" required />
+                <input type="text" id="FullName" name="FullName" value="@Model?.FullName" class="form-control" placeholder="e.g., John Doe" required />
                 <span asp-validation-for="FullName" class="text-danger"></span>
             </div>
 
             <div class="form-group">
                 <label for="Email">Email Address</label>
-                <input type="email" id="Email" name="Email" class="form-control" placeholder="user@example.com" />
+                <input type="email" id="Email" name="Email" value="@Model?.Email" class="form-control" placeholder="user@example.com" />
                 <span asp-validation-for="Email" class="text-danger"></span>
             </div>
         </div>
@@ -51,7 +53,7 @@
                     <option value="">Select a role...</option>
                     @foreach (var role in (ViewBag.Roles as List<string> ?? new List<string>()))
                     {
-                        <option value="@role">@role</option>
+                        <option value="@role" selected="@(role == Model?.Role)">@role</option>
                     }
                 </select>
                 <span asp-validation-for="Role" class="text-danger"></span>
@@ -60,8 +62,15 @@
             <div class="form-group">
                 <label for="BranchId">Branch Assignment</label>
                 <select id="BranchId" name="BranchId" class="form-control">
-                    <option value="">All Branches (Owner only)</option>
+                    <option value="" selected="@(string.IsNullOrEmpty(Model?.BranchId))">All Branches (Owner only)</option>
+                    @foreach (var branch in branches)
+                    {
+                        <option value="@branch.Id" selected="@(branch.Id == Model?.BranchId)">
+                            @branch.BranchName (@branch.BranchCode)
+                        </option>
+                    }
                 </select>
+                <span asp-validation-for="BranchId" class="text-danger"></span>
             </div>
         </div>
 

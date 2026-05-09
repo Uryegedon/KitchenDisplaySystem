@@ -107,7 +107,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         [HttpPost]
         [RequestSizeLimit(MaxImageUploadBytes)]
-        public async Task<IActionResult> Add(string name, string category, decimal price, IFormFile imageFile)
+        public async Task<IActionResult> Add(string name, string category, decimal price, IFormFile imageFile, string? branchFilter = null)
         {
             if (string.IsNullOrEmpty(name))
                 return RedirectToAction("Index", new { message = "Menu item name is required.", categoryFilter = "all" });
@@ -134,9 +134,16 @@ namespace SelfOrderingSystemKiosk.Controllers
             var isOwner = User.HasAllBranchAccess();
             if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
                 return Forbid();
+            var effectiveBranchId = isOwner && !string.IsNullOrWhiteSpace(branchFilter)
+                ? branchFilter.Trim()
+                : userBranchId;
+            if (isOwner && string.IsNullOrWhiteSpace(effectiveBranchId))
+                return RedirectToAction("Index", new { message = "Choose a branch before adding menu items.", categoryFilter = "all" });
+            if (isOwner && await _branchService.GetByIdAsync(effectiveBranchId!) == null)
+                return RedirectToAction("Index", new { message = "Choose a valid branch before adding menu items.", categoryFilter = "all" });
 
             var recipe = ParseRecipeLines(Request.Form);
-            if (!await CanUseRecipeIngredientsAsync(recipe))
+            if (!await CanUseRecipeIngredientsAsync(recipe, effectiveBranchId))
                 return RedirectToAction("Index", new { message = "Recipe contains ingredients outside your branch.", categoryFilter = "all" });
 
             var newItem = new MenuItem
@@ -153,7 +160,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 MenuOrder = menuOrder,
                 Status = "Available",
                 Recipe = recipe,
-                BranchId = isOwner ? string.Empty : userBranchId ?? string.Empty // Owner/Admin creates shared items; managers create branch-specific
+                BranchId = effectiveBranchId ?? string.Empty
             };
 
             await _menuItems.AddAsync(newItem);
@@ -199,7 +206,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 existing.Category = Category ?? existing.Category;
                 existing.Price = Price;
                 var recipe = ParseRecipeLines(Request.Form);
-                if (!await CanUseRecipeIngredientsAsync(recipe))
+                if (!await CanUseRecipeIngredientsAsync(recipe, existing.BranchId))
                     return RedirectToAction("Index", new { message = "Recipe contains ingredients outside your branch.", categoryFilter = categoryFilter ?? "all" });
                 existing.Recipe = recipe;
                 // Preserve BranchId from existing item - don't allow changing branch assignment
@@ -369,13 +376,13 @@ namespace SelfOrderingSystemKiosk.Controllers
                     string.Equals(recordBranchId, userBranchId, StringComparison.OrdinalIgnoreCase));
         }
 
-        private async Task<bool> CanUseRecipeIngredientsAsync(IEnumerable<MenuRecipeLine> recipe)
+        private async Task<bool> CanUseRecipeIngredientsAsync(IEnumerable<MenuRecipeLine> recipe, string? targetBranchId = null)
         {
-            if (User.HasAllBranchAccess())
-                return true;
-
-            var userBranchId = User.GetBranchId();
-            if (string.IsNullOrWhiteSpace(userBranchId))
+            var branchId = User.HasAllBranchAccess()
+                ? targetBranchId
+                : User.GetBranchId();
+            var sharedOnly = User.HasAllBranchAccess() && string.IsNullOrWhiteSpace(branchId);
+            if (string.IsNullOrWhiteSpace(branchId) && !sharedOnly)
                 return false;
 
             foreach (var line in recipe)
@@ -383,8 +390,11 @@ namespace SelfOrderingSystemKiosk.Controllers
                 var ingredient = await _ingredients.GetByIdAsync(line.IngredientId);
                 if (ingredient == null)
                     return false;
-                if (!string.IsNullOrWhiteSpace(ingredient.BranchId) &&
-                    !string.Equals(ingredient.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase))
+                if (sharedOnly && !string.IsNullOrWhiteSpace(ingredient.BranchId))
+                    return false;
+                if (!sharedOnly &&
+                    !string.IsNullOrWhiteSpace(ingredient.BranchId) &&
+                    !string.Equals(ingredient.BranchId, branchId, StringComparison.OrdinalIgnoreCase))
                     return false;
             }
 

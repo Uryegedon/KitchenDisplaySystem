@@ -63,19 +63,11 @@ namespace SelfOrderingSystemKiosk.Controllers
                     _ => (now.Date.AddDays(-(int)now.DayOfWeek + 1), now.Date.AddDays(8 - (int)now.DayOfWeek))
                 };
             }
-            var movements = await _movementService.GetRecentAsync(start, end, 1000);
-            
-            // Filter movements by branch if not owner
-            if (!isOwner)
-            {
-                movements = string.IsNullOrWhiteSpace(userBranchId)
-                    ? new List<StockMovement>()
-                    : movements
-                        .Where(m =>
-                            string.Equals(m.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(m.BranchId, string.Empty, StringComparison.Ordinal))
-                        .ToList();
-            }
+            var movements = await _movementService.GetRecentAsync(
+                start,
+                end,
+                1000,
+                isOwner ? null : userBranchId);
             
             ViewBag.Range = range;
             ViewBag.StartDate = start.ToString("yyyy-MM-dd");

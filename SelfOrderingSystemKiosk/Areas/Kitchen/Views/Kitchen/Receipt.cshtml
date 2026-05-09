@@ -358,12 +358,15 @@
             <a href="@returnUrl">
                 <i class="bi bi-arrow-left"></i> Back to Tables
             </a>
-            <a asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" title="Table settings">
-                <i class="bi bi-gear-fill"></i>
-            </a>
-            <a asp-area="Admin" asp-controller="Account" asp-action="Logout">
-                <i class="bi bi-box-arrow-right"></i> Logout
-            </a>
+            @if (showStaffDetails)
+            {
+                <a asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts" title="Table settings">
+                    <i class="bi bi-gear-fill"></i>
+                </a>
+                <a asp-area="Admin" asp-controller="Account" asp-action="Logout">
+                    <i class="bi bi-box-arrow-right"></i> Logout
+                </a>
+            }
         </div>
 
         <main class="receipt">

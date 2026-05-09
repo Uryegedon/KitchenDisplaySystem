@@ -21,13 +21,21 @@ namespace SelfOrderingSystemKiosk.Services
             await _movements.InsertOneAsync(movement, cancellationToken: cancellationToken);
         }
 
-        public async Task<List<StockMovement>> GetRecentAsync(DateTime? startUtc, DateTime? endUtc, int limit = 500)
+        public async Task<List<StockMovement>> GetRecentAsync(DateTime? startUtc, DateTime? endUtc, int limit = 500, string? branchId = null)
         {
             var filter = Builders<StockMovement>.Filter.Empty;
             if (startUtc.HasValue)
                 filter &= Builders<StockMovement>.Filter.Gte(m => m.TimestampUtc, startUtc.Value);
             if (endUtc.HasValue)
                 filter &= Builders<StockMovement>.Filter.Lt(m => m.TimestampUtc, endUtc.Value);
+            if (!string.IsNullOrWhiteSpace(branchId))
+            {
+                var trimmedBranchId = branchId.Trim();
+                filter &= Builders<StockMovement>.Filter.Or(
+                    Builders<StockMovement>.Filter.Eq(m => m.BranchId, trimmedBranchId),
+                    Builders<StockMovement>.Filter.Eq(m => m.BranchId, string.Empty),
+                    Builders<StockMovement>.Filter.Eq(m => m.BranchId, null));
+            }
 
             return await _movements
                 .Find(filter)
@@ -36,7 +44,7 @@ namespace SelfOrderingSystemKiosk.Services
                 .ToListAsync();
         }
 
-        public async Task<List<StockMovement>> GetForInventoryItemsAsync(IEnumerable<string> inventoryItemIds, DateTime? startUtc, DateTime? endUtc)
+        public async Task<List<StockMovement>> GetForInventoryItemsAsync(IEnumerable<string> inventoryItemIds, DateTime? startUtc, DateTime? endUtc, string? branchId = null)
         {
             var ids = inventoryItemIds
                 .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -51,6 +59,14 @@ namespace SelfOrderingSystemKiosk.Services
                 filter &= Builders<StockMovement>.Filter.Gte(m => m.TimestampUtc, startUtc.Value);
             if (endUtc.HasValue)
                 filter &= Builders<StockMovement>.Filter.Lt(m => m.TimestampUtc, endUtc.Value);
+            if (!string.IsNullOrWhiteSpace(branchId))
+            {
+                var trimmedBranchId = branchId.Trim();
+                filter &= Builders<StockMovement>.Filter.Or(
+                    Builders<StockMovement>.Filter.Eq(m => m.BranchId, trimmedBranchId),
+                    Builders<StockMovement>.Filter.Eq(m => m.BranchId, string.Empty),
+                    Builders<StockMovement>.Filter.Eq(m => m.BranchId, null));
+            }
 
             return await _movements
                 .Find(filter)

@@ -57,6 +57,7 @@ namespace SelfOrderingSystemKiosk.Services
 
             var filter = Builders<MenuItem>.Filter.And(validItemFilter, availableOrUnset);
             var list = await _collection.Find(filter).ToListAsync();
+            list = await FilterCurrentlyStockedAsync(list);
             return list
                 .OrderByDescending(i => i.MenuOrder)
                 .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
@@ -110,16 +111,26 @@ namespace SelfOrderingSystemKiosk.Services
             await _collection.UpdateOneAsync(x => x.Id == id, update);
         }
 
-        public async Task<MenuItem?> GetByNameAsync(string itemName) =>
-            await _collection.Find(x => x.Item == itemName).FirstOrDefaultAsync();
+        public async Task<MenuItem?> GetByNameAsync(string itemName, string? branchId = null)
+        {
+            if (string.IsNullOrWhiteSpace(branchId))
+                return await _collection.Find(x => x.Item == itemName).FirstOrDefaultAsync();
 
-        public async Task<bool> DecrementStockAsync(string itemName, int quantity, string? reason = null, string? referenceType = null, string? referenceId = null)
+            var trimmedBranchId = branchId.Trim();
+            return await _collection.Find(x =>
+                    x.Item == itemName &&
+                    (x.BranchId == trimmedBranchId || x.BranchId == string.Empty))
+                .SortByDescending(x => x.BranchId == trimmedBranchId)
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<bool> DecrementStockAsync(string itemName, int quantity, string? reason = null, string? referenceType = null, string? referenceId = null, string? branchId = null)
         {
             var lookupName = NormalizeSubmittedItemName(itemName);
-            var item = await GetByNameAsync(lookupName);
+            var item = await GetByNameAsync(lookupName, branchId);
             if (item == null && lookupName.StartsWith("Coffee - ", StringComparison.OrdinalIgnoreCase))
             {
-                item = await GetByNameAsync("Coffee");
+                item = await GetByNameAsync("Coffee", branchId);
             }
 
             if (item == null)
@@ -146,6 +157,7 @@ namespace SelfOrderingSystemKiosk.Services
                             item.Item ?? itemName,
                             referenceType ?? "Order",
                             referenceId);
+                        await SyncAvailabilityForIngredientAsync(line.IngredientId.Trim());
                     }
                     catch (Exception ex)
                     {
@@ -154,11 +166,11 @@ namespace SelfOrderingSystemKiosk.Services
                 }
             }
 
-            var recipeIngredientIds = (item?.Recipe ?? new List<MenuRecipeLine>())
+            var recipeIngredientIds = (item.Recipe ?? new List<MenuRecipeLine>())
                 .Select(r => r.IngredientId)
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var sauceUse in (await BuildSauceUsageAsync(itemName, item?.Item ?? lookupName, quantity))
+            foreach (var sauceUse in (await BuildSauceUsageAsync(itemName, item.Item ?? lookupName, quantity, branchId))
                 .Where(use => !recipeIngredientIds.Contains(use.IngredientId)))
             {
                 try
@@ -166,9 +178,10 @@ namespace SelfOrderingSystemKiosk.Services
                     await _ingredients.DecrementForSaleAsync(
                         sauceUse.IngredientId,
                         sauceUse.Quantity,
-                        item?.Item ?? itemName,
+                        item.Item ?? itemName,
                         referenceType ?? "Order",
                         referenceId);
+                    await SyncAvailabilityForIngredientAsync(sauceUse.IngredientId);
                 }
                 catch (Exception ex)
                 {
@@ -176,10 +189,11 @@ namespace SelfOrderingSystemKiosk.Services
                 }
             }
 
+            await SyncAvailabilityForMenuItemAsync(item);
             return true;
         }
 
-        public async Task<decimal> CalculateOrderCostAsync(IEnumerable<SelfOrderingSystemKiosk.Areas.Customer.Models.OrderItem>? orderItems)
+        public async Task<decimal> CalculateOrderCostAsync(IEnumerable<SelfOrderingSystemKiosk.Areas.Customer.Models.OrderItem>? orderItems, string? branchId = null)
         {
             var total = 0m;
             foreach (var orderItem in orderItems ?? Enumerable.Empty<SelfOrderingSystemKiosk.Areas.Customer.Models.OrderItem>())
@@ -188,9 +202,9 @@ namespace SelfOrderingSystemKiosk.Services
                     continue;
 
                 var lookupName = NormalizeSubmittedItemName(orderItem.ItemName);
-                var item = await GetByNameAsync(lookupName);
+                var item = await GetByNameAsync(lookupName, branchId);
                 if (item == null && lookupName.StartsWith("Coffee - ", StringComparison.OrdinalIgnoreCase))
-                    item = await GetByNameAsync("Coffee");
+                    item = await GetByNameAsync("Coffee", branchId);
 
                 if (item?.Recipe is { Count: > 0 })
                 {
@@ -208,7 +222,7 @@ namespace SelfOrderingSystemKiosk.Services
                     .Select(r => r.IngredientId)
                     .Where(id => !string.IsNullOrWhiteSpace(id))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                foreach (var sauceUse in (await BuildSauceUsageAsync(orderItem.ItemName, item?.Item ?? lookupName, orderItem.Quantity))
+                foreach (var sauceUse in (await BuildSauceUsageAsync(orderItem.ItemName, item?.Item ?? lookupName, orderItem.Quantity, branchId))
                     .Where(use => !recipeIngredientIds.Contains(use.IngredientId)))
                     total += await _ingredients.EstimateCostAsync(sauceUse.IngredientId, sauceUse.Quantity);
             }
@@ -232,7 +246,7 @@ namespace SelfOrderingSystemKiosk.Services
                 : normalized;
         }
 
-        private async Task<List<(string IngredientId, int Quantity)>> BuildSauceUsageAsync(string submittedItemName, string menuItemName, int orderQuantity)
+        private async Task<List<(string IngredientId, int Quantity)>> BuildSauceUsageAsync(string submittedItemName, string menuItemName, int orderQuantity, string? branchId = null)
         {
             if (orderQuantity <= 0)
                 return new List<(string IngredientId, int Quantity)>();
@@ -264,7 +278,7 @@ namespace SelfOrderingSystemKiosk.Services
             var usage = new List<(string IngredientId, int Quantity)>();
             foreach (var sauceName in sauceNames)
             {
-                var ingredient = await _ingredients.GetByNameAsync(sauceName);
+                var ingredient = await _ingredients.GetByNameAsync(sauceName, branchId);
                 if (ingredient == null || !string.Equals(ingredient.Unit, "ml", StringComparison.OrdinalIgnoreCase))
                     continue;
 
@@ -272,6 +286,221 @@ namespace SelfOrderingSystemKiosk.Services
             }
 
             return usage;
+        }
+
+        public async Task SeedRecipesFromMenuItemNamesAsync()
+        {
+            var ingredients = await _ingredients.GetAllAsync();
+            if (ingredients.Count == 0)
+                return;
+
+            var items = await _collection.Find(Builders<MenuItem>.Filter.And(
+                    Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
+                    Builders<MenuItem>.Filter.Ne(x => x.Item, "")))
+                .ToListAsync();
+
+            var updated = 0;
+            foreach (var item in items)
+            {
+                var inferred = InferRecipeFromName(item, ingredients);
+                if (inferred.Count == 0)
+                    continue;
+
+                var existing = item.Recipe ?? new List<MenuRecipeLine>();
+                var merged = existing
+                    .Where(r => !string.IsNullOrWhiteSpace(r.IngredientId) && r.QuantityPerUnit > 0)
+                    .GroupBy(r => r.IngredientId.Trim(), StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToList();
+
+                var existingIds = merged
+                    .Select(r => r.IngredientId)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var line in inferred)
+                {
+                    if (existingIds.Add(line.IngredientId))
+                        merged.Add(line);
+                }
+
+                if (merged.Count == existing.Count)
+                    continue;
+
+                await _collection.UpdateOneAsync(
+                    x => x.Id == item.Id,
+                    Builders<MenuItem>.Update.Set(x => x.Recipe, merged));
+                item.Recipe = merged;
+                await SyncAvailabilityForMenuItemAsync(item);
+                updated++;
+            }
+
+            if (updated > 0)
+                _logger.LogInformation("Seeded inferred recipes for {Count} menu items.", updated);
+        }
+
+        public async Task SyncAvailabilityForIngredientAsync(string ingredientId)
+        {
+            if (string.IsNullOrWhiteSpace(ingredientId))
+                return;
+
+            var filter = Builders<MenuItem>.Filter.ElemMatch(
+                x => x.Recipe,
+                r => r.IngredientId == ingredientId);
+
+            var items = await _collection.Find(filter).ToListAsync();
+            foreach (var item in items)
+                await SyncAvailabilityForMenuItemAsync(item);
+        }
+
+        private async Task<List<MenuItem>> FilterCurrentlyStockedAsync(List<MenuItem> items)
+        {
+            var stocked = new List<MenuItem>();
+            foreach (var item in items)
+            {
+                if (await SyncAvailabilityForMenuItemAsync(item))
+                    stocked.Add(item);
+            }
+
+            return stocked;
+        }
+
+        private async Task<bool> SyncAvailabilityForMenuItemAsync(MenuItem item)
+        {
+            if (item.Recipe is not { Count: > 0 })
+                return IsAvailableForCustomerMenu(item.Availability);
+
+            var outOfStock = false;
+            foreach (var line in item.Recipe)
+            {
+                if (string.IsNullOrWhiteSpace(line.IngredientId) || line.QuantityPerUnit <= 0)
+                    continue;
+
+                var ingredient = await _ingredients.GetByIdAsync(line.IngredientId.Trim());
+                if (ingredient?.CurrentStock <= 0)
+                {
+                    outOfStock = true;
+                    break;
+                }
+            }
+
+            if (!outOfStock)
+            {
+                if (string.Equals(item.Status, "No Stock", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(item.Availability, "Unavailable", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(item.Category, "Unavailable", StringComparison.Ordinal))
+                {
+                    await _collection.UpdateOneAsync(
+                        x => x.Id == item.Id,
+                        Builders<MenuItem>.Update
+                            .Set(x => x.Status, "Available")
+                            .Set(x => x.Availability, "Available"));
+                    item.Status = "Available";
+                    item.Availability = "Available";
+                }
+
+                return IsAvailableForCustomerMenu(item.Availability);
+            }
+
+            if (!string.Equals(item.Availability, "Unavailable", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(item.Status, "No Stock", StringComparison.OrdinalIgnoreCase))
+            {
+                await _collection.UpdateOneAsync(
+                    x => x.Id == item.Id,
+                    Builders<MenuItem>.Update
+                        .Set(x => x.Availability, "Unavailable")
+                        .Set(x => x.Status, "No Stock"));
+                item.Availability = "Unavailable";
+                item.Status = "No Stock";
+            }
+
+            return false;
+        }
+
+        private static List<MenuRecipeLine> InferRecipeFromName(MenuItem menuItem, List<IngredientItem> ingredients)
+        {
+            var name = menuItem.Item ?? "";
+            var recipe = new List<MenuRecipeLine>();
+            var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void Add(IngredientItem? ingredient, int quantity)
+            {
+                if (ingredient == null || string.IsNullOrWhiteSpace(ingredient.Id) || quantity <= 0)
+                    return;
+                if (added.Add(ingredient.Id))
+                    recipe.Add(new MenuRecipeLine { IngredientId = ingredient.Id, QuantityPerUnit = quantity });
+            }
+
+            var chickenPieces = ExtractChickenPieceCount(name);
+            if (chickenPieces > 0 && IsChickenWingMenu(name))
+            {
+                Add(FindCompatibleIngredient(menuItem.BranchId, ingredients, "Chicken Wings", "Chicken Wing", "Wings"), chickenPieces);
+
+                var sauceName = MapFlavorToSauceName(name);
+                if (!string.IsNullOrWhiteSpace(sauceName))
+                    Add(FindCompatibleIngredient(menuItem.BranchId, ingredients, sauceName), chickenPieces * 4);
+            }
+
+            var directMatches = ingredients
+                .Where(i => IsBranchCompatible(menuItem.BranchId, i.BranchId))
+                .Where(i => !string.IsNullOrWhiteSpace(i.Item))
+                .Where(i => name.Contains(i.Item!, StringComparison.OrdinalIgnoreCase)
+                    || i.Item!.Contains(name, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(i => string.Equals(i.BranchId, menuItem.BranchId, StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(i => i.Item!.Length)
+                .Take(3);
+
+            foreach (var ingredient in directMatches)
+                Add(ingredient, 1);
+
+            if (name.Contains("rice", StringComparison.OrdinalIgnoreCase))
+                Add(FindCompatibleIngredient(menuItem.BranchId, ingredients, "Rice"), 1);
+            if (name.Contains("pasta", StringComparison.OrdinalIgnoreCase))
+                Add(FindCompatibleIngredient(menuItem.BranchId, ingredients, "Pasta"), 1);
+            if (name.Contains("coffee", StringComparison.OrdinalIgnoreCase))
+                Add(FindCompatibleIngredient(menuItem.BranchId, ingredients, "Coffee"), 1);
+            if (name.Contains("tea", StringComparison.OrdinalIgnoreCase))
+                Add(FindCompatibleIngredient(menuItem.BranchId, ingredients, "Tea"), 1);
+
+            return recipe;
+        }
+
+        private static IngredientItem? FindCompatibleIngredient(string? menuBranchId, IEnumerable<IngredientItem> ingredients, params string[] names)
+        {
+            foreach (var name in names)
+            {
+                var match = ingredients
+                    .Where(i => IsBranchCompatible(menuBranchId, i.BranchId))
+                    .Where(i => string.Equals(i.Item, name, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(i => string.Equals(i.BranchId, menuBranchId, StringComparison.OrdinalIgnoreCase))
+                    .FirstOrDefault();
+                if (match != null)
+                    return match;
+            }
+
+            foreach (var name in names)
+            {
+                var match = ingredients
+                    .Where(i => IsBranchCompatible(menuBranchId, i.BranchId))
+                    .Where(i => !string.IsNullOrWhiteSpace(i.Item)
+                        && (i.Item.Contains(name, StringComparison.OrdinalIgnoreCase)
+                            || name.Contains(i.Item, StringComparison.OrdinalIgnoreCase)))
+                    .OrderByDescending(i => string.Equals(i.BranchId, menuBranchId, StringComparison.OrdinalIgnoreCase))
+                    .ThenBy(i => i.Item!.Length)
+                    .FirstOrDefault();
+                if (match != null)
+                    return match;
+            }
+
+            return null;
+        }
+
+        private static bool IsBranchCompatible(string? menuBranchId, string? ingredientBranchId)
+        {
+            if (string.IsNullOrWhiteSpace(menuBranchId))
+                return string.IsNullOrWhiteSpace(ingredientBranchId);
+
+            return string.IsNullOrWhiteSpace(ingredientBranchId)
+                || string.Equals(ingredientBranchId, menuBranchId, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsChickenWingMenu(string? name)
@@ -424,6 +653,7 @@ namespace SelfOrderingSystemKiosk.Services
             {
                 var allFilter = Builders<MenuItem>.Filter.And(validItemFilter, availableOrUnset);
                 var allItems = await _collection.Find(allFilter).ToListAsync();
+                allItems = await FilterCurrentlyStockedAsync(allItems);
                 return allItems
                     .OrderByDescending(i => i.MenuOrder)
                     .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
@@ -440,6 +670,7 @@ namespace SelfOrderingSystemKiosk.Services
                 )
             );
             var branchItems = await _collection.Find(branchFilter).ToListAsync();
+            branchItems = await FilterCurrentlyStockedAsync(branchItems);
             return branchItems
                 .OrderByDescending(i => i.MenuOrder)
                 .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)

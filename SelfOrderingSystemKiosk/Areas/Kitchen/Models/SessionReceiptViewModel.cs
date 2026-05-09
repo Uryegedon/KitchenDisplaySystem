@@ -12,6 +12,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
         public DateTime SessionEndUtc { get; set; }
         public bool HasSessionStarted { get; set; }
         public string TableNumber { get; set; } = string.Empty;
+        public string BranchId { get; set; } = string.Empty;
         public string Floor { get; set; } = string.Empty;
         public string LocationLabel { get; set; } = string.Empty;
         public bool IsTableSession { get; set; }
@@ -88,6 +89,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
     public class TableOverviewViewModel
     {
         public string TableNumber { get; set; } = string.Empty;
+        public string BranchId { get; set; } = string.Empty;
         public string Floor { get; set; } = string.Empty;
         public string LocationLabel { get; set; } = string.Empty;
         public bool IsOccupied { get; set; }

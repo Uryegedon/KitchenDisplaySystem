@@ -1,6 +1,8 @@
 @model SelfOrderingSystemKiosk.Models.AdminUser
+@using SelfOrderingSystemKiosk.Areas.Admin.Models
 @{
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
+    var branches = ViewBag.Branches as List<Branch> ?? new List<Branch>();
 }
 
 <div class="user-form-container">
@@ -60,11 +62,18 @@
                 <label for="BranchId">Branch Assignment</label>
                 <select id="BranchId" name="BranchId" class="form-control">
                     <option value="" selected="@(string.IsNullOrEmpty(Model.BranchId))">All Branches (Owner only)</option>
-                    @if (!string.IsNullOrEmpty(Model.BranchId))
+                    @foreach (var branch in branches)
+                    {
+                        <option value="@branch.Id" selected="@(branch.Id == Model.BranchId)">
+                            @branch.BranchName (@branch.BranchCode)
+                        </option>
+                    }
+                    @if (!string.IsNullOrEmpty(Model.BranchId) && !branches.Any(b => b.Id == Model.BranchId))
                     {
                         <option value="@Model.BranchId" selected>Branch: @Model.BranchId</option>
                     }
                 </select>
+                <span asp-validation-for="BranchId" class="text-danger"></span>
             </div>
         </div>
 

@@ -1,0 +1,5 @@
+ingredients
+when stock of an ingredient became 0, and a menu item relies on that ingredient, the menu item should automatically become unavailable
+
+RECEIPTS
+add payment identifier

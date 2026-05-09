@@ -108,51 +108,10 @@ namespace SelfOrderingSystemKiosk.Controllers
             return View();
         }
 
-        public async Task<IActionResult> Seats(string? branchId = null)
+        public IActionResult Seats(string? branchId = null)
         {
-            ViewData["Title"] = "Branch Seat Availability";
-            var allBranches = await _branchService.GetAllAsync();
-            ViewBag.AllBranches = allBranches;
-            ViewBag.SelectedBranchId = branchId;
-            ViewBag.SelectedBranch = string.IsNullOrWhiteSpace(branchId)
-                ? null
-                : allBranches.FirstOrDefault(b => b.Id == branchId);
-
-            var sessions = await _tableOrderingSessions.GetAllAsync();
-            var registered = await _tableRegistry.GetAllAsync();
-            if (!string.IsNullOrWhiteSpace(branchId))
-            {
-                sessions = sessions
-                    .Where(s => string.Equals(s.BranchId, branchId, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-                registered = registered
-                    .Where(t => string.Equals(t.BranchId, branchId, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-            }
-            var tableNumbers = registered.Select(t => t.TableNumber)
-                .Concat(new[] { "1", "2", "3", "4", "5", "6", "7" })
-                .Where(t => !string.IsNullOrWhiteSpace(t))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(t => int.TryParse(t, out var n) ? n : int.MaxValue)
-                .ThenBy(t => t, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var rows = tableNumbers.Select(table =>
-            {
-                var session = sessions.FirstOrDefault(s => string.Equals(s.TableNumber, table, StringComparison.OrdinalIgnoreCase));
-                var registeredTable = registered.FirstOrDefault(t => string.Equals(t.TableNumber, table, StringComparison.OrdinalIgnoreCase));
-                return new SeatAvailabilityRow
-                {
-                    TableNumber = table,
-                    Floor = registeredTable?.Floor ?? "",
-                    IsUnavailable = session?.IsOrderingOpen == true,
-                    UpdatedAtUtc = session?.UpdatedAtUtc ?? registeredTable?.UpdatedAtUtc
-                };
-            }).ToList();
-
-            ViewBag.AvailableCount = rows.Count(r => !r.IsUnavailable);
-            ViewBag.UnavailableCount = rows.Count(r => r.IsUnavailable);
-            return View(rows);
+            TempData["Message"] = "Seat availability is temporarily disabled.";
+            return RedirectToAction(nameof(Overview), new { branchId });
         }
 
         private BranchOverviewStats CalculateBranchStats(string branchId, Branch branch, List<Order> orders, int totalBranches)

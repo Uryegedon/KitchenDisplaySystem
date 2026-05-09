@@ -2,6 +2,7 @@
 @{
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     var users = Model?.ToList() ?? new List<SelfOrderingSystemKiosk.Models.AdminUser>();
+    var branchNames = ViewBag.BranchNames as Dictionary<string, string> ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }
 
 <div class="account-management-container">
@@ -58,7 +59,18 @@
                                 <span class="role-badge role-@user.Role.ToLower()">@user.Role</span>
                             </td>
                             <td>
-                                @(string.IsNullOrEmpty(user.BranchId) ? "All Branches" : user.BranchId)
+                                @if (string.IsNullOrEmpty(user.BranchId))
+                                {
+                                    <span>All Branches</span>
+                                }
+                                else if (branchNames.TryGetValue(user.BranchId, out var branchName))
+                                {
+                                    <span>@branchName</span>
+                                }
+                                else
+                                {
+                                    <span>Unknown Branch (@user.BranchId)</span>
+                                }
                             </td>
                             <td>
                                 <div class="action-buttons">

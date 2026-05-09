@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using SelfOrderingSystemKiosk.Areas.Customer.Models;
 using SelfOrderingSystemKiosk.Models;
@@ -9,6 +10,7 @@ using Order = SelfOrderingSystemKiosk.Areas.Customer.Models.Order;
 namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 {
     [Area("Customer")]
+    [AllowAnonymous]
     public class KioskController : Controller
     {
         private readonly OrderService _orderService;
@@ -148,7 +150,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             Response.Cookies.Delete(CookiePersonCount);
             if (!string.IsNullOrWhiteSpace(tableNumber))
             {
-                await _tableOrderingSessions.ClearAsync(tableNumber);
+                await _tableOrderingSessions.ClearAsync(tableNumber, await ResolveOrderBranchIdAsync(tableNumber));
                 HttpContext.Session.SetString(SessionEndedTableReset, tableNumber);
             }
         }
@@ -170,14 +172,15 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (GetSessionInt(SessionPersonCount) is > 0)
                 return;
 
-            var tableSession = await _tableOrderingSessions.GetAsync(tableNumber);
+            var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+            var tableSession = await _tableOrderingSessions.GetAsync(tableNumber, branchId);
             if (tableSession?.PersonCount > 0)
             {
                 HttpContext.Session.SetInt32(SessionPersonCount, tableSession.PersonCount);
                 return;
             }
 
-            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, branchId);
             var sharedCount = tableOrders
                 .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
                 .OrderByDescending(o => o.OrderDate)
@@ -193,11 +196,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return 0;
 
-            var tableSession = await _tableOrderingSessions.GetAsync(tableNumber);
+            var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+            var tableSession = await _tableOrderingSessions.GetAsync(tableNumber, branchId);
             if (tableSession?.PersonCount > 0)
                 return tableSession.PersonCount;
 
-            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, branchId);
             return tableOrders
                 .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
                 .Select(GetOrderPersonCount)
@@ -212,10 +216,11 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return;
 
-            if (await _tableOrderingSessions.GetAsync(tableNumber) != null)
+            var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+            if (await _tableOrderingSessions.GetAsync(tableNumber, branchId) != null)
                 return;
 
-            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, branchId);
             var openUnlimitedOrders = tableOrders
                 .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
                 .ToList();
@@ -231,7 +236,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             var wingFlavors = await ExtractUnlimitedWingFlavorsAsync(
                 openUnlimitedOrders.SelectMany(o => o.Items ?? new List<OrderItem>()));
 
-            await _tableOrderingSessions.SeedFromExistingOrdersAsync(tableNumber, personCount, wingFlavors);
+            await _tableOrderingSessions.SeedFromExistingOrdersAsync(tableNumber, personCount, wingFlavors, branchId);
         }
 
         private async Task RebuildSharedTableSessionFromOrdersAsync(string tableNumber)
@@ -239,13 +244,14 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return;
 
-            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, branchId);
             var openUnlimitedOrders = tableOrders
                 .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
                 .ToList();
             if (!openUnlimitedOrders.Any())
             {
-                await _tableOrderingSessions.ClearAsync(tableNumber);
+                await _tableOrderingSessions.ClearAsync(tableNumber, branchId);
                 return;
             }
 
@@ -282,7 +288,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return false;
 
-            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, await ResolveOrderBranchIdAsync(tableNumber));
             if (!tableOrders.Any())
                 return false;
 
@@ -407,7 +413,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (string.IsNullOrWhiteSpace(tableNumber))
                 return TableOrderingGateResult.Allowed();
 
-            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber);
+            var tableOrders = await _orderService.GetOrdersByTableAsync(tableNumber, await ResolveOrderBranchIdAsync(tableNumber));
             var latestSession = GetLatestTableSession(tableOrders);
             if (!latestSession.Any())
             {
@@ -482,7 +488,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return;
             }
 
-            var tableOrders = await _orderService.GetOrdersByTableAsync(order.TableNumber);
+            var tableOrders = await _orderService.GetOrdersByTableAsync(order.TableNumber, order.BranchId);
             var sessionOrders = GetOrdersInSameSession(tableOrders, order);
             if (!sessionOrders.Any())
                 sessionOrders = new List<Order> { order };
@@ -504,7 +510,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 .Select(count => count!.Value)
                 .DefaultIfEmpty(GetOrderPersonCount(order) ?? 0)
                 .Max();
-            var tableSession = await _tableOrderingSessions.GetAsync(order.TableNumber);
+            var tableSession = await _tableOrderingSessions.GetAsync(order.TableNumber, order.BranchId);
             ViewBag.ConfirmationWingFlavors = tableSession?.WingFlavors?.Any() == true
                 ? tableSession.WingFlavors
                 : (await ExtractUnlimitedWingFlavorsAsync(sessionOrders.SelectMany(o => o.Items ?? new List<OrderItem>()))).ToList();
@@ -1072,7 +1078,8 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     total = subtotal;
                 }
 
-                var orderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber);
+                var branchId = await ResolveOrderBranchIdAsync(tableNumber);
+                var orderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber, branchId);
 
                 if (isUnlimitedOrder)
                 {
@@ -1114,12 +1121,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     Tax = tax,
                     Total = total,
                     Items = Items,
-                    BranchId = await ResolveOrderBranchIdAsync(tableNumber)
+                    BranchId = branchId
                 };
 
                 await _orderService.CreateAsync(order);
                 if (isRealQrTableOrder && isUnlimitedOrder)
-                    await _orderService.UpdateOpenUnlimitedPersonCountForTableAsync(tableNumber, personCount!.Value);
+                    await _orderService.UpdateOpenUnlimitedPersonCountForTableAsync(tableNumber, personCount!.Value, branchId);
 
                 HttpContext.Session.Remove(SessionEndedTableReset);
                 RememberOrderAccess(order);
@@ -1167,8 +1174,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             {
                 var branchId = HttpContext.Session.GetString(SessionServiceBranch);
                 var existingSession = await _tableOrderingSessions.GetAsync(table, branchId);
-                var openUnlimitedOrders = (await _orderService.GetOrdersByTableAsync(table))
-                    .Where(o => string.IsNullOrWhiteSpace(branchId) || string.Equals(o.BranchId, branchId, StringComparison.OrdinalIgnoreCase))
+                var openUnlimitedOrders = (await _orderService.GetOrdersByTableAsync(table, branchId))
                     .Where(o => !o.BillArchived && IsUnlimitedOrder(o))
                     .ToList();
                 var hasOpenUnlimitedOrders = openUnlimitedOrders.Any();
@@ -1194,7 +1200,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 if (tableSession?.PersonCount > 0)
                     personCount = tableSession.PersonCount;
 
-                await _orderService.UpdateOpenUnlimitedPersonCountForTableAsync(table, personCount);
+                await _orderService.UpdateOpenUnlimitedPersonCountForTableAsync(table, personCount, branchId);
             }
 
             HttpContext.Session.SetInt32(SessionPersonCount, personCount);
@@ -1229,7 +1235,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (string.IsNullOrEmpty(orderNumber))
                 return RedirectToAction("Index");
 
-            var order = await _orderService.GetByOrderNumberAsync(orderNumber);
+            var order = await _orderService.GetByOrderNumberAsync(orderNumber, accessToken: accessToken);
             if (order == null)
                 return RedirectToAction("Index");
             var hasPrivateAccess = HasPrivateOrderAccess(order, accessToken);
@@ -1281,7 +1287,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 if (items == null || !items.Any())
                     return Json(new { success = false, message = "Choose at least one item to reorder." });
 
-                var anchorOrder = await _orderService.GetByOrderNumberAsync(orderNumber);
+                var anchorOrder = await _orderService.GetByOrderNumberAsync(orderNumber, accessToken: accessToken);
                 if (anchorOrder == null || !HasPrivateOrderAccess(anchorOrder, accessToken))
                     return Json(new { success = false, message = "Unable to access this order." });
                 if (!IsUnlimitedOrder(anchorOrder))
@@ -1335,9 +1341,10 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 const decimal pricePerHead = 477m;
                 var alaCarteAddOnSubtotal = validation.Items.Sum(i => i.Price * i.Quantity);
                 var subtotal = (chargeablePersonCount * pricePerHead) + alaCarteAddOnSubtotal;
+                var branchId = await ResolveOrderBranchIdAsync(tableNumber);
                 var order = new Order
                 {
-                    OrderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber),
+                    OrderNumber = await _orderService.CreateUniqueOrderNumberAsync(tableNumber, branchId),
                     PublicAccessToken = CreatePublicAccessToken(),
                     OrderDate = DateTime.UtcNow,
                     Status = "Pending",
@@ -1353,12 +1360,12 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     Tax = 0m,
                     Total = subtotal,
                     Items = validation.Items,
-                    BranchId = await ResolveOrderBranchIdAsync(tableNumber)
+                    BranchId = branchId
                 };
 
                 await _orderService.CreateAsync(order);
                 if (isRealQrTableOrder)
-                    await _orderService.UpdateOpenUnlimitedPersonCountForTableAsync(tableNumber, personCount);
+                    await _orderService.UpdateOpenUnlimitedPersonCountForTableAsync(tableNumber, personCount, branchId);
 
                 RememberOrderAccess(order);
                 SaveOrderingCookies(isRealQrTableOrder ? tableNumber : null, isRealQrTableOrder ? floor : null, personCount);
@@ -1419,7 +1426,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
             if (!string.IsNullOrWhiteSpace(orderNumber))
             {
-                var order = await _orderService.GetByOrderNumberAsync(orderNumber);
+                var order = await _orderService.GetByOrderNumberAsync(orderNumber, accessToken: accessToken);
                 if (order == null || !IsUnlimitedOrder(order))
                 {
                     HttpContext.Session.Remove(SessionFirstOrderTime);
@@ -1529,7 +1536,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (string.IsNullOrEmpty(orderNumber))
                 return Json(new { status = "" });
 
-            var order = await _orderService.GetByOrderNumberAsync(orderNumber);
+            var order = await _orderService.GetByOrderNumberAsync(orderNumber, accessToken: accessToken);
             if (order == null)
                 return Json(new { status = "" });
 
@@ -1566,7 +1573,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     return Json(new { success = false, message = "Order number is required" });
                 }
 
-                var order = await _orderService.GetByOrderNumberAsync(orderNumber);
+                var order = await _orderService.GetByOrderNumberAsync(orderNumber, accessToken: accessToken);
                 if (order == null)
                 {
                     return Json(new { success = false, message = "Order not found" });

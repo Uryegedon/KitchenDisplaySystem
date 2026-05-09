@@ -63,9 +63,9 @@ namespace SelfOrderingSystemKiosk.Services
             return session;
         }
 
-        public async Task CloseOrderingAsync(string tableNumber)
+        public async Task CloseOrderingAsync(string tableNumber, string? branchId = null)
         {
-            await ClearAsync(tableNumber);
+            await ClearAsync(tableNumber, branchId);
         }
 
         public async Task<bool> IsOrderingOpenAsync(string tableNumber, string? branchId = null)
@@ -104,9 +104,10 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task SeedFromExistingOrdersAsync(
             string tableNumber,
             int personCount,
-            IEnumerable<string> wingFlavors)
+            IEnumerable<string> wingFlavors,
+            string? branchId = null)
         {
-            var id = BuildId(tableNumber);
+            var id = BuildId(tableNumber, branchId);
             if (string.IsNullOrEmpty(id))
                 return;
 
@@ -115,6 +116,7 @@ namespace SelfOrderingSystemKiosk.Services
             var update = Builders<TableOrderingSession>.Update
                 .SetOnInsert(s => s.Id, id)
                 .SetOnInsert(s => s.TableNumber, tableNumber.Trim())
+                .SetOnInsert(s => s.BranchId, branchId?.Trim() ?? string.Empty)
                 .SetOnInsert(s => s.PersonCount, Math.Max(0, personCount))
                 .SetOnInsert(s => s.BilledPersonCount, Math.Max(0, personCount))
                 .SetOnInsert(s => s.WingFlavors, normalizedFlavors)
@@ -134,13 +136,13 @@ namespace SelfOrderingSystemKiosk.Services
             IEnumerable<string> wingFlavors,
             string? branchId = null)
         {
-            var id = BuildId(tableNumber);
+            var id = BuildId(tableNumber, branchId);
             if (string.IsNullOrEmpty(id))
                 return;
 
             if (personCount <= 0)
             {
-                await ClearAsync(tableNumber);
+                await ClearAsync(tableNumber, branchId);
                 return;
             }
 
@@ -214,13 +216,19 @@ namespace SelfOrderingSystemKiosk.Services
                 : TableOrderingSessionReserveResult.Fail("Unable to reserve this table session. Please try again.");
         }
 
-        public async Task ClearAsync(string tableNumber)
+        public async Task ClearAsync(string tableNumber, string? branchId = null)
         {
-            var id = BuildId(tableNumber);
+            var id = BuildId(tableNumber, branchId);
             if (string.IsNullOrEmpty(id))
                 return;
 
             await _sessions.DeleteOneAsync(s => s.Id == id);
+            if (!string.IsNullOrWhiteSpace(branchId))
+            {
+                var legacyId = BuildId(tableNumber, null);
+                if (!string.IsNullOrEmpty(legacyId))
+                    await _sessions.DeleteOneAsync(s => s.Id == legacyId);
+            }
         }
 
         private async Task<TableOrderingSession?> ReserveAsync(

@@ -383,6 +383,7 @@
         </div>
         <form method="post" asp-action="Add" id="addIngredientForm">
             @Html.AntiForgeryToken()
+            <input type="hidden" name="branchFilter" value="@ViewBag.BranchFilter" />
             <div class="inv-form-grid" id="ingredientRows">
                 <div class="ingredient-add-row">
                     <label>Ingredient name<br />

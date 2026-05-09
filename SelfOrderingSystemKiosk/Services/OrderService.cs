@@ -54,9 +54,9 @@ namespace SelfOrderingSystemKiosk.Services
         }
 
         /// <summary>Sequential numeric order id (6 digits). Table orders replace the first digit with the table digit.</summary>
-        public async Task<string> CreateUniqueOrderNumberAsync(string? tableNumber = null, CancellationToken cancellationToken = default)
+        public async Task<string> CreateUniqueOrderNumberAsync(string? tableNumber = null, string? branchId = null, CancellationToken cancellationToken = default)
         {
-            var nextBase = await GetNextSequentialOrderNumberAsync(cancellationToken);
+            var nextBase = await GetNextSequentialOrderNumberAsync(branchId, cancellationToken);
             for (var attempt = 0; attempt < 100; attempt++)
             {
                 var candidate = ApplyTablePrefix(nextBase.ToString("D6"), tableNumber);
@@ -70,10 +70,17 @@ namespace SelfOrderingSystemKiosk.Services
             return ApplyTablePrefix(nextBase.ToString("D6"), tableNumber);
         }
 
-        private async Task<int> GetNextSequentialOrderNumberAsync(CancellationToken cancellationToken)
+        private async Task<int> GetNextSequentialOrderNumberAsync(string? branchId, CancellationToken cancellationToken)
         {
+            var filter = Builders<Order>.Filter.And(
+                Builders<Order>.Filter.Ne(o => o.OrderNumber, null),
+                Builders<Order>.Filter.Ne(o => o.OrderNumber, ""));
+
+            if (!string.IsNullOrWhiteSpace(branchId))
+                filter &= Builders<Order>.Filter.Eq(o => o.BranchId, branchId.Trim());
+
             var latestOrders = await _orders
-                .Find(o => o.OrderNumber != null && o.OrderNumber != "")
+                .Find(filter)
                 .SortByDescending(o => o.OrderDate)
                 .Limit(250)
                 .ToListAsync(cancellationToken);
@@ -122,10 +129,27 @@ namespace SelfOrderingSystemKiosk.Services
             return await _orders.Find(o => o.Id == id).FirstOrDefaultAsync();
         }
 
-        // Get order by order number
-        public async Task<Order> GetByOrderNumberAsync(string orderNumber)
+        // Get order by order number, optionally constrained by branch or the customer's public access token.
+        public async Task<Order> GetByOrderNumberAsync(string orderNumber, string? branchId = null, string? accessToken = null)
         {
-            return await _orders.Find(o => o.OrderNumber == orderNumber).FirstOrDefaultAsync();
+            if (string.IsNullOrWhiteSpace(orderNumber))
+                return null;
+
+            var filters = new List<FilterDefinition<Order>>
+            {
+                Builders<Order>.Filter.Eq(o => o.OrderNumber, orderNumber.Trim())
+            };
+
+            if (!string.IsNullOrWhiteSpace(branchId))
+                filters.Add(Builders<Order>.Filter.Eq(o => o.BranchId, branchId.Trim()));
+
+            if (!string.IsNullOrWhiteSpace(accessToken))
+                filters.Add(Builders<Order>.Filter.Eq(o => o.PublicAccessToken, accessToken.Trim()));
+
+            return await _orders
+                .Find(Builders<Order>.Filter.And(filters))
+                .SortByDescending(o => o.OrderDate)
+                .FirstOrDefaultAsync();
         }
 
         // Create new order
@@ -181,7 +205,7 @@ namespace SelfOrderingSystemKiosk.Services
             if (!string.IsNullOrWhiteSpace(order.TableNumber) &&
                 string.Equals(order.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase))
             {
-                var tableOrders = await GetOrdersByTableAsync(order.TableNumber);
+                var tableOrders = await GetOrdersByTableAsync(order.TableNumber, order.BranchId);
                 var now = DateTime.UtcNow;
                 var activeSessionStart = tableOrders
                     .Where(o => !o.BillArchived
@@ -251,17 +275,23 @@ namespace SelfOrderingSystemKiosk.Services
             await _orders.UpdateManyAsync(o => validIds.Contains(o.Id), update);
         }
 
-        public async Task<long> UpdateOpenUnlimitedPersonCountForTableAsync(string tableNumber, int personCount)
+        public async Task<long> UpdateOpenUnlimitedPersonCountForTableAsync(string tableNumber, int personCount, string? branchId = null)
         {
             if (string.IsNullOrWhiteSpace(tableNumber) || personCount <= 0)
                 return 0;
 
-            var filter = Builders<Order>.Filter.And(
+            var filters = new List<FilterDefinition<Order>>
+            {
                 Builders<Order>.Filter.Eq(o => o.TableNumber, tableNumber),
                 Builders<Order>.Filter.Eq(o => o.DiningType, "DineIn"),
                 Builders<Order>.Filter.Eq(o => o.OrderType, "Unlimited"),
                 Builders<Order>.Filter.Ne(o => o.Status, "Canceled"),
-                Builders<Order>.Filter.Eq(o => o.BillArchived, false));
+                Builders<Order>.Filter.Eq(o => o.BillArchived, false)
+            };
+            if (!string.IsNullOrWhiteSpace(branchId))
+                filters.Add(Builders<Order>.Filter.Eq(o => o.BranchId, branchId.Trim()));
+
+            var filter = Builders<Order>.Filter.And(filters);
             var update = Builders<Order>.Update.Set(o => o.PersonCount, personCount);
             var result = await _orders.UpdateManyAsync(filter, update);
             return result.ModifiedCount;
@@ -300,16 +330,23 @@ namespace SelfOrderingSystemKiosk.Services
         }
 
         // Get first order for a table (ordering session timer is enforced in kiosk session)
-        public async Task<Order> GetFirstOrderByTableAsync(string tableNumber)
+        public async Task<Order> GetFirstOrderByTableAsync(string tableNumber, string? branchId = null)
         {
             if (string.IsNullOrEmpty(tableNumber))
                 return null;
 
+            var filters = new List<FilterDefinition<Order>>
+            {
+                Builders<Order>.Filter.Eq(o => o.TableNumber, tableNumber),
+                Builders<Order>.Filter.Ne(o => o.Status, "Canceled"),
+                Builders<Order>.Filter.Eq(o => o.DiningType, "DineIn")
+            };
+            if (!string.IsNullOrWhiteSpace(branchId))
+                filters.Add(Builders<Order>.Filter.Eq(o => o.BranchId, branchId.Trim()));
+
             // Get the earliest order for this table that is not canceled
             var orders = await _orders
-                .Find(o => o.TableNumber == tableNumber && 
-                          o.Status != "Canceled" && 
-                          o.DiningType == "DineIn")
+                .Find(Builders<Order>.Filter.And(filters))
                 .SortBy(o => o.OrderDate)
                 .Limit(1)
                 .ToListAsync();
@@ -318,15 +355,22 @@ namespace SelfOrderingSystemKiosk.Services
         }
 
         // Get all orders for a table (for checking if table has any orders)
-        public async Task<List<Order>> GetOrdersByTableAsync(string tableNumber)
+        public async Task<List<Order>> GetOrdersByTableAsync(string tableNumber, string? branchId = null)
         {
             if (string.IsNullOrEmpty(tableNumber))
                 return new List<Order>();
 
+            var filters = new List<FilterDefinition<Order>>
+            {
+                Builders<Order>.Filter.Eq(o => o.TableNumber, tableNumber),
+                Builders<Order>.Filter.Ne(o => o.Status, "Canceled"),
+                Builders<Order>.Filter.Eq(o => o.DiningType, "DineIn")
+            };
+            if (!string.IsNullOrWhiteSpace(branchId))
+                filters.Add(Builders<Order>.Filter.Eq(o => o.BranchId, branchId.Trim()));
+
             return await _orders
-                .Find(o => o.TableNumber == tableNumber &&
-                          o.Status != "Canceled" &&
-                          o.DiningType == "DineIn")
+                .Find(Builders<Order>.Filter.And(filters))
                 .SortBy(o => o.OrderDate)
                 .ToListAsync();
         }

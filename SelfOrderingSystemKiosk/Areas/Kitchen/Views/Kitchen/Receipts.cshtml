@@ -422,11 +422,13 @@
                     <div class="card-actions">
                         @if (table.CanManageOrdering)
                         {
+                            var actionBranchId = table.OrderingSession?.BranchId ?? table.BranchId ?? table.Receipt?.AnchorOrder?.BranchId ?? string.Empty;
                             @if (table.IsOccupied)
                             {
                                 <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="CloseTable">
                                     @Html.AntiForgeryToken()
                                     <input type="hidden" name="table" value="@table.TableNumber" />
+                                    <input type="hidden" name="branchId" value="@actionBranchId" />
                                     <input type="hidden" name="dateFilter" value="@dateFilter" />
                                     <input type="hidden" name="showArchived" value="@showArchived.ToString().ToLowerInvariant()" />
                                     <button class="btn subtle" type="submit"><i class="bi bi-door-open"></i> Close Table</button>
@@ -437,6 +439,7 @@
                                 <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="OpenTable">
                                     @Html.AntiForgeryToken()
                                     <input type="hidden" name="table" value="@table.TableNumber" />
+                                    <input type="hidden" name="branchId" value="@actionBranchId" />
                                     <input type="hidden" name="dateFilter" value="@dateFilter" />
                                     <input type="hidden" name="showArchived" value="@showArchived.ToString().ToLowerInvariant()" />
                                     <button class="btn" type="submit"><i class="bi bi-person-check"></i> Seat Table</button>

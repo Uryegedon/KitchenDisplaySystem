@@ -96,7 +96,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
 
             // Common metrics (inventory, menu items) - branch filtered
-            var menuList = await _menuItems.GetAllAsync();
+            var menuList = await _menuItems.GetAllByBranchAsync(userBranchId);
             var ingredientList = await _ingredients.GetAllByBranchAsync(userBranchId);
 
             ViewBag.TotalMenuItems = menuList?.Count ?? 0;
@@ -192,6 +192,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                     var ok = await _ingredients.IncreaseStockAsync(id, quantity, "Dashboard", null, "Dashboard restock");
                     if (!ok)
                         return Json(new { success = false, message = "Could not restock ingredient." });
+                    await _menuItems.SyncAvailabilityForIngredientAsync(id);
                     var updated = await _ingredients.GetByIdAsync(id);
                     return Json(new { success = true, message = $"Restocked {updated?.Item} by {quantity}. New stock: {updated?.CurrentStock}" });
                 }

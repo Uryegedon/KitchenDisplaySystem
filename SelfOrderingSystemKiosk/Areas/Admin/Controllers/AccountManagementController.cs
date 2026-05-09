@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SelfOrderingSystemKiosk.Areas.Admin.Models;
 using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
 
@@ -10,10 +11,12 @@ namespace SelfOrderingSystemKiosk.Controllers
     public class AccountManagementController : Controller
     {
         private readonly UserService _userService;
+        private readonly BranchService _branchService;
 
-        public AccountManagementController(UserService userService)
+        public AccountManagementController(UserService userService, BranchService branchService)
         {
             _userService = userService;
+            _branchService = branchService;
         }
 
         // GET: Admin/AccountManagement
@@ -21,15 +24,16 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             ViewData["Title"] = "User Management";
             var users = await _userService.GetAllUsersAsync();
+            await PopulateBranchesAsync();
             return View(users);
         }
 
         // GET: Admin/AccountManagement/Create
-        public IActionResult Create()
+        public async Task<IActionResult> Create()
         {
             ViewData["Title"] = "Create User";
             ViewBag.Roles = GetUserRoles();
-            ViewBag.Branches = new List<dynamic>(); // Will be populated if BranchService is injected
+            await PopulateBranchesAsync();
             return View();
         }
 
@@ -40,6 +44,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             ViewData["Title"] = "Create User";
             ViewBag.Roles = GetUserRoles();
+            await PopulateBranchesAsync();
 
             // Validate username uniqueness
             if (!await _userService.IsUsernameUniqueAsync(user.Username))
@@ -68,6 +73,8 @@ namespace SelfOrderingSystemKiosk.Controllers
                 ModelState.AddModelError("FullName", "Full name is required.");
             }
 
+            await ValidateBranchAssignmentAsync(user);
+
             if (!ModelState.IsValid)
             {
                 return View(user);
@@ -87,6 +94,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             ViewData["Title"] = "Edit User";
             ViewBag.Roles = GetUserRoles();
+            await PopulateBranchesAsync();
 
             var user = await _userService.GetByIdAsync(id);
             if (user == null)
@@ -105,6 +113,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             ViewData["Title"] = "Edit User";
             ViewBag.Roles = GetUserRoles();
+            await PopulateBranchesAsync();
             id = string.IsNullOrWhiteSpace(id) ? user.Id : id;
 
             if (id != user.Id)
@@ -141,6 +150,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             {
                 ModelState.AddModelError("FullName", "Full name is required.");
             }
+
+            await ValidateBranchAssignmentAsync(user);
 
             if (!ModelState.IsValid)
             {
@@ -271,6 +282,37 @@ namespace SelfOrderingSystemKiosk.Controllers
                 UserRoles.Admin,
                 UserRoles.Kitchen
             };
+        }
+
+        private async Task PopulateBranchesAsync()
+        {
+            var branches = await _branchService.GetActiveBranchesAsync();
+            ViewBag.Branches = branches;
+            ViewBag.BranchNames = branches.ToDictionary(
+                b => b.Id,
+                b => string.IsNullOrWhiteSpace(b.BranchCode)
+                    ? b.BranchName
+                    : $"{b.BranchName} ({b.BranchCode})",
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private async Task ValidateBranchAssignmentAsync(AdminUser user)
+        {
+            if (string.Equals(user.Role, UserRoles.Owner, StringComparison.OrdinalIgnoreCase))
+            {
+                user.BranchId = null;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(user.BranchId))
+            {
+                ModelState.AddModelError("BranchId", "Choose a branch for this role.");
+                return;
+            }
+
+            var branch = await _branchService.GetByIdAsync(user.BranchId.Trim());
+            if (branch == null || !branch.IsActive)
+                ModelState.AddModelError("BranchId", "Choose an active branch.");
         }
     }
 
