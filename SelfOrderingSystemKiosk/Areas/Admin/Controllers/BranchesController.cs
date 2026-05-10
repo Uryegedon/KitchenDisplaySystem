@@ -44,31 +44,27 @@ namespace SelfOrderingSystemKiosk.Controllers
             var allBranches = await _branchService.GetAllAsync();
             ViewBag.AllBranches = allBranches;
 
-            var now = DateTime.UtcNow;
+            var now = AppClock.LocalNow;
             DateTime startUtc, endUtc;
             string periodLabel;
 
             switch (period.ToLowerInvariant())
             {
                 case "yesterday":
-                    startUtc = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-1);
-                    endUtc = startUtc.AddDays(1);
+                    (startUtc, endUtc) = AppClock.LocalDateRange(now.Date.AddDays(-1));
                     periodLabel = "Yesterday";
                     break;
                 case "week":
-                    startUtc = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek);
-                    endUtc = startUtc.AddDays(7);
+                    (startUtc, endUtc) = AppClock.CurrentLocalWeekRange();
                     periodLabel = "This Week";
                     break;
                 case "month":
-                    startUtc = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-                    endUtc = startUtc.AddMonths(1);
+                    (startUtc, endUtc) = AppClock.CurrentLocalMonthRange();
                     periodLabel = "This Month";
                     break;
                 case "today":
                 default:
-                    startUtc = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc);
-                    endUtc = startUtc.AddDays(1);
+                    (startUtc, endUtc) = AppClock.LocalDateRange(now.Date);
                     periodLabel = "Today";
                     break;
             }
@@ -128,14 +124,28 @@ namespace SelfOrderingSystemKiosk.Controllers
                 TotalRevenue = billableOrders.Sum(o => o.Total),
                 Subtotal = billableOrders.Sum(o => o.Subtotal),
                 Tax = billableOrders.Sum(o => o.Tax),
-                DineInOrders = orders.Count(o => string.Equals(o.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase)),
-                TakeOutOrders = orders.Count(o => string.Equals(o.DiningType, "TakeOut", StringComparison.OrdinalIgnoreCase)),
-                KioskOrders = orders.Count(o => string.Equals(o.OrderChannel, "Kiosk", StringComparison.OrdinalIgnoreCase)),
-                QrOrders = orders.Count(o => string.Equals(o.OrderChannel, "Qr", StringComparison.OrdinalIgnoreCase)),
-                AlaCarteOrders = orders.Count(o => string.Equals(o.OrderType, "AlaCarte", StringComparison.OrdinalIgnoreCase)),
-                UnlimitedOrders = orders.Count(o => string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase))
+                Cost = billableOrders.Sum(o => o.OrderCost),
+                Profit = billableOrders.Sum(o => o.Profit),
+                DineInOrders = orders.Count(o => IsNormalizedMatch(o.DiningType, "dinein")),
+                TakeOutOrders = orders.Count(o => IsNormalizedMatch(o.DiningType, "takeout")),
+                KioskOrders = orders.Count(o => IsNormalizedMatch(o.OrderChannel, "kiosk")),
+                QrOrders = orders.Count(o => IsNormalizedMatch(o.OrderChannel, "qr")),
+                AlaCarteOrders = orders.Count(o => IsNormalizedMatch(o.OrderType, "alacarte")),
+                UnlimitedOrders = orders.Count(o => IsNormalizedMatch(o.OrderType, "unlimited"))
             };
             return stats;
+        }
+
+        private static bool IsNormalizedMatch(string? value, string expected)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            var normalized = new string(value
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToLowerInvariant)
+                .ToArray());
+            return normalized == expected;
         }
 
         public IActionResult Create()
@@ -331,6 +341,8 @@ namespace SelfOrderingSystemKiosk.Controllers
         public decimal TotalRevenue { get; set; }
         public decimal Subtotal { get; set; }
         public decimal Tax { get; set; }
+        public decimal Cost { get; set; }
+        public decimal Profit { get; set; }
         public int DineInOrders { get; set; }
         public int TakeOutOrders { get; set; }
         public int KioskOrders { get; set; }

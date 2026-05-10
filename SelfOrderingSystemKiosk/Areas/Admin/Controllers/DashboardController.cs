@@ -57,8 +57,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 allBranches = await _branchService.GetAllAsync();
                 
                 // Build summary for each branch
-                var todayStart = DateTime.UtcNow.Date;
-                var todayEnd = todayStart.AddDays(1);
+                var (todayStart, todayEnd) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
 
                 foreach (var branch in allBranches)
                 {
@@ -88,8 +87,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             else
             {
                 // Branch-restricted view (Manager or legacy Admin)
-                var todayStart = DateTime.UtcNow.Date;
-                var todayEnd = todayStart.AddDays(1);
+                var (todayStart, todayEnd) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
                 var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd, userBranchId);
 
                 BuildDashboardMetrics(todayOrders, isOwner: false);

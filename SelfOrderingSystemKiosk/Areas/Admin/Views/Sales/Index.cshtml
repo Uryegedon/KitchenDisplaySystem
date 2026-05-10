@@ -4,8 +4,8 @@
     var bestSellersAll = ViewBag.BestSellersAllTime as List<BestSeller> ?? new List<BestSeller>();
     var bestSellersToday = ViewBag.BestSellersToday as List<BestSeller> ?? new List<BestSeller>();
     var bestSellersMonthly = ViewBag.BestSellersMonthly as List<BestSeller> ?? new List<BestSeller>();
-    var rangeStart = ViewBag.RangeStart != null ? ((DateTime)ViewBag.RangeStart).ToLocalTime() : DateTime.UtcNow.ToLocalTime().Date;
-    var rangeEnd = ViewBag.RangeEnd != null ? ((DateTime)ViewBag.RangeEnd).ToLocalTime() : DateTime.UtcNow.ToLocalTime().Date;
+    var rangeStart = ViewBag.RangeStart != null ? (DateTime)ViewBag.RangeStart : AppClock.LocalNow.Date;
+    var rangeEnd = ViewBag.RangeEnd != null ? (DateTime)ViewBag.RangeEnd : AppClock.LocalNow.Date;
     var rangeRevenue = ViewBag.RangeRevenue != null ? (decimal)ViewBag.RangeRevenue : 0m;
     var rangeCost = ViewBag.RangeCost != null ? (decimal)ViewBag.RangeCost : 0m;
     var rangeProfit = ViewBag.RangeProfit != null ? (decimal)ViewBag.RangeProfit : 0m;
@@ -23,6 +23,8 @@
     var branchName = ViewData["BranchName"] as string ?? "Unknown";
     var allBranches = ViewBag.AllBranches as List<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch> ?? new();
     var branchFilter = ViewBag.BranchFilter as string ?? "all";
+    var isSpecificBranch = isOwner && !string.Equals(branchFilter, "all", StringComparison.OrdinalIgnoreCase);
+    var selectedBranchRevenue = branchRevenueStats.FirstOrDefault(b => string.Equals(b.BranchId, branchFilter, StringComparison.OrdinalIgnoreCase));
 }
 
 <div class="dashboard-container">
@@ -65,41 +67,79 @@
         @if (isOwner)
         {
             <div class="chart-container branch-revenue-card">
-                <h3 style="color:#e67e22;margin:0 0 15px;font-size:1.1em;">Revenue per branch</h3>
-                @if (branchRevenueStats.Any())
+                @if (isSpecificBranch)
                 {
-                    <div style="overflow-x:auto;">
-                        <table style="width:100%;border-collapse:collapse;">
+                    <h3 style="color:#e67e22;margin:0 0 15px;font-size:1.1em;">Branch revenue detail</h3>
+                    @if (selectedBranchRevenue != null)
+                    {
+                        <div class="branch-detail-summary">
+                            <div>
+                                <span>Orders</span>
+                                <strong>@selectedBranchRevenue.OrderCount</strong>
+                            </div>
+                            <div>
+                                <span>Revenue</span>
+                                <strong>₱@selectedBranchRevenue.Revenue.ToString("N2")</strong>
+                            </div>
+                            <div>
+                                <span>COGS</span>
+                                <strong>₱@selectedBranchRevenue.Cost.ToString("N2")</strong>
+                            </div>
+                            <div>
+                                <span>Profit</span>
+                                <strong class="@(selectedBranchRevenue.Profit < 0 ? "metric-negative" : "metric-positive")">₱@selectedBranchRevenue.Profit.ToString("N2")</strong>
+                            </div>
+                        </div>
+                        <div class="branch-detail-breakdown">
+                            <span class="pill warning">Ala Carte: ₱@rangeRevenueAlaCarte.ToString("N2")</span>
+                            <span class="pill muted">Unlimited: ₱@rangeRevenueUnlimited.ToString("N2")</span>
+                            <span class="pill" style="background: #D1ECF1; color: #0C5460; border: 1px solid #BEE5EB;">Dine In: ₱@rangeRevenueDineIn.ToString("N2")</span>
+                            <span class="pill" style="background: #F8D7DA; color: #721C24; border: 1px solid #F5C6CB;">Take Out: ₱@rangeRevenueTakeOut.ToString("N2")</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <p style="color:#777;margin:0;">No branch revenue for this range.</p>
+                    }
+                }
+                else
+                {
+                    <h3 style="color:#e67e22;margin:0 0 15px;font-size:1.1em;">Revenue per branch</h3>
+                    @if (branchRevenueStats.Any())
+                    {
+                    <div class="branch-revenue-table-wrap">
+                        <table class="branch-revenue-table">
                             <thead>
                                 <tr>
-                                    <th style="text-align:left;padding:10px;border-bottom:1px solid #f0d7bf;">Branch</th>
-                                    <th style="text-align:right;padding:10px;border-bottom:1px solid #f0d7bf;">Orders</th>
-                                    <th style="text-align:right;padding:10px;border-bottom:1px solid #f0d7bf;">Revenue</th>
-                                    <th style="text-align:right;padding:10px;border-bottom:1px solid #f0d7bf;">COGS</th>
-                                    <th style="text-align:right;padding:10px;border-bottom:1px solid #f0d7bf;">Profit</th>
+                                    <th>Branch</th>
+                                    <th>Orders</th>
+                                    <th>Revenue</th>
+                                    <th>COGS</th>
+                                    <th>Profit</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var branch in branchRevenueStats)
                                 {
                                     <tr>
-                                        <td style="padding:10px;border-bottom:1px solid #f8e3cf;">
+                                        <td>
                                             <strong>@branch.BranchName</strong>
                                             <span style="color:#888;font-size:.85em;">@branch.BranchCode</span>
                                         </td>
-                                        <td style="text-align:right;padding:10px;border-bottom:1px solid #f8e3cf;">@branch.OrderCount</td>
-                                        <td style="text-align:right;padding:10px;border-bottom:1px solid #f8e3cf;">₱@branch.Revenue.ToString("N2")</td>
-                                        <td style="text-align:right;padding:10px;border-bottom:1px solid #f8e3cf;">₱@branch.Cost.ToString("N2")</td>
-                                        <td style="text-align:right;padding:10px;border-bottom:1px solid #f8e3cf;font-weight:700;color:@(branch.Profit < 0 ? "#c0392b" : "#27ae60");">₱@branch.Profit.ToString("N2")</td>
+                                        <td>@branch.OrderCount</td>
+                                        <td>₱@branch.Revenue.ToString("N2")</td>
+                                        <td>₱@branch.Cost.ToString("N2")</td>
+                                        <td class="@(branch.Profit < 0 ? "metric-negative" : "metric-positive")">₱@branch.Profit.ToString("N2")</td>
                                     </tr>
                                 }
                             </tbody>
                         </table>
                     </div>
-                }
-                else
-                {
-                    <p style="color:#777;margin:0;">No branch revenue for this range.</p>
+                    }
+                    else
+                    {
+                        <p style="color:#777;margin:0;">No branch revenue for this range.</p>
+                    }
                 }
             </div>
         }
@@ -256,6 +296,99 @@
 
         .branch-revenue-card {
             margin: 0;
+            align-items: stretch;
+            justify-content: flex-start;
+            max-height: none;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .branch-revenue-card h3 {
+            text-align: center;
+        }
+
+        .branch-revenue-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .branch-revenue-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        .branch-revenue-table th,
+        .branch-revenue-table td {
+            padding: 10px;
+            border-bottom: 1px solid #f8e3cf;
+            white-space: nowrap;
+        }
+
+        .branch-revenue-table th {
+            border-bottom-color: #f0d7bf;
+            color: #555;
+            font-size: 0.86rem;
+        }
+
+        .branch-revenue-table th:first-child,
+        .branch-revenue-table td:first-child {
+            text-align: left;
+            white-space: normal;
+            width: 38%;
+        }
+
+        .branch-revenue-table th:not(:first-child),
+        .branch-revenue-table td:not(:first-child) {
+            text-align: right;
+        }
+
+        .branch-revenue-table td:last-child {
+            font-weight: 700;
+        }
+
+        .branch-detail-summary {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(120px, 1fr));
+            gap: 12px;
+        }
+
+        .branch-detail-summary > div {
+            border: 1px solid #f0d7bf;
+            border-radius: 8px;
+            padding: 12px;
+            background: #fffaf5;
+            min-width: 0;
+        }
+
+        .branch-detail-summary span {
+            display: block;
+            color: #777;
+            font-size: 0.82rem;
+            margin-bottom: 6px;
+        }
+
+        .branch-detail-summary strong {
+            display: block;
+            color: #333;
+            font-size: 1.05rem;
+            line-height: 1.2;
+            overflow-wrap: anywhere;
+        }
+
+        .branch-detail-breakdown {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 14px;
+        }
+
+        .metric-positive {
+            color: #27ae60 !important;
+        }
+
+        .metric-negative {
+            color: #c0392b !important;
         }
 
         .best-sellers-card {
@@ -277,6 +410,16 @@
 
             .sales-top-grid > .best-sellers-card:only-child {
                 max-width: none;
+            }
+
+            .branch-detail-summary {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @@media (max-width: 520px) {
+            .branch-detail-summary {
+                grid-template-columns: 1fr;
             }
         }
     </style>

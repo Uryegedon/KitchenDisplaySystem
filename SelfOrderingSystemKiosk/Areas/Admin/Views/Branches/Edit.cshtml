@@ -70,8 +70,8 @@
             <div class="form-section">
                 <h3>Metadata</h3>
                 <p class="form-text">
-                    <strong>Created:</strong> @Model.CreatedAt.ToLocalTime().ToString("MMMM dd, yyyy HH:mm")<br />
-                    <strong>Last Updated:</strong> @Model.UpdatedAt.Value.ToLocalTime().ToString("MMMM dd, yyyy HH:mm")
+                    <strong>Created:</strong> @AppClock.ToLocal(Model.CreatedAt).ToString("MMMM dd, yyyy HH:mm")<br />
+                    <strong>Last Updated:</strong> @AppClock.ToLocal(Model.UpdatedAt.Value).ToString("MMMM dd, yyyy HH:mm")
                 </p>
             </div>
         }

@@ -65,7 +65,7 @@
                                 }
                             </td>
                             <td>₱@o.Total.ToString("N2")</td>
-                            <td>@o.OrderDate.ToLocalTime().ToString("MMM dd, yyyy h:mm tt")</td>
+                            <td>@AppClock.ToLocal(o.OrderDate).ToString("MMM dd, yyyy h:mm tt")</td>
                             <td>
                                 @if (o.Status == "Pending")
                                 {

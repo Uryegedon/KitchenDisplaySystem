@@ -388,7 +388,7 @@
                 </div>
                 <div class="receipt-meta">
                     <p><strong>Bill:</strong> @Model.ReceiptNumber</p>
-                    <p><strong>Generated:</strong> @DateTime.Now.ToString("MMM dd, yyyy h:mm tt")</p>
+                    <p><strong>Generated:</strong> @AppClock.LocalNow.ToString("MMM dd, yyyy h:mm tt")</p>
                     <p><strong>Orders:</strong> @Model.Orders.Count</p>
                 </div>
             </div>
@@ -436,11 +436,11 @@
                     </div>
                     <div class="info-box">
                         <span>Session Start</span>
-                        <strong>@(Model.HasSessionStarted ? Model.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt") : "Not started")</strong>
+                        <strong>@(Model.HasSessionStarted ? AppClock.ToLocal(Model.SessionStartUtc).ToString("MMM dd, h:mm tt") : "Not started")</strong>
                     </div>
                     <div class="info-box">
                         <span>Session Ends</span>
-                        <strong>@(Model.HasSessionStarted ? Model.SessionEndUtc.ToLocalTime().ToString("MMM dd, h:mm tt") : "After staff starts")</strong>
+                        <strong>@(Model.HasSessionStarted ? AppClock.ToLocal(Model.SessionEndUtc).ToString("MMM dd, h:mm tt") : "After staff starts")</strong>
                     </div>
                     <div class="info-box">
                         <span>Payment</span>
@@ -532,7 +532,7 @@
                                 <td><strong>#@order.OrderNumber</strong></td>
                                 <td>@order.OrderType</td>
                                 <td>@order.Status</td>
-                                <td class="num">@order.OrderDate.ToLocalTime().ToString("h:mm tt")</td>
+                                <td class="num">@AppClock.ToLocal(order.OrderDate).ToString("h:mm tt")</td>
                                 <td class="num">₱@order.Subtotal.ToString("N2")</td>
                             </tr>
                         }

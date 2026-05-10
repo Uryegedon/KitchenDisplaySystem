@@ -51,17 +51,13 @@ namespace SelfOrderingSystemKiosk.Controllers
                 ViewData["BranchName"] = "All Branches";
             }
 
-            var todayStart = DateTime.UtcNow.Date;
-            var todayEnd = todayStart.AddDays(1);
+            var (todayStart, todayEnd) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
             var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd, effectiveBranchId);
 
             DateTime defaultRangeStart, defaultRangeEnd;
             if (string.IsNullOrEmpty(startDate) && string.IsNullOrEmpty(endDate))
             {
-                var now = DateTime.UtcNow;
-                var dayOfWeek = now.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)now.DayOfWeek;
-                defaultRangeStart = now.Date.AddDays(-(dayOfWeek - 1));
-                defaultRangeEnd = defaultRangeStart.AddDays(7);
+                (defaultRangeStart, defaultRangeEnd) = AppClock.CurrentLocalWeekRange();
             }
             else
             {
@@ -69,12 +65,12 @@ namespace SelfOrderingSystemKiosk.Controllers
                 defaultRangeEnd = todayEnd;
             }
 
-            var rangeStart = OrderSalesAnalytics.ParseDateOrDefault(startDate, defaultRangeStart);
-            var rangeEnd = OrderSalesAnalytics.ParseDateOrDefault(endDate, defaultRangeEnd);
-            if (!string.IsNullOrWhiteSpace(endDate))
-                rangeEnd = rangeEnd.AddDays(1);
-            if (rangeEnd <= rangeStart)
-                rangeEnd = rangeStart.AddDays(1);
+            var rangeStart = defaultRangeStart;
+            var rangeEnd = defaultRangeEnd;
+            if (DateTime.TryParse(startDate, out var parsedStart) && DateTime.TryParse(endDate, out var parsedEnd))
+            {
+                (rangeStart, rangeEnd) = AppClock.LocalDateRange(parsedStart, parsedEnd);
+            }
 
             var rangeOrders = await _orderService.GetByDateRangeHalfOpenAsync(rangeStart, rangeEnd, effectiveBranchId);
 
@@ -100,8 +96,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             var bestSellersAllTime = OrderSalesAnalytics.BuildBestSellers(allOrdersForBestSellers);
             var bestSellersToday = OrderSalesAnalytics.BuildBestSellers(todayOrders);
 
-            var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-            var monthEnd = monthStart.AddMonths(1);
+            var (monthStart, monthEnd) = AppClock.CurrentLocalMonthRange();
             var monthOrders = await _orderService.GetByDateRangeHalfOpenAsync(monthStart, monthEnd, effectiveBranchId);
             var bestSellersMonthly = OrderSalesAnalytics.BuildBestSellers(monthOrders);
 
@@ -110,7 +105,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             {
                 var ordersByDay = rangeOrders
                     .Where(o => o.Total > 0)
-                    .GroupBy(o => o.OrderDate.Date.ToString("yyyy-MM-dd"))
+                    .GroupBy(o => AppClock.ToLocal(o.OrderDate).Date.ToString("yyyy-MM-dd"))
                     .OrderBy(g => g.Key);
                 foreach (var dayGroup in ordersByDay)
                     chartData[dayGroup.Key] = dayGroup.Sum(o => o.Total);
@@ -139,8 +134,8 @@ namespace SelfOrderingSystemKiosk.Controllers
                     .ToList();
             }
 
-            ViewBag.RangeStart = rangeStart;
-            ViewBag.RangeEnd = rangeEnd.AddDays(-1);
+            ViewBag.RangeStart = AppClock.ToLocal(rangeStart);
+            ViewBag.RangeEnd = AppClock.ToLocal(rangeEnd).AddDays(-1);
             ViewBag.RangeRevenue = rangeRevenue;
             ViewBag.RangeCost = rangeCost;
             ViewBag.RangeProfit = rangeProfit;

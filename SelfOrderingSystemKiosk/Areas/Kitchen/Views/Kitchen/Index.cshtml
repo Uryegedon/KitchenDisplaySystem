@@ -523,8 +523,8 @@
                     </div>
                     <div class="order-time">
                         Ordered at<br>
-                        <strong>@order.OrderDate.ToLocalTime().ToString("MMM dd, yyyy")</strong><br>
-                        <strong>@order.OrderDate.ToLocalTime().ToString("h:mm tt")</strong><br>
+                        <strong>@AppClock.ToLocal(order.OrderDate).ToString("MMM dd, yyyy")</strong><br>
+                        <strong>@AppClock.ToLocal(order.OrderDate).ToString("h:mm tt")</strong><br>
                         <span class="status-badge @statusClass">@order.Status</span>
                     </div>
                 </div>

@@ -312,13 +312,14 @@ namespace SelfOrderingSystemKiosk.Services
                 return await GetAllAsync();
             }
 
+            var trimmedBranchId = branchId.Trim();
             // Return items for specific branch OR shared items (empty BranchId)
             var filter = Builders<IngredientItem>.Filter.Or(
-                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, branchId),
+                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, trimmedBranchId),
                 SharedBranchFilter()
             );
             var list = await _collection.Find(filter).ToListAsync();
-            return list
+            return PreferBranchItemsOverShared(list, trimmedBranchId)
                 .OrderBy(i => i.IngredientCategory, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -335,15 +336,14 @@ namespace SelfOrderingSystemKiosk.Services
                 return all.Where(i => i.CurrentStock <= i.ReorderLevel).ToList();
             }
 
-            var filter = Builders<IngredientItem>.Filter.And(
-                Builders<IngredientItem>.Filter.Or(
-                    Builders<IngredientItem>.Filter.Eq(i => i.BranchId, branchId),
-                    SharedBranchFilter()
-                ),
-                Builders<IngredientItem>.Filter.Where(i => i.CurrentStock <= i.ReorderLevel)
+            var trimmedBranchId = branchId.Trim();
+            var filter = Builders<IngredientItem>.Filter.Or(
+                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, trimmedBranchId),
+                SharedBranchFilter()
             );
             var list = await _collection.Find(filter).ToListAsync();
-            return list
+            return PreferBranchItemsOverShared(list, trimmedBranchId)
+                .Where(i => i.CurrentStock <= i.ReorderLevel)
                 .OrderBy(i => i.IngredientCategory, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -359,11 +359,13 @@ namespace SelfOrderingSystemKiosk.Services
                 return await _collection.CountDocumentsAsync(_ => true);
             }
 
+            var trimmedBranchId = branchId.Trim();
             var filter = Builders<IngredientItem>.Filter.Or(
-                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, branchId),
+                Builders<IngredientItem>.Filter.Eq(i => i.BranchId, trimmedBranchId),
                 SharedBranchFilter()
             );
-            return await _collection.CountDocumentsAsync(filter);
+            var list = await _collection.Find(filter).ToListAsync();
+            return PreferBranchItemsOverShared(list, trimmedBranchId).LongCount();
         }
 
         private static FilterDefinition<IngredientItem> SharedBranchFilter()
@@ -372,6 +374,18 @@ namespace SelfOrderingSystemKiosk.Services
                 Builders<IngredientItem>.Filter.Eq(i => i.BranchId, (string)null!),
                 Builders<IngredientItem>.Filter.Eq(i => i.BranchId, string.Empty),
                 Builders<IngredientItem>.Filter.Not(Builders<IngredientItem>.Filter.Exists(i => i.BranchId)));
+        }
+
+        private static IEnumerable<IngredientItem> PreferBranchItemsOverShared(IEnumerable<IngredientItem> items, string branchId)
+        {
+            return (items ?? Enumerable.Empty<IngredientItem>())
+                .Where(i => !string.IsNullOrWhiteSpace(i.Item))
+                .GroupBy(i => i.Item!.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(g => g
+                    .OrderByDescending(i => string.Equals(i.BranchId, branchId, StringComparison.OrdinalIgnoreCase))
+                    .ThenBy(i => string.IsNullOrWhiteSpace(i.BranchId) ? 1 : 0)
+                    .ThenBy(i => i.Item, StringComparer.OrdinalIgnoreCase)
+                    .First());
         }
     }
 }

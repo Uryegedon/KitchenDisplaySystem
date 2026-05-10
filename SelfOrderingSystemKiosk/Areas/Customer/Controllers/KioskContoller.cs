@@ -40,7 +40,6 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private const string SessionFirstOrderTime = "FirstOrderTime";
         private const string OrderAccessSessionPrefix = "OrderAccess:";
         private static readonly TimeSpan OrderingSessionLength = TimeSpan.FromHours(2);
-        private static readonly TimeSpan CustomerCancelWindow = TimeSpan.FromSeconds(5);
 
         public KioskController(
             OrderService orderService,
@@ -452,7 +451,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (!isPaid)
             {
                 return TableOrderingGateResult.Blocked(
-                    $"The previous Table {tableNumber} session ended at {sessionEnd.ToLocalTime():h:mm tt} and the bill is still pending. Please ask staff to mark the bill paid before starting a new order.",
+                    $"The previous Table {tableNumber} session ended at {AppClock.ToLocal(sessionEnd):h:mm tt} and the bill is still pending. Please ask staff to mark the bill paid before starting a new order.",
                     sessionStart,
                     sessionEnd);
             }
@@ -629,9 +628,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
         private static DateTime ToUtc(DateTime value)
         {
-            return value.Kind == DateTimeKind.Unspecified
-                ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
-                : value.ToUniversalTime();
+            return AppClock.ToUtc(value);
         }
 
         private static DateTime? GetOrderSessionStartUtc(Order order)
@@ -1134,7 +1131,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                             return Json(new
                             {
                                 success = false,
-                                message = $"Time limit exceeded. Your {orderingSessionHours}-hour ordering window started at {firstOrderTime.Value.ToLocalTime():hh:mm tt} and has expired. Please start a new session."
+                                message = $"Time limit exceeded. Your {orderingSessionHours}-hour ordering window started at {AppClock.ToLocal(firstOrderTime.Value):hh:mm tt} and has expired. Please start a new session."
                             });
                         }
                     }
@@ -1631,16 +1628,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 {
                     return Json(new { success = false, message = "Please use the original confirmation link for this order." });
                 }
-                if (DateTime.UtcNow - order.OrderDate.ToUniversalTime() > CustomerCancelWindow)
-                {
-                    return Json(new { success = false, message = "The cancellation window has already closed." });
-                }
-
-                // Check if order can be cancelled (not in progress, completed, or already cancelled)
-                if (order.Status != null && 
-                    (order.Status.Equals("In Progress", StringComparison.OrdinalIgnoreCase) ||
-                     order.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase) ||
-                     order.Status.Equals("Canceled", StringComparison.OrdinalIgnoreCase)))
+                if (!string.Equals(order.Status, "Pending", StringComparison.OrdinalIgnoreCase))
                 {
                     return Json(new { success = false, message = $"Cannot cancel order. Order status is: {order.Status}" });
                 }

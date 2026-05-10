@@ -50,8 +50,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             // Apply date filter if specified
             if (filter == "today")
             {
-                var todayStart = DateTime.UtcNow.Date;
-                var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayStart.AddDays(1), userBranchId);
+                var (todayStart, todayEnd) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
+                var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd, userBranchId);
                 orders = todayOrders ?? new List<Order>();
                 ViewBag.FilterMessage = isOwner ? "Showing today's orders (all branches)" : "Showing today's orders";
             }

@@ -607,9 +607,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
         private static DateTime ToUtc(DateTime value)
         {
-            return value.Kind == DateTimeKind.Unspecified
-                ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
-                : value.ToUniversalTime();
+            return AppClock.ToUtc(value);
         }
 
         private static DateTime? GetOrderSessionStartUtc(Order order)

@@ -64,7 +64,7 @@
                                 <span class="status-badge in">Available</span>
                             }
                         </td>
-                        <td>@(table.UpdatedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
+                        <td>@(table.UpdatedAtUtc.HasValue ? AppClock.ToLocal(table.UpdatedAtUtc.Value).ToString("yyyy-MM-dd HH:mm") : "-")</td>
                     </tr>
                 }
             </tbody>

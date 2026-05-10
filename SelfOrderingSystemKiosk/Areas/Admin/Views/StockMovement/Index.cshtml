@@ -6,22 +6,52 @@
     var r = ViewBag.Range as string ?? "week";
     var startDate = ViewBag.StartDate as string;
     var endDate = ViewBag.EndDate as string;
+    var isOwner = ViewBag.IsOwner == true;
+    var allBranches = ViewBag.AllBranches as List<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch> ?? new();
+    var branchFilter = ViewBag.BranchFilter as string ?? "all";
+    var branchName = ViewData["BranchName"] as string ?? "Unknown";
 }
 
 <div class="header" style="margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;">
         <div>
+            <h2 style="margin: 0 0 6px; font-size: 1.5em;">@branchName</h2>
             <p style="margin: 0; color: #666;">Ingredient recipe deductions, kitchen/supplies restocks, and manual inventory edits.</p>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <span style="font-size: 0.9rem;">Range:</span>
-            <a asp-action="Index" asp-route-range="week" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "week" ? "#ff6b35" : "#eee"); color: @(r == "week" ? "#fff" : "#333"); font-weight: @(r == "week" ? "600" : "400");">This week</a>
-            <a asp-action="Index" asp-route-range="month" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "month" ? "#ff6b35" : "#eee"); color: @(r == "month" ? "#fff" : "#333"); font-weight: @(r == "month" ? "600" : "400");">This month</a>
-            <a asp-action="Index" asp-route-range="year" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "year" ? "#ff6b35" : "#eee"); color: @(r == "year" ? "#fff" : "#333"); font-weight: @(r == "year" ? "600" : "400");">This year</a>
+            <a asp-action="Index" asp-route-range="week" asp-route-branchFilter="@branchFilter" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "week" ? "#ff6b35" : "#eee"); color: @(r == "week" ? "#fff" : "#333"); font-weight: @(r == "week" ? "600" : "400");">This week</a>
+            <a asp-action="Index" asp-route-range="month" asp-route-branchFilter="@branchFilter" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "month" ? "#ff6b35" : "#eee"); color: @(r == "month" ? "#fff" : "#333"); font-weight: @(r == "month" ? "600" : "400");">This month</a>
+            <a asp-action="Index" asp-route-range="year" asp-route-branchFilter="@branchFilter" style="padding: 8px 14px; text-decoration: none; border-radius: 8px; background: @(r == "year" ? "#ff6b35" : "#eee"); color: @(r == "year" ? "#fff" : "#333"); font-weight: @(r == "year" ? "600" : "400");">This year</a>
             <button type="button" class="sales-filter-btn date-range-btn revenue-chart-filter @(r == "custom" ? "active" : "")" onclick="openDateRangePopup()" style="padding: 8px 14px; border: none; border-radius: 8px; background: @(r == "custom" ? "#ff6b35" : "#eee"); color: @(r == "custom" ? "#fff" : "#333"); font-weight: @(r == "custom" ? "600" : "400"); cursor: pointer;">
                 Custom range
             </button>
+            <button type="button" onclick="window.print()" style="padding: 8px 14px; border: none; border-radius: 8px; background: #2c3e50; color: #fff; font-weight: 600; cursor: pointer;">
+                Print
+            </button>
         </div>
     </div>
+
+@if (isOwner)
+{
+    <div class="stock-toolbar">
+        <form method="get" asp-area="Admin" asp-controller="StockMovement" asp-action="Index" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="hidden" name="range" value="@r" />
+            @if (r == "custom")
+            {
+                <input type="hidden" name="startDate" value="@startDate" />
+                <input type="hidden" name="endDate" value="@endDate" />
+            }
+            <label for="branchFilter" style="color:#666;font-weight:600;">Branch</label>
+            <select name="branchFilter" id="branchFilter" onchange="this.form.submit()" style="padding:8px 12px;border:2px solid #ddd;border-radius:6px;min-width:220px;">
+                <option value="all" selected="@(branchFilter == "all")">All branches</option>
+                @foreach (var branch in allBranches)
+                {
+                    <option value="@branch.Id" selected="@(branchFilter == branch.Id)">@branch.BranchName</option>
+                }
+            </select>
+        </form>
+    </div>
+}
 
 <div id="dateRangeModal" class="date-range-modal" aria-hidden="true">
         <div class="date-range-modal-content">
@@ -30,6 +60,11 @@
                 <button type="button" class="date-range-close" aria-label="Close date range" onclick="closeDateRangePopup()">&times;</button>
             </div>
             <form method="get" asp-area="Admin" asp-controller="StockMovement" asp-action="Index" class="date-range-form" onsubmit="closeDateRangePopup()">
+                <input type="hidden" name="range" value="custom" />
+                @if (isOwner)
+                {
+                    <input type="hidden" name="branchFilter" value="@branchFilter" />
+                }
                 <div class="date-range-fields">
                     <label>
                         From
@@ -57,10 +92,10 @@
                     <th>Δ</th>
                     <th>Before</th>
                     <th>After</th>
-                    <th>Reason</th>
-                    <th>Reference</th>
+                    <th class="no-print">Reason</th>
+                    <th class="no-print">Reference</th>
                     <th>By</th>
-                    <th>Note</th>
+                    <th class="no-print">Note</th>
                 </tr>
             </thead>
             <tbody>
@@ -73,7 +108,7 @@
                     foreach (var m in Model)
                     {
                         <tr>
-                            <td>@m.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>@AppClock.ToLocal(m.TimestampUtc).ToString("MMM dd, yyyy h:mm tt")</td>
                             <td>
                                 <strong>@m.ItemName</strong>
                                 @if (!string.IsNullOrEmpty(m.InventoryItemId))
@@ -84,8 +119,8 @@
                             <td style="font-weight: 600; color: @(m.QuantityDelta < 0 ? "#c0392b" : "#27ae60");">@(m.QuantityDelta > 0 ? "+" : "")@m.QuantityDelta</td>
                             <td>@m.StockBefore</td>
                             <td>@m.StockAfter</td>
-                            <td>@m.Reason</td>
-                            <td>
+                            <td class="no-print">@m.Reason</td>
+                            <td class="no-print">
                                 <span style="font-size: 0.85rem;">@m.ReferenceType</span>
                                 @if (!string.IsNullOrEmpty(m.ReferenceId))
                                 {
@@ -93,7 +128,7 @@
                                 }
                             </td>
                             <td style="font-size: 0.85rem;">@(string.IsNullOrWhiteSpace(m.PerformedBy) ? "-" : m.PerformedBy)</td>
-                            <td style="font-size: 0.85rem;">@m.Note</td>
+                            <td class="no-print" style="font-size: 0.85rem;">@m.Note</td>
                         </tr>
                     }
                 }
@@ -102,6 +137,48 @@
     </div>
 
 @section Scripts {
+    <style>
+        .stock-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 16px;
+        }
+
+        @@media print {
+            body * {
+                visibility: hidden;
+            }
+
+            .table-container,
+            .table-container * {
+                visibility: visible;
+            }
+
+            .table-container {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                overflow: visible !important;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 11px;
+            }
+
+            th,
+            td {
+                border: 1px solid #ccc !important;
+                padding: 6px !important;
+            }
+        }
+    </style>
     <script>
         function openDateRangePopup() {
             const modal = document.getElementById('dateRangeModal');

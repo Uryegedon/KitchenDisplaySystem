@@ -74,7 +74,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (ViewBag.CategoryFilter != "all")
                 items = all.Where(i => string.Equals(i.IngredientCategory, categoryFilter, StringComparison.Ordinal)).ToList();
             ViewBag.ExpiryFilter = string.IsNullOrWhiteSpace(expiryFilter) ? "all" : expiryFilter;
-            var today = DateTime.UtcNow.Date;
+            var today = AppClock.LocalNow.Date;
             if (ViewBag.ExpiryFilter == "expired")
                 items = items.Where(i => i.ExpirationDate.HasValue && i.ExpirationDate.Value.Date < today).ToList();
             else if (ViewBag.ExpiryFilter == "near")
@@ -92,9 +92,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         private async Task<Dictionary<string, PrintStockSummary>> BuildPrintStockStatsAsync(List<IngredientItem> items)
         {
-            var todayLocal = DateTime.Today;
-            var startUtc = todayLocal.ToUniversalTime();
-            var endUtc = todayLocal.AddDays(1).ToUniversalTime();
+            var (startUtc, endUtc) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
             var movements = await _stockMovements.GetForInventoryItemsAsync(items.Select(i => i.Id), startUtc, endUtc, User.GetBranchId());
             var byItem = movements
                 .GroupBy(m => m.InventoryItemId ?? "", StringComparer.OrdinalIgnoreCase)

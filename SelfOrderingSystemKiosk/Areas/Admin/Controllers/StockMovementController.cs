@@ -22,19 +22,32 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> Index(string? range = "week", string? startDate = null, string? endDate = null)
+        public async Task<IActionResult> Index(string? range = "week", string? startDate = null, string? endDate = null, string? branchFilter = null)
         {
             ViewData["Title"] = "Stock history";
 
             // Get user's branch context
             var userBranchId = User.GetBranchId();
             var isOwner = User.HasAllBranchAccess();
+            if (!isOwner && string.IsNullOrWhiteSpace(userBranchId))
+                return Forbid();
+
+            var allBranches = isOwner ? await _branchService.GetAllAsync() : new List<Branch>();
+            var effectiveBranchId = userBranchId;
+            if (isOwner)
+            {
+                effectiveBranchId = string.Equals(branchFilter, "all", StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : string.IsNullOrWhiteSpace(branchFilter) ? null : branchFilter.Trim();
+                ViewBag.AllBranches = allBranches;
+                ViewBag.BranchFilter = string.IsNullOrWhiteSpace(branchFilter) ? "all" : branchFilter;
+            }
 
             // Get branch info for display
             Branch? userBranch = null;
-            if (!string.IsNullOrEmpty(userBranchId))
+            if (!string.IsNullOrEmpty(effectiveBranchId))
             {
-                userBranch = await _branchService.GetByIdAsync(userBranchId);
+                userBranch = await _branchService.GetByIdAsync(effectiveBranchId);
                 ViewData["BranchName"] = userBranch?.BranchName ?? "Unknown Branch";
             }
             else
@@ -47,31 +60,27 @@ namespace SelfOrderingSystemKiosk.Controllers
                 DateTime.TryParse(startDate, out var parsedStart) &&
                 DateTime.TryParse(endDate, out var parsedEnd))
             {
-                start = parsedStart.Date;
-                end = parsedEnd.Date.AddDays(1);
-                if (end <= start)
-                    end = start.AddDays(1);
+                (start, end) = AppClock.LocalDateRange(parsedStart, parsedEnd);
             }
             else
             {
-                var now = DateTime.UtcNow;
                 (start, end) = range switch
                 {
-                    "week" => (now.Date.AddDays(-(int)now.DayOfWeek + 1), now.Date.AddDays(8 - (int)now.DayOfWeek)),
-                    "month" => (new DateTime(now.Year, now.Month, 1), new DateTime(now.Year, now.Month, 1).AddMonths(1)),
-                    "year" => (new DateTime(now.Year, 1, 1), new DateTime(now.Year + 1, 1, 1)),
-                    _ => (now.Date.AddDays(-(int)now.DayOfWeek + 1), now.Date.AddDays(8 - (int)now.DayOfWeek))
+                    "week" => AppClock.CurrentLocalWeekRange(),
+                    "month" => AppClock.CurrentLocalMonthRange(),
+                    "year" => AppClock.CurrentLocalYearRange(),
+                    _ => AppClock.CurrentLocalWeekRange()
                 };
             }
             var movements = await _movementService.GetRecentAsync(
                 start,
                 end,
                 1000,
-                isOwner ? null : userBranchId);
+                effectiveBranchId);
             
             ViewBag.Range = range;
-            ViewBag.StartDate = start.ToString("yyyy-MM-dd");
-            ViewBag.EndDate = end.AddDays(-1).ToString("yyyy-MM-dd");
+            ViewBag.StartDate = AppClock.ToLocal(start).ToString("yyyy-MM-dd");
+            ViewBag.EndDate = AppClock.ToLocal(end).AddDays(-1).ToString("yyyy-MM-dd");
             ViewBag.IsOwner = isOwner;
             return View(movements);
         }

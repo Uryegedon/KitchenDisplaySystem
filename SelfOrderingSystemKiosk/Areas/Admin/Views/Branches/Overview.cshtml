@@ -5,8 +5,9 @@
     var selectedPeriod = ViewBag.SelectedPeriod as string ?? "today";
     var periodLabel = ViewBag.PeriodLabel as string ?? "Today";
     var selectedBranch = ViewBag.SelectedBranch as SelfOrderingSystemKiosk.Areas.Admin.Models.Branch;
-    var branchStats = ViewBag.BranchStats as List<SelfOrderingSystemKiosk.Controllers.BranchOverviewStats> ?? new List<SelfOrderingSystemKiosk.Controllers.BranchOverviewStats>();
-    var branchOrders = ViewBag.BranchOrders as List<SelfOrderingSystemKiosk.Areas.Customer.Models.Order> ?? new List<SelfOrderingSystemKiosk.Areas.Customer.Models.Order>();
+                var branchStats = ViewBag.BranchStats as List<SelfOrderingSystemKiosk.Controllers.BranchOverviewStats> ?? new List<SelfOrderingSystemKiosk.Controllers.BranchOverviewStats>();
+                var branchOrders = ViewBag.BranchOrders as List<SelfOrderingSystemKiosk.Areas.Customer.Models.Order> ?? new List<SelfOrderingSystemKiosk.Areas.Customer.Models.Order>();
+                string NormalizeMetricValue(string value) => new string((value ?? "").Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 }
 
 <div class="branch-overview-container">
@@ -64,14 +65,36 @@
             @{
                 var billableOrders = branchOrders.Where(o => o.Total > 0).ToList();
                 var totalRevenue = billableOrders.Sum(o => o.Total);
+                var totalCost = billableOrders.Sum(o => o.OrderCost);
+                var totalProfit = billableOrders.Sum(o => o.Profit);
                 var totalOrders = branchOrders.Count;
-                var dineInCount = branchOrders.Count(o => string.Equals(o.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase));
-                var takeOutCount = branchOrders.Count(o => string.Equals(o.DiningType, "TakeOut", StringComparison.OrdinalIgnoreCase));
-                var kioskCount = branchOrders.Count(o => string.Equals(o.OrderChannel, "Kiosk", StringComparison.OrdinalIgnoreCase));
-                var qrCount = branchOrders.Count(o => string.Equals(o.OrderChannel, "Qr", StringComparison.OrdinalIgnoreCase));
+                var dineInCount = branchOrders.Count(o => NormalizeMetricValue(o.DiningType) == "dinein");
+                var takeOutCount = branchOrders.Count(o => NormalizeMetricValue(o.DiningType) == "takeout");
+                var kioskCount = branchOrders.Count(o => NormalizeMetricValue(o.OrderChannel) == "kiosk");
+                var qrCount = branchOrders.Count(o => NormalizeMetricValue(o.OrderChannel) == "qr");
             }
 
             <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #27ae60, #1e8449);">
+                        <i class="bi bi-cash-stack"></i>
+                    </div>
+                    <div class="stat-details">
+                        <div class="stat-value">₱@totalRevenue.ToString("N2")</div>
+                        <div class="stat-label">Revenue</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #16a085, #117864);">
+                        <i class="bi bi-graph-up-arrow"></i>
+                    </div>
+                    <div class="stat-details">
+                        <div class="stat-value">₱@totalProfit.ToString("N2")</div>
+                        <div class="stat-label">Profit after ₱@totalCost.ToString("N2") COGS</div>
+                    </div>
+                </div>
+
                 <div class="stat-card">
                     <div class="stat-icon" style="background: linear-gradient(135deg, #f39c12, #e67e22);">
                         <i class="bi bi-receipt"></i>
@@ -144,7 +167,7 @@
                                 {
                                     <tr>
                                         <td><strong>@order.OrderNumber</strong></td>
-                                        <td>@order.OrderDate.ToLocalTime().ToString("MMM dd, HH:mm")</td>
+                                        <td>@AppClock.ToLocal(order.OrderDate).ToString("MMM dd, HH:mm")</td>
                                         <td><span class="badge badge-type">@order.OrderType</span></td>
                                         <td><span class="badge badge-dining">@order.DiningType</span></td>
                                         <td><span class="badge badge-channel">@order.OrderChannel</span></td>
@@ -206,6 +229,9 @@
                                 <th>Branch</th>
                                 <th>Status</th>
                                 <th>Orders</th>
+                                <th>Billable</th>
+                                <th>Revenue</th>
+                                <th>Profit</th>
                                 <th>Dine-In</th>
                                 <th>Take-Out</th>
                                 <th>Kiosk</th>
@@ -230,6 +256,9 @@
                                         </span>
                                     </td>
                                     <td><strong>@stats.TotalOrders</strong></td>
+                                    <td>@stats.BillableOrders</td>
+                                    <td class="metric-money">₱@stats.TotalRevenue.ToString("N2")</td>
+                                    <td class="metric-money @(stats.Profit < 0 ? "metric-negative" : "metric-positive")">₱@stats.Profit.ToString("N2")</td>
                                     <td>@stats.DineInOrders</td>
                                     <td>@stats.TakeOutOrders</td>
                                     <td>@stats.KioskOrders</td>
@@ -623,6 +652,7 @@
             padding: 14px 16px;
             text-align: left;
             border-bottom: 1px solid #f0d7bf;
+            white-space: nowrap;
         }
 
         .comparison-table th {
@@ -641,6 +671,19 @@
         .branch-name-cell small {
             color: #7f8c8d;
             font-family: monospace;
+        }
+
+        .metric-money {
+            font-weight: 700;
+            color: #333;
+        }
+
+        .metric-positive {
+            color: #27ae60;
+        }
+
+        .metric-negative {
+            color: #c0392b;
         }
 
         .btn-link {

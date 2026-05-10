@@ -35,21 +35,15 @@ namespace SelfOrderingSystemKiosk.Services
         {
             await ExpirePendingOrdersAsync();
 
-            var now = DateTime.UtcNow;
             var filter = string.IsNullOrEmpty(dateFilter) ? "all" : dateFilter.ToLowerInvariant();
+            var (dayStart, dayEnd) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
+            var (weekStart, weekEnd) = AppClock.CurrentLocalWeekRange();
+            var (monthStart, monthEnd) = AppClock.CurrentLocalMonthRange();
             List<Order> orders = filter switch
             {
-                "day" => await GetByDateRangeHalfOpenAsync(
-                    new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc),
-                    new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(1)),
-                "week" =>
-                    await GetByDateRangeHalfOpenAsync(
-                        new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek),
-                        new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek).AddDays(7)),
-                "month" =>
-                    await GetByDateRangeHalfOpenAsync(
-                        new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc),
-                        new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1)),
+                "day" => await GetByDateRangeHalfOpenAsync(dayStart, dayEnd),
+                "week" => await GetByDateRangeHalfOpenAsync(weekStart, weekEnd),
+                "month" => await GetByDateRangeHalfOpenAsync(monthStart, monthEnd),
                 _ => await GetAllAsync()
             };
 
@@ -447,8 +441,10 @@ namespace SelfOrderingSystemKiosk.Services
         {
             await ExpirePendingOrdersAsync();
 
-            var now = DateTime.UtcNow;
             var filter = string.IsNullOrEmpty(dateFilter) ? "all" : dateFilter.ToLowerInvariant();
+            var (dayStart, dayEnd) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
+            var (weekStart, weekEnd) = AppClock.CurrentLocalWeekRange();
+            var (monthStart, monthEnd) = AppClock.CurrentLocalMonthRange();
             
             if (!string.IsNullOrEmpty(branchId))
             {
@@ -456,16 +452,16 @@ namespace SelfOrderingSystemKiosk.Services
                 return filter switch
                 {
                     "day" => await _orders.Find(o => 
-                        o.OrderDate >= new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc) &&
-                        o.OrderDate < new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(1) &&
+                        o.OrderDate >= dayStart &&
+                        o.OrderDate < dayEnd &&
                         o.BranchId == branchId).ToListAsync(),
                     "week" => await _orders.Find(o =>
-                        o.OrderDate >= new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek) &&
-                        o.OrderDate < new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek).AddDays(7) &&
+                        o.OrderDate >= weekStart &&
+                        o.OrderDate < weekEnd &&
                         o.BranchId == branchId).ToListAsync(),
                     "month" => await _orders.Find(o =>
-                        o.OrderDate >= new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc) &&
-                        o.OrderDate < new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1) &&
+                        o.OrderDate >= monthStart &&
+                        o.OrderDate < monthEnd &&
                         o.BranchId == branchId).ToListAsync(),
                     _ => await GetAllByBranchAsync(branchId)
                 };
@@ -475,15 +471,9 @@ namespace SelfOrderingSystemKiosk.Services
                 // No branch filter - return all
                 return filter switch
                 {
-                    "day" => await GetByDateRangeHalfOpenAsync(
-                        new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc),
-                        new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(1)),
-                    "week" => await GetByDateRangeHalfOpenAsync(
-                        new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek),
-                        new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-(int)now.DayOfWeek).AddDays(7)),
-                    "month" => await GetByDateRangeHalfOpenAsync(
-                        new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc),
-                        new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1)),
+                    "day" => await GetByDateRangeHalfOpenAsync(dayStart, dayEnd),
+                    "week" => await GetByDateRangeHalfOpenAsync(weekStart, weekEnd),
+                    "month" => await GetByDateRangeHalfOpenAsync(monthStart, monthEnd),
                     _ => await GetAllAsync()
                 };
             }

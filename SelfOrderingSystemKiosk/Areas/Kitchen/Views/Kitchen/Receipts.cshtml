@@ -396,10 +396,10 @@
                         @if (receipt != null && receipts.Count == 1)
                         {
                             <span> · @receipt.TotalItems item@(receipt.TotalItems == 1 ? "" : "s")</span><br>
-                            <span>@(receipt.HasSessionStarted ? receipt.SessionStartUtc.ToLocalTime().ToString("MMM dd, h:mm tt") : "Session not started")</span>
+                            <span>@(receipt.HasSessionStarted ? AppClock.ToLocal(receipt.SessionStartUtc).ToString("MMM dd, h:mm tt") : "Session not started")</span>
                             @if (receipt.IsTableSession && receipt.HasSessionStarted)
                             {
-                                <span> - @receipt.SessionEndUtc.ToLocalTime().ToString("h:mm tt")</span>
+                                <span> - @AppClock.ToLocal(receipt.SessionEndUtc).ToString("h:mm tt")</span>
                             }
                         }
                     </div>
@@ -409,7 +409,7 @@
                             @foreach (var laneReceipt in receipts)
                             {
                                 var lanePaid = laneReceipt.Orders.All(o => string.Equals(o.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase));
-                                var laneTime = laneReceipt.Orders.Select(o => o.OrderDate).DefaultIfEmpty(laneReceipt.SessionStartUtc).Max().ToLocalTime();
+                                var laneTime = AppClock.ToLocal(laneReceipt.Orders.Select(o => o.OrderDate).DefaultIfEmpty(laneReceipt.SessionStartUtc).Max());
                                 <div class="lane-bill">
                                     <div>
                                         <strong>Bill #@laneReceipt.ReceiptNumber</strong>
