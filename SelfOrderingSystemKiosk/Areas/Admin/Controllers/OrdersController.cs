@@ -67,6 +67,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> UpdateStatus(string id, string status)
         {
             var order = await _orderService.GetByIdAsync(id);

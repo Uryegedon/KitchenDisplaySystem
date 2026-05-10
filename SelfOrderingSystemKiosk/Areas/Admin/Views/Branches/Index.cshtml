@@ -41,7 +41,8 @@
                 var hasReferenceConflict = referenceDigit.HasValue
                     && referenceDigitCounts.TryGetValue(referenceDigit.Value, out var referenceCount)
                     && referenceCount > 1;
-                var hasInvalidBranchCode = !branch.BranchCode.Any(char.IsDigit);
+                var hasInvalidBranchCode = string.IsNullOrWhiteSpace(branch.BranchCode)
+                    || !branch.BranchCode.Any(char.IsDigit);
                 <div class="branch-card @(branch.IsActive ? "" : "branch-inactive")">
                     <div class="branch-card-header">
                         <div>
@@ -93,7 +94,7 @@
                                 <i class="bi bi-toggle-@((branch.IsActive ? "on" : "off"))"></i> @(branch.IsActive ? "Deactivate" : "Activate")
                             </button>
                         </form>
-                        <form asp-action="Delete" asp-route-id="@branch.Id" method="post" style="display: inline;">
+                        <form asp-action="DeleteConfirmed" asp-route-id="@branch.Id" method="post" style="display: inline;">
                             @Html.AntiForgeryToken()
                             <button type="submit" class="btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete branch \'@branch.BranchName\'? This cannot be undone.');">
                                 <i class="bi bi-trash"></i> Delete

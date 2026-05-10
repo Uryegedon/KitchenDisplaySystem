@@ -748,6 +748,7 @@
             <button type="button" class="close-modal" onclick="closeAddModal()">&times;</button>
         </div>
         <form method="post" asp-action="Add" id="addItemForm" class="modal-form" enctype="multipart/form-data">
+            @Html.AntiForgeryToken()
             <input type="hidden" name="branchFilter" value="@ViewBag.BranchFilter" />
             <div class="form-group">
                 <label>Menu Item Name *</label>
@@ -806,6 +807,7 @@
             <button type="button" class="close-modal" onclick="closeEditModal()">&times;</button>
         </div>
         <form method="post" asp-action="Edit" id="editItemForm" class="modal-form" enctype="multipart/form-data">
+            @Html.AntiForgeryToken()
             <input type="hidden" name="Id" id="editItemId" />
             <input type="hidden" name="Image" id="editItemImage" value="" />
             <input type="hidden" name="categoryFilter" value="@catFilter" />

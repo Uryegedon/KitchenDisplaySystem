@@ -53,6 +53,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         [HttpPost]
         [AllowAnonymous]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Login(AdminUser user)
         {
             if (user == null || string.IsNullOrEmpty(user.Username) || string.IsNullOrEmpty(user.Password))
@@ -118,6 +119,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         [HttpPost]
         [AllowAnonymous]
+        [ValidateAntiForgeryToken]
         public IActionResult ForgotPassword(string email)
         {
             if (string.IsNullOrEmpty(email))
@@ -147,6 +149,7 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         [Authorize(Roles = "Owner")]
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Signup(AdminUser user)
         {
             if (!ModelState.IsValid)

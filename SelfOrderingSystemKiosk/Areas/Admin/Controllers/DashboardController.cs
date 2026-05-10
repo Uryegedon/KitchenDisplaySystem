@@ -173,6 +173,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> RestockItem(string id, int quantity)
         {
             try

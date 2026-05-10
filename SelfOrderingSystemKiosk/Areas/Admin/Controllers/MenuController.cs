@@ -106,6 +106,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         [RequestSizeLimit(MaxImageUploadBytes)]
         public async Task<IActionResult> Add(string name, string category, decimal price, IFormFile imageFile, string? branchFilter = null)
         {
@@ -168,6 +169,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         [RequestSizeLimit(MaxImageUploadBytes)]
         public async Task<IActionResult> Edit(
             string Id,
@@ -326,6 +328,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> ToggleAvailability(string id, string availability)
         {
             try

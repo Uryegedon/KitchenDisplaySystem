@@ -126,6 +126,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Add(
             List<string> item,
             List<string> ingredientCategory,
@@ -231,6 +232,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(string id, string item, string ingredientCategory, string unit, decimal costPerUnit, DateTime? expirationDate)
         {
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(item))
@@ -317,6 +319,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Restock(string id, int amount, string? batchNote = null)
         {
             var item = await _ingredients.GetByIdAsync(id);
@@ -381,6 +384,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> ClearStock(string id)
         {
             var item = await _ingredients.GetByIdAsync(id);

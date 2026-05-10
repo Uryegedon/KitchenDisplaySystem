@@ -429,6 +429,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> UpdatePaymentStatus(string id, string paymentStatus, string? returnUrl = null)
         {
             if (string.IsNullOrWhiteSpace(id))
@@ -467,6 +468,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> EndSession(string id, string? returnUrl = null)
         {
             if (string.IsNullOrWhiteSpace(id))
@@ -832,6 +834,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
         // Optional: update status
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> UpdateStatus(string id, string status)
         {
             await _orderService.ExpirePendingOrdersAsync();

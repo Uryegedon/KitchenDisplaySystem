@@ -17,6 +17,7 @@
         }
 
         <form asp-action="Signup" method="post">
+            @Html.AntiForgeryToken()
             <div class="mb-3">
                 <label asp-for="FullName" class="form-label">Full Name</label>
                 <input asp-for="FullName" class="form-control" placeholder="Enter full name" />

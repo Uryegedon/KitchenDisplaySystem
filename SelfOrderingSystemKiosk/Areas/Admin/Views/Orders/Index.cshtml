@@ -86,6 +86,7 @@
                             </td>
                             <td>
                                 <form method="post" asp-action="UpdateStatus" class="form-inline" onsubmit="return confirmUpdate(event, '@o.OrderNumber')">
+                                    @Html.AntiForgeryToken()
                                     <select name="status" class="status-dropdown">
                                         <option value="Pending" selected="@(o.Status == "Pending")">Pending</option>
                                         <option value="In Progress" selected="@(o.Status == "In Progress")">In Progress</option>
