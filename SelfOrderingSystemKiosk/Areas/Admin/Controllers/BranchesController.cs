@@ -160,6 +160,8 @@ namespace SelfOrderingSystemKiosk.Controllers
         {
             ViewData["Title"] = "Add Branch";
 
+            ModelState.Remove(nameof(Branch.Id));
+
             if (string.IsNullOrWhiteSpace(branch.BranchCode))
             {
                 ModelState.AddModelError("BranchCode", "Branch code is required.");

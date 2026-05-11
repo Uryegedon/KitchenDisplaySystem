@@ -375,8 +375,6 @@ E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\publish-test\ap
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\publish-test\SelfOrderingSystemKiosk.deps.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\publish-test\SelfOrderingSystemKiosk.runtimeconfig.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\publish-test\SelfOrderingSystemKiosk.staticwebassets.endpoints.json
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.staticwebassets.runtime.json
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.staticwebassets.endpoints.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.exe
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.deps.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.runtimeconfig.json
@@ -391,7 +389,6 @@ E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SharpCompress.d
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\Snappier.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\ZstdSharp.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.csproj.AssemblyReference.cache
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\rpswa.dswa.cache.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.GeneratedMSBuildEditorConfig.editorconfig
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.AssemblyInfoInputs.cache
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.AssemblyInfo.cs
@@ -399,6 +396,13 @@ E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSys
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.MvcApplicationPartsAssemblyInfo.cache
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.RazorAssemblyInfo.cache
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.RazorAssemblyInfo.cs
+E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrde.0AEF4178.Up2Date
+E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.dll
+E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.pdb
+E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.genruntimeconfig.cache
+E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.staticwebassets.runtime.json
+E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.staticwebassets.endpoints.json
+E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\rpswa.dswa.cache.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\rjimswa.dswa.cache.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\rjsmrazor.dswa.cache.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\rjsmcshtml.dswa.cache.json
@@ -410,9 +414,5 @@ E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\staticwebassets
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\staticwebassets.build.json.cache
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\staticwebassets.development.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\staticwebassets.build.endpoints.json
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrde.0AEF4178.Up2Date
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\refint\SelfOrderingSystemKiosk.dll
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.pdb
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\SelfOrderingSystemKiosk.genruntimeconfig.cache
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\ref\SelfOrderingSystemKiosk.dll

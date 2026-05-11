@@ -13,6 +13,7 @@
 
     <form asp-action="Create" method="post" class="branch-form">
         @Html.AntiForgeryToken()
+        <div asp-validation-summary="ModelOnly" class="text-danger validation-summary"></div>
 
         <div class="form-section">
             <h3>Basic Information</h3>
@@ -238,6 +239,15 @@
             font-size: 0.85rem;
             margin-top: 4px;
             display: block;
+        }
+
+        .validation-summary {
+            margin-bottom: 16px;
+        }
+
+        .validation-summary ul {
+            margin: 0;
+            padding-left: 18px;
         }
 
         @@media (max-width: 600px) {

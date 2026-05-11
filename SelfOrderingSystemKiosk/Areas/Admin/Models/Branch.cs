@@ -1,5 +1,6 @@
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
+using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
 using System.Text.Json.Serialization;
 
 namespace SelfOrderingSystemKiosk.Areas.Admin.Models
@@ -8,7 +9,8 @@ namespace SelfOrderingSystemKiosk.Areas.Admin.Models
     {
         [BsonId]
         [BsonRepresentation(BsonType.ObjectId)]
-        public string Id { get; set; }
+        [ValidateNever]
+        public string Id { get; set; } = null!;
 
         [BsonElement("branchCode")]
         [JsonPropertyName("branchCode")]
