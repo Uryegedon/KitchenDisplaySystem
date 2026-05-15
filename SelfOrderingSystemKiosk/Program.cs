@@ -84,6 +84,7 @@ builder.Services.AddSingleton<MenuCategoryRegistry>();
 builder.Services.AddSingleton<FoodCategoryRegistry>();
 builder.Services.AddSingleton<IngredientCategoryRegistry>();
 builder.Services.AddSingleton<MenuItemService>();
+builder.Services.AddSingleton<DeliveryImportService>();
 builder.Services.AddSingleton<KpItemsImageResolver>();
 builder.Services.AddSingleton<IngredientStockService>();
 builder.Services.AddSingleton<UserService>();
@@ -93,6 +94,7 @@ builder.Services.AddSingleton<BranchService>();
 // Other services
 builder.Services.AddSingleton<KitchenDatabase>();
 builder.Services.AddSingleton<OrderService>();
+builder.Services.AddSingleton<UnlimitedRefillService>();
 builder.Services.AddSingleton<TableOrderingSessionService>();
 builder.Services.AddSingleton<TableRegistryService>();
 builder.Services.AddSingleton<QrCodeService>();

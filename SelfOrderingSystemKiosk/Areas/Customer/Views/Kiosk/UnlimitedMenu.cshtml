@@ -14,6 +14,7 @@
     var sharedWingFlavors = ViewBag.SharedWingFlavors as IEnumerable<string> ?? Enumerable.Empty<string>();
     var variantGroups = allMenuItems
         .Where(i => !string.IsNullOrWhiteSpace(i.Item)
+            && !IsUnlimitedIncludedMenuItem(i)
             && !IsSulitWingRiceMeal(i)
             && (i.Item.Contains(" - ", StringComparison.Ordinal)
                 || i.Item.StartsWith("Potato Thins ", StringComparison.OrdinalIgnoreCase)
@@ -816,6 +817,25 @@
 <script>
     let activeUnlimitedIncluded = null;
     let activeSulitMeal = null;
+    let latestOrderingSessionInfo = {
+        hasSession: false,
+        isExpired: false,
+        timeRemainingSeconds: null
+    };
+    const NEAR_EXPIRY_WARNING_SECONDS = 10 * 60;
+
+    function confirmNearExpiryOrderIfNeeded() {
+        if (!latestOrderingSessionInfo.hasSession || latestOrderingSessionInfo.isExpired) {
+            return true;
+        }
+
+        const remaining = Number(latestOrderingSessionInfo.timeRemainingSeconds);
+        if (!Number.isFinite(remaining) || remaining > NEAR_EXPIRY_WARNING_SECONDS) {
+            return true;
+        }
+
+        return confirm('Your Unlimited session is close to ending. Orders placed near expiration are still for the active dine-in session and may not be suitable for takeout. Continue sending this order?');
+    }
 
     function formatPeso(value) {
         return `₱${Number(value || 0).toFixed(2)}`;
@@ -1157,6 +1177,10 @@
             return;
         }
 
+        if (!confirmNearExpiryOrderIfNeeded()) {
+            return;
+        }
+
         // Prepare order items
         let orderItems = cart.map(c => ({
             ItemName: c.flavors && c.flavors.length > 0
@@ -1230,6 +1254,12 @@
             fetch('/Customer/Kiosk/GetSessionInfo')
                 .then(response => response.json())
                 .then(data => {
+                    latestOrderingSessionInfo = {
+                        hasSession: Boolean(data.hasSession),
+                        isExpired: Boolean(data.isExpired),
+                        timeRemainingSeconds: Number(data.timeRemainingSeconds)
+                    };
+
                     const timerDisplay = document.getElementById('timer-display');
                     const timerContainer = document.getElementById('session-timer');
                     const expiredContainer = document.getElementById('session-timer-expired');

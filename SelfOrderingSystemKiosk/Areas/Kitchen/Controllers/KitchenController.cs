@@ -23,6 +23,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         private readonly TableOrderingSessionService _tableOrderingSessions;
         private readonly TableRegistryService _tableRegistry;
         private readonly MenuItemService _menuItems;
+        private readonly UnlimitedRefillService _unlimitedRefills;
         private readonly ILogger<KitchenController> _logger;
 
         public KitchenController(
@@ -30,12 +31,14 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             TableOrderingSessionService tableOrderingSessions,
             TableRegistryService tableRegistry,
             MenuItemService menuItems,
+            UnlimitedRefillService unlimitedRefills,
             ILogger<KitchenController> logger)
         {
             _orderService = orderService;
             _tableOrderingSessions = tableOrderingSessions;
             _tableRegistry = tableRegistry;
             _menuItems = menuItems;
+            _unlimitedRefills = unlimitedRefills;
             _logger = logger;
         }
 
@@ -47,6 +50,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 return Forbid();
 
             var orders = await _orderService.GetOrdersForKitchenAsync(dateFilter, kitchenBranchId);
+            ViewBag.UnlimitedRefills = await _unlimitedRefills.GetActiveForKitchenAsync(kitchenBranchId);
             ViewBag.DateFilter = dateFilter;
             return View(orders.OrderByDescending(o => o.OrderDate).ToList());
         }
@@ -138,6 +142,50 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             ViewBag.DateFilter = dateFilter;
             ViewBag.ShowArchived = showArchived;
             return View(tables);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ServeUnlimitedRefill(string id)
+        {
+            if (!TryGetKitchenBranchFilter(out _))
+                return Forbid();
+
+            var refill = await _unlimitedRefills.GetByIdAsync(id);
+            if (refill == null)
+            {
+                TempData["ErrorMessage"] = "Refill alert was not found.";
+                return RedirectToAction("Index");
+            }
+
+            if (!CanAccessRefill(refill))
+                return Forbid();
+
+            var markedServed = await _unlimitedRefills.MarkServedIfNewAsync(id);
+            if (!markedServed)
+            {
+                TempData["ErrorMessage"] = "Refill was already served. Please refresh the kitchen board.";
+                return RedirectToAction("Index");
+            }
+
+            foreach (var item in refill.Items ?? new List<OrderItem>())
+            {
+                if (string.IsNullOrWhiteSpace(item.ItemName) || item.Quantity <= 0)
+                    continue;
+
+                try
+                {
+                    await _menuItems.DecrementStockAsync(item.ItemName, item.Quantity, "Unlimited Refill", "UnlimitedRefill", refill.Id, refill.BranchId);
+                    _logger.LogInformation("Deducted refill ingredients for {Item} by {Qty}", item.ItemName, item.Quantity);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error deducting refill ingredients for {Item}", item.ItemName);
+                }
+            }
+
+            TempData["SuccessMessage"] = "Unlimited refill marked as served.";
+            return RedirectToAction("Index");
         }
 
         [HttpPost]
@@ -274,6 +322,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
         {
             var receipts = new List<SessionReceiptViewModel>();
             var coveredOrderIds = new HashSet<string>();
+            var tableOrdersCache = new Dictionary<string, List<Order>>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var order in orders
                 .Where(o => !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
@@ -282,7 +331,18 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 if (!string.IsNullOrEmpty(order.Id) && coveredOrderIds.Contains(order.Id))
                     continue;
 
-                var receipt = await BuildReceiptViewModelAsync(order);
+                List<Order>? tableOrders = null;
+                if (IsDineInTableOrder(order))
+                {
+                    var tableKey = NormalizeTableKey(order.TableNumber, order.BranchId);
+                    if (!tableOrdersCache.TryGetValue(tableKey, out tableOrders))
+                    {
+                        tableOrders = await _orderService.GetOrdersByTableAsync(order.TableNumber, order.BranchId);
+                        tableOrdersCache[tableKey] = tableOrders;
+                    }
+                }
+
+                var receipt = await BuildReceiptViewModelAsync(order, tableOrdersOverride: tableOrders);
                 foreach (var included in receipt.Orders)
                 {
                     if (!string.IsNullOrEmpty(included.Id))
@@ -508,19 +568,19 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             return RedirectToAction("Receipts");
         }
 
-        private async Task<SessionReceiptViewModel> BuildReceiptViewModelAsync(Order anchorOrder, bool includeTableSession = true)
+        private async Task<SessionReceiptViewModel> BuildReceiptViewModelAsync(
+            Order anchorOrder,
+            bool includeTableSession = true,
+            List<Order>? tableOrdersOverride = null)
         {
             var orders = new List<Order> { anchorOrder };
             var isAnchorCanceled = string.Equals(anchorOrder.Status, "Canceled", StringComparison.OrdinalIgnoreCase);
-            var isTableSession = includeTableSession
-                && !isAnchorCanceled
-                && !string.IsNullOrWhiteSpace(anchorOrder.TableNumber)
-                && !IsDefaultServiceTable(anchorOrder.TableNumber)
-                && string.Equals(anchorOrder.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase);
+            var isTableSession = includeTableSession && !isAnchorCanceled && IsDineInTableOrder(anchorOrder);
 
             if (isTableSession)
             {
-                var tableOrders = await _orderService.GetOrdersByTableAsync(anchorOrder.TableNumber, anchorOrder.BranchId);
+                var tableOrders = tableOrdersOverride
+                    ?? await _orderService.GetOrdersByTableAsync(anchorOrder.TableNumber, anchorOrder.BranchId);
                 orders = GetOrdersInSameSession(tableOrders, anchorOrder);
             }
 
@@ -549,6 +609,13 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 LocationLabel = locationLabel,
                 IsTableSession = isTableSession
             };
+        }
+
+        private static bool IsDineInTableOrder(Order order)
+        {
+            return !string.IsNullOrWhiteSpace(order.TableNumber)
+                && !IsDefaultServiceTable(order.TableNumber)
+                && string.Equals(order.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase);
         }
 
         private static List<Order> GetOrdersInSameSession(List<Order> tableOrders, Order anchorOrder)
@@ -752,6 +819,37 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             return 0;
         }
 
+        private async Task RebuildSharedTableSessionFromOrdersAsync(string tableNumber, string? branchId = null)
+        {
+            if (string.IsNullOrWhiteSpace(tableNumber))
+                return;
+
+            var openUnlimitedOrders = (await _orderService.GetOrdersByTableAsync(tableNumber, branchId))
+                .Where(o => !o.BillArchived
+                    && !string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(o.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (!openUnlimitedOrders.Any())
+            {
+                await _tableOrderingSessions.ClearAsync(tableNumber, branchId);
+                return;
+            }
+
+            var personCount = openUnlimitedOrders
+                .Select(GetOrderPersonCount)
+                .DefaultIfEmpty(0)
+                .Max();
+            var wingFlavors = await ExtractUnlimitedWingFlavorsAsync(
+                openUnlimitedOrders.SelectMany(o => o.Items ?? new List<OrderItem>()));
+
+            await _tableOrderingSessions.ReplaceFromExistingOrdersAsync(
+                tableNumber,
+                personCount,
+                wingFlavors,
+                branchId);
+        }
+
         private async Task<HashSet<string>> ExtractUnlimitedWingFlavorsAsync(IEnumerable<OrderItem> orderItems)
         {
             var availableItems = await _menuItems.GetAvailableAsync() ?? new List<SelfOrderingSystemKiosk.Models.MenuItem>();
@@ -850,31 +948,70 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                 return Forbid();
             }
 
-            if (order.Status.Equals("Canceled", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(status))
+            {
+                TempData["ErrorMessage"] = "Choose a valid order action.";
+                return RedirectToAction("Index");
+            }
+            if (!string.Equals(status, "In Progress", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(status, "Canceled", StringComparison.OrdinalIgnoreCase))
+            {
+                TempData["ErrorMessage"] = "Unsupported order action.";
+                return RedirectToAction("Index");
+            }
+
+            if (string.Equals(order.Status, "Canceled", StringComparison.OrdinalIgnoreCase))
             {
                 TempData["ErrorMessage"] = "This order was canceled because it was not started within 24 hours.";
                 return RedirectToAction("Index");
             }
 
+            if (string.Equals(status, "Canceled", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(order.Status, "Pending", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(order.Status, "In Progress", StringComparison.OrdinalIgnoreCase))
+                {
+                    TempData["ErrorMessage"] = "Only pending or in-progress orders can be canceled.";
+                    return RedirectToAction("Index");
+                }
+
+                await _orderService.CancelOrderAsync(order.Id);
+                if (string.Equals(order.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(order.OrderChannel, "Qr", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(order.TableNumber))
+                {
+                    await RebuildSharedTableSessionFromOrdersAsync(order.TableNumber, order.BranchId);
+                }
+
+                TempData["SuccessMessage"] = $"Order #{order.OrderNumber} has been canceled.";
+                return RedirectToAction("Index");
+            }
+
             // Prevent marking as "Completed" if order is still "Pending"
-            if (status.Equals("Completed", StringComparison.OrdinalIgnoreCase) && 
-                order.Status.Equals("Pending", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(order.Status, "Pending", StringComparison.OrdinalIgnoreCase))
             {
                 TempData["ErrorMessage"] = "Cannot mark order as done. Please start the order first.";
                 return RedirectToAction("Index");
             }
 
-            // If status is being changed to "Completed", deduct recipe ingredients
-            if (status.Equals("Completed", StringComparison.OrdinalIgnoreCase))
+            // If status is being changed to "Completed", claim the transition first so a retry cannot double-deduct stock.
+            if (string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase))
             {
-                // Only decrement if order is not already completed (prevent double-decrementing)
-                if (!order.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase) &&
-                    order.Items != null && order.Items.Any())
+                var transitioned = await _orderService.UpdateStatusIfCurrentAsync(id, "In Progress", "Completed");
+                if (!transitioned)
                 {
+                    TempData["ErrorMessage"] = "Order was already updated. Please refresh the kitchen board.";
+                    return RedirectToAction("Index");
+                }
+
+                if (order.Items != null && order.Items.Any())
+                {
+                    // Deduct ingredient stock for each menu item recipe in the order.
                     var orderCost = await _menuItems.CalculateOrderCostAsync(order.Items, order.BranchId);
                     await _orderService.UpdateCompletionCostAsync(order.Id, orderCost);
 
-                    // Deduct ingredient stock for each menu item recipe in the order
                     foreach (var orderItem in order.Items)
                     {
                         if (!string.IsNullOrEmpty(orderItem.ItemName) && orderItem.Quantity > 0)
@@ -891,10 +1028,12 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
                         }
                     }
                 }
+
+                return RedirectToAction("Index");
             }
 
             DateTime? sessionStartedAtUtc = null;
-            if (status.Equals("In Progress", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(status, "In Progress", StringComparison.OrdinalIgnoreCase))
                 sessionStartedAtUtc = await GetSessionStartForStaffStartAsync(order);
 
             // Update the order status
@@ -936,6 +1075,18 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
 
             return !string.IsNullOrWhiteSpace(order.BranchId)
                 && string.Equals(order.BranchId, branchId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool CanAccessRefill(UnlimitedRefill refill)
+        {
+            if (!TryGetKitchenBranchFilter(out var branchId))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(branchId))
+                return true;
+
+            return !string.IsNullOrWhiteSpace(refill.BranchId)
+                && string.Equals(refill.BranchId, branchId, StringComparison.OrdinalIgnoreCase);
         }
 
         private string? GetEffectiveKitchenBranchId(string? requestedBranchId)

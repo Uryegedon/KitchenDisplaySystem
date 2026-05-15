@@ -141,16 +141,21 @@
                                 </label>
                             </td>
                             <td style="font-size:0.9em;">
-                                @if (i.Recipe is { Count: > 0 })
+                                @{
+                                    var visibleRecipeLines = (i.Recipe ?? new List<MenuRecipeLine>())
+                                        .Where(line => !string.IsNullOrWhiteSpace(line.IngredientId)
+                                            && line.QuantityPerUnit > 0
+                                            && ingredientsById.ContainsKey(line.IngredientId.Trim()))
+                                        .ToList();
+                                }
+                                @if (visibleRecipeLines.Count > 0)
                                 {
                                     <div style="display:flex; flex-direction:column; gap:4px;">
-                                        @foreach (var line in i.Recipe)
+                                        @foreach (var line in visibleRecipeLines)
                                         {
-                                            var ingredient = !string.IsNullOrWhiteSpace(line.IngredientId) && ingredientsById.TryGetValue(line.IngredientId, out var found)
-                                                ? found
-                                                : null;
-                                            var ingredientName = ingredient?.Item ?? "Unknown ingredient";
-                                            var unit = ingredient?.Unit ?? "";
+                                            var ingredient = ingredientsById[line.IngredientId.Trim()];
+                                            var ingredientName = ingredient.Item;
+                                            var unit = ingredient.Unit ?? "";
                                             <span>@ingredientName: @line.QuantityPerUnit @unit</span>
                                         }
                                     </div>

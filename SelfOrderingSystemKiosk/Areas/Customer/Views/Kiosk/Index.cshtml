@@ -66,6 +66,7 @@
     <div class="choices">
         <!-- Dine In -->
         <form method="post" asp-action="SelectDining" onsubmit="showLoader()">
+            @Html.AntiForgeryToken()
             <input type="hidden" name="diningType" value="DineIn" />
             <div class="card" onclick="this.parentElement.submit()">
                 <img src="~/images/dinein.png" alt="Dine In Logo" />
@@ -76,6 +77,7 @@
 
         <!-- Take Out -->
         <form method="post" asp-action="SelectDining" onsubmit="showLoader()">
+            @Html.AntiForgeryToken()
             <input type="hidden" name="diningType" value="TakeOut" />
             <div class="card" onclick="this.parentElement.submit()">
                 <img src="~/images/takeout.png" alt="Take Out Logo" />

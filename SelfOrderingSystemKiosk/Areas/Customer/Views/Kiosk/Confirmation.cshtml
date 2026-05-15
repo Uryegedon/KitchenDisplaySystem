@@ -13,6 +13,31 @@
     var hasPrivateOrderAccess = ViewBag.HasPrivateOrderAccess is bool privateAccess && privateAccess;
     var publicAccessToken = ViewBag.PublicAccessToken as string ?? "";
     var sessionEnded = Model.BillArchived;
+    var statusKey = (Model.Status ?? "Pending").Trim().ToLowerInvariant().Replace(" ", "-");
+    var customerStatusTitle = statusKey switch
+    {
+        "pending" => "Waiting for kitchen",
+        "in-progress" => "Kitchen is preparing your order",
+        "completed" => "Order is ready",
+        "canceled" => "Order canceled",
+        _ => "Order status"
+    };
+    var customerStatusHelp = statusKey switch
+    {
+        "pending" => "You can cancel this order while it is still pending.",
+        "in-progress" => "The kitchen has started preparation. Please ask staff if this order needs to be canceled.",
+        "completed" => "This order is completed. Please check your bill or ask staff for help.",
+        "canceled" => "This order was canceled and will not be prepared.",
+        _ => "Please ask staff for the latest order status."
+    };
+    var customerStatusIcon = statusKey switch
+    {
+        "pending" => "hourglass-split",
+        "in-progress" => "fire",
+        "completed" => "check-circle",
+        "canceled" => "x-circle",
+        _ => "info-circle"
+    };
     var canReorderUnlimited = Model.OrderType == "Unlimited" && !sessionEnded && !orderingSessionExpired;
     var serviceLocationLabel = string.Equals(Model.TableNumber, "KIOSK", StringComparison.OrdinalIgnoreCase) || string.Equals(Model.TableNumber, "0", StringComparison.OrdinalIgnoreCase)
         ? "Kiosk Counter"
@@ -210,6 +235,49 @@
         background: #f8d7da;
         border-color: #dc3545;
         color: #721c24;
+    }
+
+    .customer-status-note {
+        margin-top: 18px;
+        padding: 14px 16px;
+        border-radius: 12px;
+        border: 2px solid #dee2e6;
+        background: #f8f9fa;
+        text-align: left;
+    }
+
+    .customer-status-note strong {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 1rem;
+        margin-bottom: 4px;
+    }
+
+    .customer-status-note span {
+        display: block;
+        color: #495057;
+        font-size: 0.95rem;
+    }
+
+    .customer-status-note.pending {
+        border-color: #ffc107;
+        background: #fff8df;
+    }
+
+    .customer-status-note.in-progress {
+        border-color: #0dcaf0;
+        background: #e9f8fb;
+    }
+
+    .customer-status-note.completed {
+        border-color: #28a745;
+        background: #edf8ef;
+    }
+
+    .customer-status-note.canceled {
+        border-color: #dc3545;
+        background: #fff0f1;
     }
 
     .tracking-step-horizontal p {
@@ -770,7 +838,7 @@
                 <!-- Order Status Badge -->
                 <div class="mt-3">
                     @{
-                        var statusClass = Model.Status.ToLower().Replace(" ", "-");
+                        var statusClass = statusKey;
                         var badgeClass = statusClass switch
                         {
                             "pending" => "bg-warning text-dark",
@@ -809,6 +877,10 @@
                 <div id="statusBadge" class="status-badge-large">
                     <i class="bi bi-info-circle"></i> Current Status: <strong>@Model.Status</strong>
                 </div>
+                <div class="customer-status-note @statusKey">
+                    <strong><i class="bi bi-@customerStatusIcon"></i> @customerStatusTitle</strong>
+                    <span>@customerStatusHelp</span>
+                </div>
             </div>
         </div>
     </div>
@@ -818,8 +890,8 @@
         <section class="quick-order-panel" id="confirmationQuickOrder">
             <div class="quick-order-head">
                 <div>
-                    <h3><i class="bi bi-lightning-charge-fill"></i> Quick Order</h3>
-                    <p>Add more unlimited items from this page. Current wing flavors still follow the 4-flavor table limit.</p>
+                    <h3><i class="bi bi-lightning-charge-fill"></i> Unlimited Refills</h3>
+                    <p>Send included refill items to the kitchen. These do not add charges to your bill.</p>
                 </div>
                 <a asp-action="UnlimitedMenu" asp-controller="Kiosk" asp-area="Customer" asp-route-isReorder="true" asp-route-previousOrderNumber="@Model.OrderNumber" class="quick-order-link reorder-unlimited-action">
                     Full menu
@@ -850,7 +922,7 @@
             <div class="quick-order-cart" id="quickOrderCart" style="display:none;">
                 <div class="quick-order-cart-list" id="quickOrderCartList"></div>
                 <button type="button" class="quick-order-send" id="sendQuickOrder">
-                    <i class="bi bi-send"></i> Send Quick Order
+                    <i class="bi bi-send"></i> Send Refill
                 </button>
             </div>
         </section>
@@ -862,6 +934,7 @@
             var canCancel = Model.Status != null && 
                            hasPrivateOrderAccess &&
                            Model.Status.Equals("Pending", StringComparison.OrdinalIgnoreCase);
+            var cancelUnavailableLabel = statusKey == "in-progress" ? "Ask Staff To Cancel" : "Cannot Cancel";
         }
         @if (canCancel)
         {
@@ -872,7 +945,7 @@
         else
         {
             <button class="btn-secondary" disabled style="opacity: 0.6; cursor: not-allowed;">
-                <i class="bi bi-x-circle"></i> Cannot Cancel
+                <i class="bi bi-x-circle"></i> @cancelUnavailableLabel
             </button>
         }
         @if (Model.OrderType == "Unlimited")
@@ -934,6 +1007,25 @@
     const publicAccessToken = "@publicAccessToken";
     const confirmationQuickItems = @Html.Raw(quickItemsJson);
     const quickOrderCart = [];
+    let confirmationSessionInfo = {
+        hasSession: @hasOrderingSession.ToString().ToLowerInvariant(),
+        isExpired: @orderingSessionExpired.ToString().ToLowerInvariant(),
+        timeRemainingSeconds: @Math.Max(0, (int)orderingSessionRemaining.TotalSeconds)
+    };
+    const NEAR_EXPIRY_WARNING_SECONDS = 10 * 60;
+
+    function confirmNearExpiryRefillIfNeeded() {
+        if (!confirmationSessionInfo.hasSession || confirmationSessionInfo.isExpired) {
+            return true;
+        }
+
+        const remaining = Number(confirmationSessionInfo.timeRemainingSeconds);
+        if (!Number.isFinite(remaining) || remaining > NEAR_EXPIRY_WARNING_SECONDS) {
+            return true;
+        }
+
+        return confirm('Your Unlimited session is close to ending. Refill requests near expiration are still for the active dine-in session and may not be suitable for takeout. Continue sending this refill?');
+    }
 
     function renderQuickOrderCart() {
         const shell = document.getElementById('quickOrderCart');
@@ -1002,13 +1094,14 @@
 
     document.getElementById('sendQuickOrder')?.addEventListener('click', function() {
         if (quickOrderCart.length === 0) return;
+        if (!confirmNearExpiryRefillIfNeeded()) return;
 
         const button = this;
         const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
         button.disabled = true;
         button.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
 
-        fetch('/Customer/Kiosk/QuickUnlimitedOrder?orderNumber=@Model.OrderNumber&accessToken=' + encodeURIComponent(publicAccessToken), {
+        fetch('/Customer/Kiosk/CreateUnlimitedRefill?orderNumber=@Model.OrderNumber&accessToken=' + encodeURIComponent(publicAccessToken), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1019,28 +1112,25 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert(data.message || 'Quick order sent to the kitchen.');
+                alert(data.message || 'Refill sent to the kitchen.');
                 quickOrderCart.length = 0;
                 renderQuickOrderCart();
-                if (data.orderNumber && data.accessToken) {
-                    window.location.href = '/Customer/Kiosk/Confirmation?orderNumber=' + encodeURIComponent(data.orderNumber) + '&accessToken=' + encodeURIComponent(data.accessToken);
-                }
                 return;
             }
 
-            alert(data.message || 'Unable to send quick order.');
+            alert(data.message || 'Unable to send refill.');
             if (data.sessionEnded) {
                 disableReorderUnlimited();
                 makeNewOrderStartNewSession();
             }
         })
         .catch(error => {
-            console.error('Quick order failed:', error);
-            alert('Unable to send quick order. Please try again.');
+            console.error('Refill failed:', error);
+            alert('Unable to send refill. Please try again.');
         })
         .finally(() => {
             button.disabled = false;
-            button.innerHTML = '<i class="bi bi-send"></i> Send Quick Order';
+            button.innerHTML = '<i class="bi bi-send"></i> Send Refill';
         });
     });
 
@@ -1173,6 +1263,12 @@
             fetch('/Customer/Kiosk/GetSessionInfo?orderNumber=@Model.OrderNumber&accessToken=' + encodeURIComponent(publicAccessToken))
                 .then(response => response.json())
                 .then(data => {
+                    confirmationSessionInfo = {
+                        hasSession: Boolean(data.hasSession),
+                        isExpired: Boolean(data.isExpired),
+                        timeRemainingSeconds: Number(data.timeRemainingSeconds)
+                    };
+
                     if (data.sessionEnded || data.isExpired) {
                         disableReorderUnlimited();
                         makeNewOrderStartNewSession();

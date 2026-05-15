@@ -148,6 +148,43 @@ namespace SelfOrderingSystemKiosk.Services
                     Builders<Order>.IndexKeys.Ascending(o => o.Status),
                     new CreateIndexOptions { Name = "ix_orders_status" }),
                 cancellationToken: cancellationToken);
+
+            await _orders.Indexes.CreateOneAsync(
+                new CreateIndexModel<Order>(
+                    Builders<Order>.IndexKeys
+                        .Ascending(o => o.BranchId)
+                        .Descending(o => o.OrderDate),
+                    new CreateIndexOptions { Name = "ix_orders_branch_orderDate" }),
+                cancellationToken: cancellationToken);
+
+            await _orders.Indexes.CreateOneAsync(
+                new CreateIndexModel<Order>(
+                    Builders<Order>.IndexKeys
+                        .Ascending(o => o.BranchId)
+                        .Ascending(o => o.TableNumber)
+                        .Ascending(o => o.DiningType)
+                        .Ascending(o => o.BillArchived)
+                        .Ascending(o => o.Status)
+                        .Ascending(o => o.OrderDate),
+                    new CreateIndexOptions { Name = "ix_orders_branch_table_session" }),
+                cancellationToken: cancellationToken);
+
+            await _orders.Indexes.CreateOneAsync(
+                new CreateIndexModel<Order>(
+                    Builders<Order>.IndexKeys
+                        .Ascending(o => o.OrderNumber)
+                        .Ascending(o => o.PublicAccessToken)
+                        .Descending(o => o.OrderDate),
+                    new CreateIndexOptions { Name = "ix_orders_number_accessToken_date" }),
+                cancellationToken: cancellationToken);
+
+            await _orders.Indexes.CreateOneAsync(
+                new CreateIndexModel<Order>(
+                    Builders<Order>.IndexKeys
+                        .Ascending(o => o.Status)
+                        .Ascending(o => o.OrderDate),
+                    new CreateIndexOptions { Name = "ix_orders_status_orderDate" }),
+                cancellationToken: cancellationToken);
         }
 
         // Get order by ID
@@ -206,6 +243,19 @@ namespace SelfOrderingSystemKiosk.Services
             }
 
             await _orders.UpdateOneAsync(o => o.Id == id, update);
+        }
+
+        public async Task<bool> UpdateStatusIfCurrentAsync(string id, string expectedStatus, string newStatus)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                return false;
+
+            var filter = Builders<Order>.Filter.And(
+                Builders<Order>.Filter.Eq(o => o.Id, id),
+                Builders<Order>.Filter.Eq(o => o.Status, expectedStatus));
+            var update = Builders<Order>.Update.Set(o => o.Status, newStatus);
+            var result = await _orders.UpdateOneAsync(filter, update);
+            return result.ModifiedCount > 0;
         }
 
         public async Task UpdateCompletionCostAsync(string id, decimal orderCost)
@@ -445,13 +495,13 @@ namespace SelfOrderingSystemKiosk.Services
             var (dayStart, dayEnd) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
             var (weekStart, weekEnd) = AppClock.CurrentLocalWeekRange();
             var (monthStart, monthEnd) = AppClock.CurrentLocalMonthRange();
-            
+
             if (!string.IsNullOrEmpty(branchId))
             {
                 // Filter by branch
                 return filter switch
                 {
-                    "day" => await _orders.Find(o => 
+                    "day" => await _orders.Find(o =>
                         o.OrderDate >= dayStart &&
                         o.OrderDate < dayEnd &&
                         o.BranchId == branchId).ToListAsync(),

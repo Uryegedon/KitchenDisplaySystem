@@ -2,6 +2,7 @@
 @using SelfOrderingSystemKiosk.Services
 @using System.Net
 @using System.Text.Encodings.Web
+@using System.Text.Json
 @{
     ViewData["Title"] = "Kitchen/Supplies inventory";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
@@ -12,6 +13,14 @@
     var isOwner = ViewBag.IsOwner == true;
     var autoPrint = ViewBag.AutoPrint == true;
     var printRows = (Model ?? Enumerable.Empty<SelfOrderingSystemKiosk.Models.IngredientItem>()).ToList();
+    var importIngredientOptionsJson = JsonSerializer.Serialize(printRows
+        .OrderBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
+        .Select(i => new
+        {
+            id = i.Id,
+            name = i.Item ?? "",
+            unit = i.Unit ?? ""
+        }));
     var printStockStats = ViewBag.PrintStockStats as Dictionary<string, SelfOrderingSystemKiosk.Controllers.PrintStockSummary> ?? new();
     var printGroupedRows = printRows
         .GroupBy(i => string.IsNullOrWhiteSpace(i.IngredientCategory) ? "Uncategorized" : i.IngredientCategory)
@@ -170,6 +179,86 @@
         margin-left: 5px;
     }
     .btn-clear-stock:hover { background: #bd2130; }
+    .btn-import-delivery {
+        background: #111827;
+        color: white;
+        border: none;
+        padding: 8px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 0.9em;
+        font-weight: 700;
+    }
+    .delivery-import-status {
+        padding: 12px;
+        background: #fff8ef;
+        border: 1px solid #f2c094;
+        border-radius: 10px;
+        color: #555;
+    }
+    .delivery-qr-wrap {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 18px;
+        align-items: center;
+    }
+    .delivery-qr-wrap img {
+        width: 190px;
+        height: 190px;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        padding: 8px;
+        background: #fff;
+    }
+    .delivery-review-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 14px;
+    }
+    .delivery-review-table th,
+    .delivery-review-table td {
+        border-bottom: 1px solid #eee;
+        padding: 8px;
+        text-align: left;
+        vertical-align: middle;
+    }
+    .delivery-review-table input,
+    .delivery-review-table select {
+        width: 100%;
+        padding: 7px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+    }
+    .delivery-review-table tr.needs-review {
+        background: #fff8e1;
+    }
+    .delivery-review-table tr.needs-review .confidence-badge {
+        background: #fff3cd;
+        color: #856404;
+    }
+    .confidence-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #e8f5e9;
+        color: #2e7d32;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .delivery-row-remove {
+        border: 0;
+        border-radius: 6px;
+        padding: 7px 9px;
+        background: #ffe1df;
+        color: #b02a37;
+        font-weight: 800;
+        cursor: pointer;
+    }
+    @@media (max-width: 760px) {
+        .delivery-qr-wrap {
+            grid-template-columns: 1fr;
+        }
+    }
     .alert {
         padding: 12px 20px;
         border-radius: 5px;
@@ -332,6 +421,9 @@
             </button>
             <button type="button" class="btn btn-edit" onclick="printAllSupplies()">
                 <i class="bi bi-printer"></i> Print Table
+            </button>
+            <button type="button" class="btn-import-delivery" onclick="startDeliveryImport()">
+                <i class="bi bi-phone"></i> Start Phone Scan
             </button>
             @if (isOwner)
             {
@@ -509,8 +601,8 @@
                                         Edit
                                     </button>
                                     <div class="restock-container" style="display: inline-block; margin-left: 5px;">
-                                        <button type="button" class="btn btn-restock restock-btn" 
-                                                data-id="@i.Id" 
+                                        <button type="button" class="btn btn-restock restock-btn"
+                                                data-id="@i.Id"
                                                 data-current="@i.CurrentStock"
                                                 data-reorder="@i.ReorderLevel"
                                                 data-unit="@i.Unit">
@@ -666,10 +758,65 @@
     </div>
 </div>
 
+<div class="inv-modal-overlay" id="deliveryImportModal" aria-hidden="true">
+    <div class="inv-modal-content" role="dialog" aria-labelledby="deliveryImportTitle">
+        <div class="inv-modal-header">
+            <h2 id="deliveryImportTitle">Import Delivery Sheet</h2>
+            <button type="button" class="inv-close" onclick="closeDeliveryImportModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="delivery-qr-wrap">
+            <img id="deliveryImportQr" alt="Phone scan QR" />
+            <div>
+                <div class="delivery-import-status" id="deliveryImportStatus">Creating phone scan session...</div>
+                <p style="margin: 12px 0 0; color: #666;">Scan the QR with a phone, take a photo of the delivery sheet, then return here to review before importing.</p>
+                <p style="margin: 8px 0 0;"><a id="deliveryImportLink" href="#" target="_blank" rel="noopener">Open scanner link</a></p>
+            </div>
+        </div>
+        <div class="inv-modal-actions">
+            <button type="button" class="inv-btn-cancel" onclick="closeDeliveryImportModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div class="inv-modal-overlay" id="deliveryReviewModal" aria-hidden="true">
+    <div class="inv-modal-content" role="dialog" aria-labelledby="deliveryReviewTitle">
+        <div class="inv-modal-header">
+            <h2 id="deliveryReviewTitle">Review Delivery Import</h2>
+            <button type="button" class="inv-close" onclick="closeDeliveryReviewModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="delivery-import-status">Review each handwritten row. Match the read name to an ingredient and correct the amount before confirming.</div>
+        <div style="overflow-x:auto;">
+            <table class="delivery-review-table">
+                <thead>
+                    <tr>
+                        <th>Read Name</th>
+                        <th>Match Ingredient</th>
+                        <th>Amount</th>
+                        <th>Unit</th>
+                        <th>Confidence</th>
+                        <th>Note</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="deliveryReviewRows"></tbody>
+            </table>
+        </div>
+        <div class="inv-modal-actions">
+            <button type="button" class="inv-btn-cancel" onclick="addDeliveryReviewRow()">Add Row</button>
+            <button type="button" class="inv-btn-cancel" onclick="closeDeliveryReviewModal()">Cancel</button>
+            <button type="button" class="inv-btn-save" onclick="confirmDeliveryImport()">Confirm Import</button>
+        </div>
+    </div>
+</div>
+
 
 
 @section Scripts {
     <script>
+        const deliveryImportIngredients = @Html.Raw(importIngredientOptionsJson);
+        let deliveryImportToken = '';
+        let deliveryImportPoll = null;
+
         document.addEventListener('DOMContentLoaded', function() {
             const shouldAutoPrint = @Json.Serialize(autoPrint);
             if (shouldAutoPrint) {
@@ -893,13 +1040,245 @@
             if (e.target === this) closeAddIngredientModal();
         });
 
+        document.getElementById('deliveryImportModal')?.addEventListener('click', function (e) {
+            if (e.target === this) closeDeliveryImportModal();
+        });
+
+        document.getElementById('deliveryReviewModal')?.addEventListener('click', function (e) {
+            if (e.target === this) closeDeliveryReviewModal();
+        });
+
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') {
                 closeRestockModal();
                 closeInvEditModal();
                 closeAddIngredientModal();
+                closeDeliveryImportModal();
+                closeDeliveryReviewModal();
             }
         });
+
+        function getAntiForgeryToken() {
+            return document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+        }
+
+        function startDeliveryImport() {
+            const modal = document.getElementById('deliveryImportModal');
+            const status = document.getElementById('deliveryImportStatus');
+            const qr = document.getElementById('deliveryImportQr');
+            const link = document.getElementById('deliveryImportLink');
+            if (!modal || !status || !qr || !link) return;
+
+            status.textContent = 'Creating phone scan session...';
+            qr.removeAttribute('src');
+            link.href = '#';
+            deliveryImportToken = '';
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
+
+            const body = new URLSearchParams();
+            body.set('branchFilter', document.getElementById('branchFilter')?.value || '@ViewBag.BranchFilter');
+
+            fetch('/Admin/Inventory/StartDeliveryImport', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'RequestVerificationToken': getAntiForgeryToken()
+                },
+                body
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) {
+                    status.textContent = data.message || 'Unable to start phone scan.';
+                    return;
+                }
+
+                deliveryImportToken = data.token;
+                qr.src = data.qrDataUrl;
+                link.href = data.scanUrl;
+                status.textContent = `Waiting for phone upload. Link expires at ${data.expiresAt}.`;
+                startDeliveryImportPolling();
+            })
+            .catch(error => {
+                console.error(error);
+                status.textContent = 'Unable to start phone scan.';
+            });
+        }
+
+        function startDeliveryImportPolling() {
+            if (deliveryImportPoll) clearInterval(deliveryImportPoll);
+            deliveryImportPoll = setInterval(checkDeliveryImportStatus, 2500);
+            checkDeliveryImportStatus();
+        }
+
+        function checkDeliveryImportStatus() {
+            if (!deliveryImportToken) return;
+            fetch(`/Admin/Inventory/DeliveryImportStatus?token=${encodeURIComponent(deliveryImportToken)}`)
+                .then(r => r.json())
+                .then(data => {
+                    const status = document.getElementById('deliveryImportStatus');
+                    if (!data.success) {
+                        if (status) status.textContent = data.message || 'Waiting for phone upload...';
+                        return;
+                    }
+
+                    if (status) status.textContent = data.uploaded
+                        ? `Upload received. Parsed ${data.rows?.length || 0} row(s).`
+                        : `Status: ${data.status}. Waiting for phone upload...`;
+
+                    if (data.uploaded) {
+                        clearInterval(deliveryImportPoll);
+                        deliveryImportPoll = null;
+                        openDeliveryReviewModal(data.rows || []);
+                    }
+                })
+                .catch(error => console.error('Delivery import status failed:', error));
+        }
+
+        function openDeliveryReviewModal(rows) {
+            closeDeliveryImportModal(false);
+            const modal = document.getElementById('deliveryReviewModal');
+            const tbody = document.getElementById('deliveryReviewRows');
+            if (!modal || !tbody) return;
+
+            tbody.innerHTML = '';
+            if (!rows.length) {
+                tbody.innerHTML = '';
+                addDeliveryReviewRow();
+            }
+
+            rows.forEach(row => tbody.appendChild(createDeliveryReviewRow(row)));
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function addDeliveryReviewRow() {
+            const tbody = document.getElementById('deliveryReviewRows');
+            if (!tbody) return;
+            tbody.appendChild(createDeliveryReviewRow({
+                itemName: '',
+                quantity: 0,
+                unit: '',
+                matchedIngredientId: '',
+                confidence: 0
+            }));
+        }
+
+        function createDeliveryReviewRow(row) {
+            const tr = document.createElement('tr');
+            const confidence = Number(row.confidence || 0);
+            const optionHtml = ['<option value="">Ignore row</option>']
+                .concat(deliveryImportIngredients.map(item => {
+                    const selected = item.id === row.matchedIngredientId ? ' selected' : '';
+                    return `<option value="${escapeHtml(item.id)}" data-unit="${escapeHtml(item.unit)}"${selected}>${escapeHtml(item.name)}</option>`;
+                }))
+                .join('');
+            if (!row.matchedIngredientId || confidence < 75) {
+                tr.classList.add('needs-review');
+            }
+
+            tr.innerHTML = `
+                <td><input type="text" class="delivery-ocr-name" value="${escapeHtml(row.itemName || '')}" /></td>
+                <td><select class="delivery-ingredient">${optionHtml}</select></td>
+                <td><input type="number" class="delivery-qty" value="${Number(row.quantity || 0)}" min="0" /></td>
+                <td><input type="text" class="delivery-unit" value="${escapeHtml(row.unit || '')}" /></td>
+                <td><span class="confidence-badge">${confidence}%</span></td>
+                <td><input type="text" class="delivery-note" placeholder="Optional" /></td>
+                <td><button type="button" class="delivery-row-remove" onclick="removeDeliveryReviewRow(this)">Remove</button></td>
+            `;
+            tr.querySelector('.delivery-ingredient')?.addEventListener('change', function() {
+                const selected = this.options[this.selectedIndex];
+                const unit = selected?.getAttribute('data-unit') || '';
+                const unitInput = tr.querySelector('.delivery-unit');
+                if (unitInput && !unitInput.value.trim()) {
+                    unitInput.value = unit;
+                }
+                tr.classList.toggle('needs-review', !this.value || confidence < 75);
+            });
+            return tr;
+        }
+
+        function removeDeliveryReviewRow(button) {
+            const row = button.closest('tr');
+            if (row) row.remove();
+            if (!document.querySelector('#deliveryReviewRows tr')) {
+                addDeliveryReviewRow();
+            }
+        }
+
+        function confirmDeliveryImport() {
+            if (!deliveryImportToken) {
+                alert('No active import session.');
+                return;
+            }
+
+            const rows = Array.from(document.querySelectorAll('#deliveryReviewRows tr')).map(tr => ({
+                ingredientId: tr.querySelector('.delivery-ingredient')?.value || '',
+                quantity: Number(tr.querySelector('.delivery-qty')?.value || 0),
+                note: tr.querySelector('.delivery-note')?.value || ''
+            })).filter(row => row.ingredientId && row.quantity > 0);
+
+            if (!rows.length) {
+                alert('Choose at least one ingredient and quantity to import.');
+                return;
+            }
+
+            const ignoredRows = Array.from(document.querySelectorAll('#deliveryReviewRows tr'))
+                .filter(tr => !tr.querySelector('.delivery-ingredient')?.value && Number(tr.querySelector('.delivery-qty')?.value || 0) > 0);
+            if (ignoredRows.length > 0 && !confirm(`${ignoredRows.length} row(s) have an amount but no matched ingredient. Ignore them and continue?`)) {
+                return;
+            }
+
+            fetch('/Admin/Inventory/ConfirmDeliveryImport', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'RequestVerificationToken': getAntiForgeryToken()
+                },
+                body: JSON.stringify({ token: deliveryImportToken, rows })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) {
+                    alert(data.message || 'Unable to confirm import.');
+                    return;
+                }
+                alert(data.message || 'Delivery import confirmed.');
+                window.location.reload();
+            })
+            .catch(error => {
+                console.error(error);
+                alert('Unable to confirm import.');
+            });
+        }
+
+        function closeDeliveryImportModal(stopPolling = true) {
+            const modal = document.getElementById('deliveryImportModal');
+            if (!modal) return;
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+            if (stopPolling && deliveryImportPoll) {
+                clearInterval(deliveryImportPoll);
+                deliveryImportPoll = null;
+            }
+        }
+
+        function closeDeliveryReviewModal() {
+            const modal = document.getElementById('deliveryReviewModal');
+            if (!modal) return;
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
         // Update total stock when restock amount changes
         document.addEventListener('input', function (e) {

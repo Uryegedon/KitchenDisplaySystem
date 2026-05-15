@@ -55,13 +55,19 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (isOwner)
             {
                 allBranches = await _branchService.GetAllAsync();
-                
+
                 // Build summary for each branch
                 var (todayStart, todayEnd) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
+                var allTodayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd, null);
+                var todayOrdersByBranch = allTodayOrders
+                    .Where(o => !string.IsNullOrWhiteSpace(o.BranchId))
+                    .GroupBy(o => o.BranchId, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
 
                 foreach (var branch in allBranches)
                 {
-                    var branchOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd, branch.Id);
+                    todayOrdersByBranch.TryGetValue(branch.Id, out var branchOrders);
+                    branchOrders ??= new List<Order>();
                     var billable = branchOrders.Where(o => o.Total > 0).ToList();
 
                     branchSummaries.Add(new BranchSummary
@@ -81,7 +87,6 @@ namespace SelfOrderingSystemKiosk.Controllers
                 ViewBag.BranchSummaries = branchSummaries;
 
                 // Aggregate totals for owner
-                var allTodayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd, null);
                 BuildDashboardMetrics(allTodayOrders, isOwner: true);
             }
             else

@@ -83,6 +83,7 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task AddAsync(MenuItem item)
         {
             item.BranchId = item.BranchId?.Trim() ?? string.Empty;
+            item.Recipe = await SanitizeRecipeLinesAsync(item.BranchId, item.Recipe);
 
             if (string.Equals(item.Category, "Unavailable", StringComparison.Ordinal))
                 item.Availability = "Unavailable";
@@ -95,6 +96,7 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task<bool> UpdateAsync(MenuItem item)
         {
             item.BranchId = item.BranchId?.Trim() ?? string.Empty;
+            item.Recipe = await SanitizeRecipeLinesAsync(item.BranchId, item.Recipe);
 
             if (string.Equals(item.Category, "Unavailable", StringComparison.Ordinal))
                 item.Availability = "Unavailable";
@@ -199,7 +201,7 @@ namespace SelfOrderingSystemKiosk.Services
                 .Select(r => r.IngredientId)
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var sauceUse in (await BuildSauceUsageAsync(itemName, item.Item ?? lookupName, quantity, branchId))
+            foreach (var sauceUse in (await BuildSauceUsageAsync(itemName, item, item.Item ?? lookupName, quantity, branchId))
                 .Where(use => !recipeIngredientIds.Contains(use.IngredientId)))
             {
                 try
@@ -251,7 +253,7 @@ namespace SelfOrderingSystemKiosk.Services
                     .Select(r => r.IngredientId)
                     .Where(id => !string.IsNullOrWhiteSpace(id))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                foreach (var sauceUse in (await BuildSauceUsageAsync(orderItem.ItemName, item?.Item ?? lookupName, orderItem.Quantity, branchId))
+                foreach (var sauceUse in (await BuildSauceUsageAsync(orderItem.ItemName, item, item?.Item ?? lookupName, orderItem.Quantity, branchId))
                     .Where(use => !recipeIngredientIds.Contains(use.IngredientId)))
                     total += await _ingredients.EstimateCostAsync(sauceUse.IngredientId, sauceUse.Quantity);
             }
@@ -275,7 +277,7 @@ namespace SelfOrderingSystemKiosk.Services
                 : normalized;
         }
 
-        private async Task<List<(string IngredientId, int Quantity)>> BuildSauceUsageAsync(string submittedItemName, string menuItemName, int orderQuantity, string? branchId = null)
+        private async Task<List<(string IngredientId, int Quantity)>> BuildSauceUsageAsync(string submittedItemName, MenuItem? menuItem, string menuItemName, int orderQuantity, string? branchId = null)
         {
             if (orderQuantity <= 0)
                 return new List<(string IngredientId, int Quantity)>();
@@ -283,6 +285,8 @@ namespace SelfOrderingSystemKiosk.Services
             var chickenPieces = ExtractChickenPieceCount(submittedItemName);
             if (chickenPieces <= 0 && IsChickenWingMenu(menuItemName))
                 chickenPieces = ExtractChickenPieceCount(menuItemName);
+            if (chickenPieces <= 0 && IsChickenWingMenu(menuItemName))
+                chickenPieces = await GetChickenPiecesFromRecipeAsync(menuItem);
             if (chickenPieces <= 0)
                 return new List<(string IngredientId, int Quantity)>();
 
@@ -308,13 +312,31 @@ namespace SelfOrderingSystemKiosk.Services
             foreach (var sauceName in sauceNames)
             {
                 var ingredient = await _ingredients.GetByNameAsync(sauceName, branchId);
-                if (ingredient == null || !string.Equals(ingredient.Unit, "ml", StringComparison.OrdinalIgnoreCase))
+                if (ingredient == null)
                     continue;
 
                 usage.Add((ingredient.Id, perSauce));
             }
 
             return usage;
+        }
+
+        private async Task<int> GetChickenPiecesFromRecipeAsync(MenuItem? menuItem)
+        {
+            if (menuItem?.Recipe is not { Count: > 0 })
+                return 0;
+
+            foreach (var line in menuItem.Recipe)
+            {
+                if (string.IsNullOrWhiteSpace(line.IngredientId) || line.QuantityPerUnit <= 0)
+                    continue;
+
+                var ingredient = await _ingredients.GetByIdAsync(line.IngredientId.Trim());
+                if (ingredient?.Item != null && ingredient.Item.Contains("wing", StringComparison.OrdinalIgnoreCase))
+                    return line.QuantityPerUnit;
+            }
+
+            return 0;
         }
 
         public async Task SeedRecipesFromMenuItemNamesAsync()
@@ -335,9 +357,8 @@ namespace SelfOrderingSystemKiosk.Services
                 if (inferred.Count == 0)
                     continue;
 
-                var existing = item.Recipe ?? new List<MenuRecipeLine>();
+                var existing = SanitizeRecipeLines(item.BranchId, item.Recipe, ingredients);
                 var merged = existing
-                    .Where(r => !string.IsNullOrWhiteSpace(r.IngredientId) && r.QuantityPerUnit > 0)
                     .GroupBy(r => r.IngredientId.Trim(), StringComparer.OrdinalIgnoreCase)
                     .Select(g => g.First())
                     .ToList();
@@ -381,16 +402,92 @@ namespace SelfOrderingSystemKiosk.Services
                 await SyncAvailabilityForMenuItemAsync(item);
         }
 
-        private async Task<List<MenuItem>> FilterCurrentlyStockedAsync(List<MenuItem> items)
+        public async Task<int> CleanupInvalidRecipeLinesAsync(string? branchId = null)
         {
-            var stocked = new List<MenuItem>();
-            foreach (var item in items)
+            await NormalizeLegacyBranchFieldAsync();
+
+            var ingredients = await _ingredients.GetAllAsync();
+            if (ingredients.Count == 0)
+                return 0;
+
+            var validItemFilter = Builders<MenuItem>.Filter.And(
+                Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
+                Builders<MenuItem>.Filter.Ne(x => x.Item, ""));
+
+            FilterDefinition<MenuItem> filter = validItemFilter;
+            if (!string.IsNullOrWhiteSpace(branchId))
             {
-                if (await SyncAvailabilityForMenuItemAsync(item))
-                    stocked.Add(item);
+                filter = Builders<MenuItem>.Filter.And(
+                    validItemFilter,
+                    Builders<MenuItem>.Filter.Or(
+                        BranchRecordFilter(branchId.Trim()),
+                        SharedBranchFilter()));
             }
 
-            return stocked;
+            var items = await _collection.Find(filter).ToListAsync();
+            var updated = 0;
+
+            foreach (var item in items)
+            {
+                var existing = item.Recipe ?? new List<MenuRecipeLine>();
+                if (existing.Count == 0)
+                    continue;
+
+                var sanitized = SanitizeRecipeLines(item.BranchId, existing, ingredients);
+                if (RecipesEqual(existing, sanitized))
+                    continue;
+
+                await _collection.UpdateOneAsync(
+                    x => x.Id == item.Id,
+                    Builders<MenuItem>.Update.Set(x => x.Recipe, sanitized));
+                item.Recipe = sanitized;
+                await SyncAvailabilityForMenuItemAsync(item);
+                updated++;
+            }
+
+            if (updated > 0)
+                _logger.LogInformation("Removed invalid recipe ingredients from {Count} menu items.", updated);
+
+            return updated;
+        }
+
+        private async Task<List<MenuItem>> FilterCurrentlyStockedAsync(List<MenuItem> items)
+        {
+            var ingredientIds = items
+                .SelectMany(item => item.Recipe ?? new List<MenuRecipeLine>())
+                .Where(line => !string.IsNullOrWhiteSpace(line.IngredientId) && line.QuantityPerUnit > 0)
+                .Select(line => line.IngredientId.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var ingredientsById = (await _ingredients.GetByIdsAsync(ingredientIds))
+                .Where(i => !string.IsNullOrWhiteSpace(i.Id))
+                .ToDictionary(i => i.Id.Trim(), StringComparer.OrdinalIgnoreCase);
+
+            return items
+                .Where(item => IsCurrentlyStocked(item, ingredientsById))
+                .ToList();
+        }
+
+        private static bool IsCurrentlyStocked(MenuItem item, IReadOnlyDictionary<string, IngredientItem> ingredientsById)
+        {
+            if (!IsAvailableForCustomerMenu(item.Availability))
+                return false;
+
+            if (item.Recipe is not { Count: > 0 })
+                return true;
+
+            foreach (var line in item.Recipe)
+            {
+                if (string.IsNullOrWhiteSpace(line.IngredientId) || line.QuantityPerUnit <= 0)
+                    continue;
+
+                if (ingredientsById.TryGetValue(line.IngredientId.Trim(), out var ingredient) &&
+                    ingredient.CurrentStock <= 0)
+                    return false;
+            }
+
+            return true;
         }
 
         private async Task<bool> SyncAvailabilityForMenuItemAsync(MenuItem item)
@@ -443,6 +540,76 @@ namespace SelfOrderingSystemKiosk.Services
             }
 
             return false;
+        }
+
+        private async Task<List<MenuRecipeLine>> SanitizeRecipeLinesAsync(string? menuBranchId, List<MenuRecipeLine>? recipe)
+        {
+            var ingredients = await _ingredients.GetAllAsync();
+            return SanitizeRecipeLines(menuBranchId, recipe, ingredients);
+        }
+
+        private static List<MenuRecipeLine> SanitizeRecipeLines(
+            string? menuBranchId,
+            IEnumerable<MenuRecipeLine>? recipe,
+            IEnumerable<IngredientItem> ingredients)
+        {
+            if (recipe == null)
+                return new List<MenuRecipeLine>();
+
+            var ingredientsById = ingredients
+                .Where(i => !string.IsNullOrWhiteSpace(i.Id))
+                .GroupBy(i => i.Id.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            return recipe
+                .Where(line => IsValidRecipeLine(menuBranchId, line, ingredientsById))
+                .GroupBy(line => line.IngredientId.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(g => new MenuRecipeLine
+                {
+                    IngredientId = g.First().IngredientId.Trim(),
+                    QuantityPerUnit = g.First().QuantityPerUnit
+                })
+                .ToList();
+        }
+
+        private static bool IsValidRecipeLine(
+            string? menuBranchId,
+            MenuRecipeLine? line,
+            IReadOnlyDictionary<string, IngredientItem> ingredientsById)
+        {
+            if (line == null || string.IsNullOrWhiteSpace(line.IngredientId) || line.QuantityPerUnit <= 0)
+                return false;
+
+            if (!ingredientsById.TryGetValue(line.IngredientId.Trim(), out var ingredient))
+                return false;
+
+            if (!IsBranchCompatible(menuBranchId, ingredient.BranchId))
+                return false;
+
+            return !IsUnknownIngredientName(ingredient.Item);
+        }
+
+        private static bool IsUnknownIngredientName(string? name)
+        {
+            var normalized = (name ?? string.Empty).Trim();
+            return normalized.Equals("Unknown", StringComparison.OrdinalIgnoreCase)
+                || normalized.Equals("Unknown Ingredient", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool RecipesEqual(IReadOnlyList<MenuRecipeLine> left, IReadOnlyList<MenuRecipeLine> right)
+        {
+            if (left.Count != right.Count)
+                return false;
+
+            for (var i = 0; i < left.Count; i++)
+            {
+                if (!string.Equals(left[i].IngredientId?.Trim(), right[i].IngredientId?.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return false;
+                if (left[i].QuantityPerUnit != right[i].QuantityPerUnit)
+                    return false;
+            }
+
+            return true;
         }
 
         private static List<MenuRecipeLine> InferRecipeFromName(MenuItem menuItem, List<IngredientItem> ingredients)

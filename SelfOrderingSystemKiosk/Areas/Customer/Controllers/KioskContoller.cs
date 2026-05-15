@@ -17,6 +17,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         private readonly TableOrderingSessionService _tableOrderingSessions;
         private readonly TableRegistryService _tableRegistry;
         private readonly MenuItemService _menuItems;
+        private readonly UnlimitedRefillService _unlimitedRefills;
         private readonly MenuCategoryRegistry _menuCategories;
         private readonly BranchService _branches;
         private readonly ILogger<KioskController> _logger;
@@ -46,6 +47,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             TableOrderingSessionService tableOrderingSessions,
             TableRegistryService tableRegistry,
             MenuItemService menuItems,
+            UnlimitedRefillService unlimitedRefills,
             MenuCategoryRegistry menuCategories,
             BranchService branches,
             ILogger<KioskController> logger)
@@ -54,6 +56,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             _tableOrderingSessions = tableOrderingSessions;
             _tableRegistry = tableRegistry;
             _menuItems = menuItems;
+            _unlimitedRefills = unlimitedRefills;
             _menuCategories = menuCategories;
             _branches = branches;
             _logger = logger;
@@ -808,6 +811,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public IActionResult SelectDining(string diningType)
         {
             RestoreOrderingCookiesToSession();
@@ -838,6 +842,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> SelectExperience(string experienceType)
         {
             RestoreOrderingCookiesToSession();
@@ -976,6 +981,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> ConfirmOrder([FromBody] List<OrderItem> Items, [FromQuery] string orderType, [FromQuery] int? personCount)
         {
             try
@@ -1175,6 +1181,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> SaveOrderingSession([FromQuery] int personCount)
         {
             if (personCount <= 0 || personCount > 50)
@@ -1300,6 +1307,82 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CreateUnlimitedRefill(
+            [FromQuery] string orderNumber,
+            [FromQuery] string accessToken,
+            [FromBody] List<OrderItem> items)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(orderNumber))
+                    return Json(new { success = false, message = "Order number is required." });
+                if (items == null || !items.Any())
+                    return Json(new { success = false, message = "Choose at least one refill item." });
+
+                var anchorOrder = await _orderService.GetByOrderNumberAsync(orderNumber, accessToken: accessToken);
+                if (anchorOrder == null || !HasPrivateOrderAccess(anchorOrder, accessToken))
+                    return Json(new { success = false, message = "Unable to access this order." });
+                if (!IsUnlimitedOrder(anchorOrder))
+                    return Json(new { success = false, message = "Refills are only available for Unlimited orders." });
+                if (anchorOrder.BillArchived || IsOrderingSessionExpired(anchorOrder))
+                    return Json(new { success = false, sessionEnded = true, message = "This unlimited ordering session has ended." });
+
+                var branchId = anchorOrder.BranchId?.Trim();
+                if (string.IsNullOrWhiteSpace(branchId))
+                    return Json(new { success = false, message = "Branch is not selected for this order." });
+
+                var validation = await ValidateSubmittedItemsAsync(items, true);
+                if (!validation.Success)
+                    return Json(new { success = false, message = validation.Message });
+
+                var refillItems = new List<OrderItem>();
+                foreach (var item in validation.Items)
+                {
+                    var menuItem = await _menuItems.GetByNameAsync(NormalizeSubmittedItemName(item.ItemName), branchId);
+                    if (menuItem == null || !IsUnlimitedIncludedItem(menuItem))
+                        return Json(new { success = false, message = "Only Unlimited-included items can be sent as refills." });
+
+                    refillItems.Add(new OrderItem
+                    {
+                        ItemName = item.ItemName,
+                        Quantity = item.Quantity,
+                        Price = 0m
+                    });
+                }
+
+                var tableNumber = string.IsNullOrWhiteSpace(anchorOrder.TableNumber)
+                    ? DefaultKioskTableNumber
+                    : anchorOrder.TableNumber.Trim();
+                var isRealQrTableOrder = !IsDefaultServiceTable(tableNumber)
+                    && string.Equals(anchorOrder.DiningType, "DineIn", StringComparison.OrdinalIgnoreCase);
+                var tableGate = isRealQrTableOrder
+                    ? await CheckTableOrderingGateAsync(tableNumber, branchId)
+                    : TableOrderingGateResult.Allowed();
+                if (!tableGate.CanOrder)
+                    return Json(new { success = false, message = tableGate.Message });
+
+                await _unlimitedRefills.CreateAsync(new UnlimitedRefill
+                {
+                    AnchorOrderId = anchorOrder.Id,
+                    AnchorOrderNumber = anchorOrder.OrderNumber,
+                    TableNumber = tableNumber,
+                    Floor = anchorOrder.Floor ?? string.Empty,
+                    BranchId = branchId,
+                    Items = refillItems
+                });
+
+                return Json(new { success = true, message = "Refill sent to the kitchen." });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating unlimited refill");
+                return Json(new { success = false, message = "Unable to send refill. Please try again." });
+            }
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> QuickUnlimitedOrder(
             [FromQuery] string orderNumber,
             [FromQuery] string accessToken,
@@ -1610,6 +1693,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> CancelOrder(string orderNumber, string accessToken = null)
         {
             try

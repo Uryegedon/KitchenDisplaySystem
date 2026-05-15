@@ -6,6 +6,54 @@
     var pendingOrders = Model.Count(o => string.Equals(o.Status, "Pending", StringComparison.OrdinalIgnoreCase));
     var inProgressOrders = Model.Count(o => string.Equals(o.Status, "In Progress", StringComparison.OrdinalIgnoreCase));
     var completedOrders = Model.Count(o => string.Equals(o.Status, "Completed", StringComparison.OrdinalIgnoreCase));
+    var canceledOrders = Model.Count(o => string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase));
+    var unlimitedRefills = ViewBag.UnlimitedRefills as IEnumerable<SelfOrderingSystemKiosk.Areas.Customer.Models.UnlimitedRefill>
+        ?? Enumerable.Empty<SelfOrderingSystemKiosk.Areas.Customer.Models.UnlimitedRefill>();
+
+    string FormatElapsed(DateTime since)
+    {
+        var elapsed = DateTime.UtcNow - AppClock.ToUtc(since);
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+
+        if (elapsed.TotalHours >= 1)
+        {
+            return $"{(int)elapsed.TotalHours}h {elapsed.Minutes}m";
+        }
+
+        return $"{Math.Max(1, (int)Math.Floor(elapsed.TotalMinutes))}m";
+    }
+
+    string GetElapsedLabel(SelfOrderingSystemKiosk.Areas.Customer.Models.Order order)
+    {
+        var status = order.Status ?? "Pending";
+        if (string.Equals(status, "Pending", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Waiting {FormatElapsed(order.OrderDate)}";
+        }
+
+        if (string.Equals(status, "In Progress", StringComparison.OrdinalIgnoreCase))
+        {
+            var since = order.SessionStartedAtUtc ?? order.OrderDate;
+            return $"Preparing {FormatElapsed(since)}";
+        }
+
+        return $"Elapsed {FormatElapsed(order.OrderDate)}";
+    }
+
+    string GetRefillLocation(SelfOrderingSystemKiosk.Areas.Customer.Models.UnlimitedRefill refill)
+    {
+        if (string.Equals(refill.TableNumber, "KIOSK", StringComparison.OrdinalIgnoreCase) || string.Equals(refill.TableNumber, "0", StringComparison.OrdinalIgnoreCase))
+            return "Kiosk Counter";
+        if (string.Equals(refill.TableNumber, "TAKEOUT", StringComparison.OrdinalIgnoreCase))
+            return "Take Out";
+        if (!string.IsNullOrWhiteSpace(refill.TableNumber))
+            return $"Table {refill.TableNumber}";
+
+        return "Table";
+    }
 }
 
 <!DOCTYPE html>
@@ -122,11 +170,88 @@
                 color: #4CAF50;
             }
 
+            .stat-card.canceled h2 {
+                color: #F44336;
+            }
+
 
         .orders-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
             gap: 25px;
+        }
+
+        .refill-section {
+            margin-bottom: 30px;
+        }
+
+        .refill-section h2 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.35rem;
+        }
+
+        .refill-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 18px;
+        }
+
+        .refill-card {
+            background: #fff;
+            border-left: 6px solid #9C27B0;
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.14);
+        }
+
+        .refill-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .refill-location {
+            font-size: 1.3rem;
+            font-weight: 800;
+            color: #333;
+        }
+
+        .refill-time {
+            text-align: right;
+            color: #666;
+            font-size: 0.85rem;
+            white-space: nowrap;
+        }
+
+        .refill-items {
+            background: #faf5ff;
+            border: 1px solid #ead7f7;
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
+        .refill-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 5px 0;
+            font-weight: 700;
+        }
+
+        .refill-row + .refill-row {
+            border-top: 1px solid #ead7f7;
+        }
+
+        .btn-served {
+            width: 100%;
+            background: #4CAF50;
+            color: #fff;
         }
 
         .order-card {
@@ -147,6 +272,10 @@
             }
 
             .order-card.progress {
+                border-left-color: #2196F3;
+            }
+
+            .order-card.in-progress {
                 border-left-color: #2196F3;
             }
 
@@ -321,6 +450,11 @@
                 color: #0C5460;
             }
 
+            .status-badge.in-progress {
+                background: #D1ECF1;
+                color: #0C5460;
+            }
+
             .status-badge.completed {
                 background: #D4EDDA;
                 color: #155724;
@@ -330,6 +464,28 @@
                 background: #F8D7DA;
                 color: #721C24;
             }
+
+        .elapsed-pill {
+            display: inline-block;
+            margin-top: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #F3F4F6;
+            color: #374151;
+            font-size: 0.78rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .elapsed-pill.pending {
+            background: #FFF3CD;
+            color: #856404;
+        }
+
+        .elapsed-pill.in-progress {
+            background: #D1ECF1;
+            color: #0C5460;
+        }
 
         .date-filters {
             display: flex;
@@ -463,7 +619,55 @@
             <h2>@completedOrders</h2>
             <p>Completed</p>
         </div>
+        <div class="stat-card canceled" onclick="filterOrders('canceled')" data-filter="canceled">
+            <h2>@canceledOrders</h2>
+            <p>Canceled</p>
+        </div>
     </div>
+
+    @if (unlimitedRefills.Any())
+    {
+        <section class="refill-section">
+            <h2><i class="bi bi-cup-hot"></i> Unlimited Refills</h2>
+            <div class="refill-grid">
+                @foreach (var refill in unlimitedRefills)
+                {
+                    <div class="refill-card">
+                        <div class="refill-head">
+                            <div>
+                                <div class="refill-location">@GetRefillLocation(refill)</div>
+                                @if (!string.IsNullOrWhiteSpace(refill.Floor))
+                                {
+                                    <div class="table-info">Floor @refill.Floor</div>
+                                }
+                            </div>
+                            <div class="refill-time">
+                                Sent<br />
+                                <strong>@AppClock.ToLocal(refill.RequestedAtUtc).ToString("h:mm tt")</strong><br />
+                                <span class="elapsed-pill in-progress">@FormatElapsed(refill.RequestedAtUtc) ago</span>
+                            </div>
+                        </div>
+                        <div class="refill-items">
+                            @foreach (var item in refill.Items ?? new List<SelfOrderingSystemKiosk.Areas.Customer.Models.OrderItem>())
+                            {
+                                <div class="refill-row">
+                                    <span>@item.ItemName</span>
+                                    <span>x @item.Quantity</span>
+                                </div>
+                            }
+                        </div>
+                        <form method="post" asp-area="Kitchen" asp-controller="Kitchen" asp-action="ServeUnlimitedRefill">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="id" value="@refill.Id" />
+                            <button type="submit" class="action-btn btn-served" onclick="return confirm('Mark this refill as served?')">
+                                <i class="bi bi-check-circle"></i> Served
+                            </button>
+                        </form>
+                    </div>
+                }
+            </div>
+        </section>
+    }
 
     <div class="orders-grid">
         @foreach (var order in Model.OrderBy(o => string.Equals(o.Status, "Pending", StringComparison.OrdinalIgnoreCase) ? 0 : string.Equals(o.Status, "In Progress", StringComparison.OrdinalIgnoreCase) ? 1 : 2).ThenByDescending(o => o.OrderDate))
@@ -526,6 +730,11 @@
                         <strong>@AppClock.ToLocal(order.OrderDate).ToString("MMM dd, yyyy")</strong><br>
                         <strong>@AppClock.ToLocal(order.OrderDate).ToString("h:mm tt")</strong><br>
                         <span class="status-badge @statusClass">@order.Status</span>
+                        @if (string.Equals(order.Status, "Pending", StringComparison.OrdinalIgnoreCase) || string.Equals(order.Status, "In Progress", StringComparison.OrdinalIgnoreCase))
+                        {
+                            <br />
+                            <span class="elapsed-pill @statusClass">@GetElapsedLabel(order)</span>
+                        }
                     </div>
                 </div>
 
@@ -558,11 +767,17 @@
                         <button type="button" class="action-btn btn-start" onclick="updateStatus('@order.Id', 'In Progress', event)">
                             <i class="bi bi-play-fill"></i> Start
                         </button>
+                        <button type="button" class="action-btn btn-cancel" onclick="updateStatus('@order.Id', 'Canceled', event)">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </button>
                     }
                     else if (string.Equals(order.Status, "In Progress", StringComparison.OrdinalIgnoreCase))
                     {
                         <button type="button" class="action-btn btn-done" onclick="updateStatus('@order.Id', 'Completed', event)">
                             <i class="bi bi-check-circle"></i> Done
+                        </button>
+                        <button type="button" class="action-btn btn-cancel" onclick="updateStatus('@order.Id', 'Canceled', event)">
+                            <i class="bi bi-x-circle"></i> Cancel
                         </button>
                     }
                     else
@@ -606,8 +821,19 @@
                 event.stopPropagation();
             }
 
+            if (newStatus === 'Canceled') {
+                const orderCard = event?.target?.closest('.order-card');
+                const currentStatus = orderCard?.dataset?.status || '';
+                const message = currentStatus === 'in-progress'
+                    ? 'Cancel this order after preparation has started? Use this only when staff approved it and the kitchen can still stop the order.'
+                    : 'Cancel this pending order?';
+                if (!confirm(message)) {
+                    return;
+                }
+            }
+
             // Disable the clicked button immediately to prevent double-clicks
-            const clickedButton = event.target;
+            const clickedButton = event?.target?.closest('button');
             if (clickedButton) {
                 clickedButton.disabled = true;
                 clickedButton.style.opacity = '0.6';

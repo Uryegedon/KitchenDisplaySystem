@@ -1,0 +1,178 @@
+@{
+    Layout = null;
+    var token = ViewBag.Token as string ?? "";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Delivery Sheet Scanner</title>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f7f7f7;
+            color: #222;
+        }
+        .scan-shell {
+            max-width: 560px;
+            margin: 0 auto;
+            padding: 18px;
+        }
+        h1 {
+            font-size: 1.35rem;
+            margin: 12px 0 8px;
+        }
+        .panel {
+            background: #fff;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        input[type=file], textarea, button {
+            width: 100%;
+            box-sizing: border-box;
+            font-size: 1rem;
+        }
+        input[type=file] {
+            padding: 12px;
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            background: #fafafa;
+        }
+        textarea {
+            min-height: 230px;
+            margin-top: 12px;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            font-family: Consolas, monospace;
+        }
+        button {
+            margin-top: 12px;
+            border: 0;
+            border-radius: 10px;
+            padding: 13px;
+            background: #111827;
+            color: #fff;
+            font-weight: 800;
+        }
+        button.secondary {
+            background: #e67e22;
+        }
+        button:disabled {
+            opacity: 0.55;
+        }
+        .status {
+            margin-top: 12px;
+            padding: 10px;
+            border-radius: 10px;
+            background: #fff8ef;
+            color: #555;
+        }
+        .hint {
+            color: #666;
+            font-size: 0.92rem;
+            line-height: 1.4;
+        }
+        .format-box {
+            margin: 12px 0;
+            padding: 10px;
+            border-radius: 10px;
+            background: #fff8ef;
+            color: #555;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <main class="scan-shell">
+        <h1>Delivery Sheet Scanner</h1>
+        <p class="hint">Take a clear photo of the two-column delivery sheet. OCR is only used to speed up entry; the desktop must still confirm the ingredient match and amount.</p>
+        <section class="panel">
+            <div class="format-box">
+                Expected rows: handwritten item name on the left, amount on the right.<br />
+                Example: Chicken wings 20
+            </div>
+            <input id="sheetImage" type="file" accept="image/*" capture="environment" />
+            <button type="button" class="secondary" id="runOcr">Read Sheet</button>
+            <textarea id="rawText" placeholder="Recognized delivery rows will appear here. One row per line: item name amount"></textarea>
+            <button type="button" id="uploadSheet">Upload To Kitchen</button>
+            <div class="status" id="status">Waiting for photo.</div>
+        </section>
+    </main>
+
+    <script>
+        const token = '@token';
+        let selectedFile = null;
+        const imageInput = document.getElementById('sheetImage');
+        const rawText = document.getElementById('rawText');
+        const statusBox = document.getElementById('status');
+        const runOcrButton = document.getElementById('runOcr');
+        const uploadButton = document.getElementById('uploadSheet');
+
+        imageInput.addEventListener('change', function () {
+            selectedFile = this.files?.[0] || null;
+            statusBox.textContent = selectedFile ? 'Photo ready. Tap Read Sheet.' : 'Waiting for photo.';
+        });
+
+        runOcrButton.addEventListener('click', async function () {
+            if (!selectedFile) {
+                alert('Take or choose a photo first.');
+                return;
+            }
+
+            runOcrButton.disabled = true;
+            statusBox.textContent = 'Reading sheet. Keep this page open...';
+            try {
+                const result = await Tesseract.recognize(selectedFile, 'eng', {
+                    logger: progress => {
+                        if (progress.status) {
+                            const pct = progress.progress ? ` ${Math.round(progress.progress * 100)}%` : '';
+                            statusBox.textContent = `${progress.status}${pct}`;
+                        }
+                    }
+                });
+                rawText.value = result?.data?.text || '';
+                statusBox.textContent = 'Text recognized. Review it, then upload.';
+            } catch (error) {
+                console.error(error);
+                statusBox.textContent = 'OCR failed. You can type the rows manually, then upload.';
+            } finally {
+                runOcrButton.disabled = false;
+            }
+        });
+
+        uploadButton.addEventListener('click', function () {
+            if (!selectedFile && !rawText.value.trim()) {
+                alert('Take a photo or enter delivery rows first.');
+                return;
+            }
+
+            uploadButton.disabled = true;
+            statusBox.textContent = 'Uploading...';
+            const form = new FormData();
+            form.append('token', token);
+            form.append('rawText', rawText.value || '');
+            if (selectedFile) form.append('sheetImage', selectedFile);
+
+            fetch('/Admin/Inventory/UploadDeliveryImport', {
+                method: 'POST',
+                body: form
+            })
+            .then(response => response.json())
+            .then(data => {
+                statusBox.textContent = data.message || (data.success ? 'Uploaded.' : 'Upload failed.');
+                if (!data.success) uploadButton.disabled = false;
+            })
+            .catch(error => {
+                console.error(error);
+                statusBox.textContent = 'Upload failed. Please try again.';
+                uploadButton.disabled = false;
+            });
+        });
+    </script>
+</body>
+</html>

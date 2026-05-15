@@ -53,7 +53,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             {
                 allBranches = await _branchService.GetAllAsync();
                 ViewBag.AllBranches = allBranches;
-                
+
                 // Owner must select a branch - default to first branch if none selected
                 if (string.IsNullOrEmpty(branchFilter) || branchFilter == "all")
                 {
@@ -64,7 +64,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             // Get branch info for display
             Branch? userBranch = null;
             string? effectiveBranchId = userBranchId;
-            
+
             if (isOwner && !string.IsNullOrEmpty(branchFilter))
             {
                 userBranch = allBranches.FirstOrDefault(b => b.Id == branchFilter);
@@ -77,6 +77,10 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             ViewData["BranchName"] = userBranch?.BranchName ?? "Select Branch";
             ViewBag.BranchFilter = branchFilter;
+
+            var cleanedRecipeItems = await _menuItems.CleanupInvalidRecipeLinesAsync(effectiveBranchId);
+            if (cleanedRecipeItems > 0 && ViewBag.Message == null)
+                ViewBag.Message = $"Removed invalid recipe ingredients from {cleanedRecipeItems} menu item(s).";
 
             // Get menu items filtered by branch
             var allItems = await _menuItems.GetAllByBranchAsync(effectiveBranchId);
@@ -393,6 +397,8 @@ namespace SelfOrderingSystemKiosk.Controllers
                 var ingredient = await _ingredients.GetByIdAsync(line.IngredientId);
                 if (ingredient == null)
                     return false;
+                if (IsUnknownIngredientName(ingredient.Item))
+                    return false;
                 if (sharedOnly && !string.IsNullOrWhiteSpace(ingredient.BranchId))
                     return false;
                 if (!sharedOnly &&
@@ -402,6 +408,13 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
 
             return true;
+        }
+
+        private static bool IsUnknownIngredientName(string? name)
+        {
+            var normalized = (name ?? string.Empty).Trim();
+            return normalized.Equals("Unknown", StringComparison.OrdinalIgnoreCase)
+                || normalized.Equals("Unknown Ingredient", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

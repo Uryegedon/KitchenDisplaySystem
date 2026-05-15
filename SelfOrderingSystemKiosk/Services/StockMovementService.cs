@@ -87,6 +87,22 @@ namespace SelfOrderingSystemKiosk.Services
                     Builders<StockMovement>.IndexKeys.Ascending(m => m.ItemName),
                     new CreateIndexOptions { Name = "ix_stock_movements_itemName" }),
                 cancellationToken: cancellationToken);
+
+            await _movements.Indexes.CreateOneAsync(
+                new CreateIndexModel<StockMovement>(
+                    Builders<StockMovement>.IndexKeys
+                        .Ascending(m => m.InventoryItemId)
+                        .Ascending(m => m.TimestampUtc),
+                    new CreateIndexOptions { Name = "ix_stock_movements_inventoryItem_timestamp" }),
+                cancellationToken: cancellationToken);
+
+            await _movements.Indexes.CreateOneAsync(
+                new CreateIndexModel<StockMovement>(
+                    Builders<StockMovement>.IndexKeys
+                        .Ascending(m => m.BranchId)
+                        .Descending(m => m.TimestampUtc),
+                    new CreateIndexOptions { Name = "ix_stock_movements_branch_timestamp" }),
+                cancellationToken: cancellationToken);
         }
     }
 }

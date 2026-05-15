@@ -34,6 +34,7 @@
 
     <div class="choices">
         <form method="post" asp-action="SelectExperience">
+            @Html.AntiForgeryToken()
             <input type="hidden" name="experienceType" value="Unlimited" />
             <div class="card @(tableOrderingAvailable ? "" : "disabled-choice")" onclick="@(tableOrderingAvailable ? "this.parentElement.submit()" : "return false")">
                 <img src="~/images/unlimited.png" alt="Unlimited Wings" />
@@ -43,6 +44,7 @@
         </form>
 
         <form method="post" asp-action="SelectExperience">
+            @Html.AntiForgeryToken()
             <input type="hidden" name="experienceType" value="AlaCarte" />
             <div class="card @(tableOrderingAvailable ? "" : "disabled-choice")" onclick="@(tableOrderingAvailable ? "this.parentElement.submit()" : "return false")">
                 <img src="~/images/alacarte.png" alt="Ala Carte" />

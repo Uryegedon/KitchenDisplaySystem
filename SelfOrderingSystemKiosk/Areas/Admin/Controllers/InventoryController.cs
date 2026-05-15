@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
+using System.Text.Json.Serialization;
 
 namespace SelfOrderingSystemKiosk.Controllers
 {
@@ -15,14 +16,18 @@ namespace SelfOrderingSystemKiosk.Controllers
         private readonly IngredientCategoryRegistry _ingredientCategories;
         private readonly BranchService _branchService;
         private readonly StockMovementService _stockMovements;
+        private readonly DeliveryImportService _deliveryImports;
+        private readonly QrCodeService _qrCodes;
 
-        public InventoryController(IngredientStockService ingredients, MenuItemService menuItems, IngredientCategoryRegistry ingredientCategories, BranchService branchService, StockMovementService stockMovements)
+        public InventoryController(IngredientStockService ingredients, MenuItemService menuItems, IngredientCategoryRegistry ingredientCategories, BranchService branchService, StockMovementService stockMovements, DeliveryImportService deliveryImports, QrCodeService qrCodes)
         {
             _ingredients = ingredients;
             _menuItems = menuItems;
             _ingredientCategories = ingredientCategories;
             _branchService = branchService;
             _stockMovements = stockMovements;
+            _deliveryImports = deliveryImports;
+            _qrCodes = qrCodes;
         }
 
         public async Task<IActionResult> Index(string? categoryFilter = null, string? branchFilter = null, string? expiryFilter = null, bool print = false)
@@ -41,7 +46,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             {
                 allBranches = await _branchService.GetAllAsync();
                 ViewBag.AllBranches = allBranches;
-                
+
                 // Owner must select a branch - default to first branch if none selected
                 if (string.IsNullOrEmpty(branchFilter) || branchFilter == "all")
                 {
@@ -52,7 +57,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             // Get branch info for display
             Branch? userBranch = null;
             string? effectiveBranchId = userBranchId;
-            
+
             if (isOwner && !string.IsNullOrEmpty(branchFilter))
             {
                 userBranch = allBranches.FirstOrDefault(b => b.Id == branchFilter);
@@ -69,7 +74,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             var all = await _ingredients.GetAllByBranchAsync(effectiveBranchId);
             ViewBag.CategoryFilter = string.IsNullOrWhiteSpace(categoryFilter) || categoryFilter == "all" ? "all" : categoryFilter;
             ViewBag.BranchFilter = branchFilter;
-            
+
             var items = all;
             if (ViewBag.CategoryFilter != "all")
                 items = all.Where(i => string.Equals(i.IngredientCategory, categoryFilter, StringComparison.Ordinal)).ToList();
@@ -121,6 +126,151 @@ namespace SelfOrderingSystemKiosk.Controllers
                     };
                 },
                 StringComparer.OrdinalIgnoreCase);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> StartDeliveryImport(string? branchFilter = null)
+        {
+            var effectiveBranchId = await ResolveEffectiveInventoryBranchIdAsync(branchFilter);
+            if (string.IsNullOrWhiteSpace(effectiveBranchId))
+                return Json(new { success = false, message = "Choose a branch before starting phone scan." });
+
+            var session = await _deliveryImports.CreateAsync(effectiveBranchId, User.Identity?.Name ?? "Admin");
+            var scanUrl = Url.Action("ScanDeliveryImport", "Inventory", new { area = "Admin", token = session.Token }, Request.Scheme)
+                ?? string.Empty;
+            var qrBytes = _qrCodes.GetPngBytes(scanUrl, 8);
+            var qrDataUrl = $"data:image/png;base64,{Convert.ToBase64String(qrBytes)}";
+
+            return Json(new
+            {
+                success = true,
+                token = session.Token,
+                scanUrl,
+                qrDataUrl,
+                expiresAt = AppClock.ToLocal(session.ExpiresAtUtc).ToString("h:mm tt")
+            });
+        }
+
+        [HttpGet]
+        [AllowAnonymous]
+        public async Task<IActionResult> ScanDeliveryImport(string token)
+        {
+            var session = await _deliveryImports.GetActiveByTokenAsync(token);
+            if (session == null)
+                return Content("This delivery scan link is invalid or expired.");
+
+            ViewBag.Token = token;
+            return View("ScanDeliveryImport");
+        }
+
+        [HttpPost]
+        [AllowAnonymous]
+        [IgnoreAntiforgeryToken]
+        public async Task<IActionResult> UploadDeliveryImport(string token, string? rawText, IFormFile? sheetImage)
+        {
+            var session = await _deliveryImports.GetActiveByTokenAsync(token);
+            if (session == null)
+                return Json(new { success = false, message = "This scan session is invalid or expired." });
+
+            if (sheetImage == null && string.IsNullOrWhiteSpace(rawText))
+                return Json(new { success = false, message = "Upload a sheet photo or recognized text." });
+
+            await _deliveryImports.SaveUploadedTextAsync(token, rawText ?? string.Empty);
+            return Json(new { success = true, message = "Upload received. Return to the desktop to review." });
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> DeliveryImportStatus(string token)
+        {
+            var session = await _deliveryImports.GetByTokenAsync(token);
+            if (session == null)
+                return Json(new { success = false, message = "Import session was not found." });
+
+            if (!CanAccessInventoryBranch(session.BranchId))
+                return Forbid();
+
+            return Json(new
+            {
+                success = true,
+                status = session.ExpiresAtUtc < DateTime.UtcNow ? "Expired" : session.Status,
+                uploaded = session.UploadedAtUtc.HasValue,
+                rows = session.Rows.Select(r => new
+                {
+                    itemName = r.ItemName,
+                    quantity = r.Quantity,
+                    unit = r.Unit,
+                    matchedIngredientId = r.MatchedIngredientId,
+                    matchedIngredientName = r.MatchedIngredientName,
+                    confidence = r.Confidence
+                })
+            });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ConfirmDeliveryImport([FromBody] ConfirmDeliveryImportRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.Token))
+                return Json(new { success = false, message = "Import session is required." });
+
+            var session = await _deliveryImports.GetByTokenAsync(request.Token);
+            if (session == null || session.ExpiresAtUtc < DateTime.UtcNow)
+                return Json(new { success = false, message = "Import session is invalid or expired." });
+            if (!CanAccessInventoryBranch(session.BranchId))
+                return Forbid();
+
+            var rows = request.Rows?
+                .Where(r => !string.IsNullOrWhiteSpace(r.IngredientId) && r.Quantity > 0)
+                .ToList() ?? new List<ConfirmDeliveryImportRow>();
+            if (!rows.Any())
+                return Json(new { success = false, message = "No valid rows to import." });
+
+            var imported = 0;
+            foreach (var row in rows)
+            {
+                var item = await _ingredients.GetByIdAsync(row.IngredientId);
+                if (item == null || !CanAccessInventoryBranch(item.BranchId))
+                    continue;
+
+                var note = string.IsNullOrWhiteSpace(row.Note)
+                    ? $"Delivery import {session.Id}"
+                    : $"Delivery import {session.Id}: {row.Note.Trim()}";
+                var ok = await _ingredients.IncreaseStockAsync(item.Id, row.Quantity, "DeliveryImport", session.Id, note);
+                if (ok)
+                {
+                    imported++;
+                    await _menuItems.SyncAvailabilityForIngredientAsync(item.Id);
+                }
+            }
+
+            await _deliveryImports.MarkConfirmedAsync(session.Token);
+            return Json(new { success = true, message = $"Imported {imported} delivery row(s)." });
+        }
+
+        private async Task<string?> ResolveEffectiveInventoryBranchIdAsync(string? branchFilter)
+        {
+            var userBranchId = User.GetBranchId();
+            var isOwner = User.HasAllBranchAccess();
+            if (!isOwner)
+                return string.IsNullOrWhiteSpace(userBranchId) ? null : userBranchId.Trim();
+
+            if (string.IsNullOrWhiteSpace(branchFilter) || branchFilter == "all")
+                return null;
+
+            var branch = await _branchService.GetByIdAsync(branchFilter.Trim());
+            return branch?.Id;
+        }
+
+        private bool CanAccessInventoryBranch(string? branchId)
+        {
+            if (User.HasAllBranchAccess())
+                return true;
+
+            var userBranchId = User.GetBranchId();
+            return !string.IsNullOrWhiteSpace(userBranchId)
+                && !string.IsNullOrWhiteSpace(branchId)
+                && string.Equals(userBranchId.Trim(), branchId.Trim(), StringComparison.OrdinalIgnoreCase);
         }
 
         [HttpPost]
@@ -454,5 +604,26 @@ namespace SelfOrderingSystemKiosk.Controllers
         public int DeliveredStock { get; set; }
         public int EndingStock { get; set; }
         public int UsedStockEstimate { get; set; }
+    }
+
+    public class ConfirmDeliveryImportRequest
+    {
+        [JsonPropertyName("token")]
+        public string Token { get; set; } = string.Empty;
+
+        [JsonPropertyName("rows")]
+        public List<ConfirmDeliveryImportRow> Rows { get; set; } = new();
+    }
+
+    public class ConfirmDeliveryImportRow
+    {
+        [JsonPropertyName("ingredientId")]
+        public string IngredientId { get; set; } = string.Empty;
+
+        [JsonPropertyName("quantity")]
+        public int Quantity { get; set; }
+
+        [JsonPropertyName("note")]
+        public string? Note { get; set; }
     }
 }
