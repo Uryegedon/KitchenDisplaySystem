@@ -30,7 +30,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             _qrCodes = qrCodes;
         }
 
-        public async Task<IActionResult> Index(string? categoryFilter = null, string? branchFilter = null, string? expiryFilter = null, bool print = false)
+        public async Task<IActionResult> Index(string? categoryFilter = null, string? branchFilter = null, string? expiryFilter = null, DateTime? expiryUntil = null, bool print = false)
         {
             ViewData["Title"] = "Kitchen/Supplies inventory";
 
@@ -78,12 +78,38 @@ namespace SelfOrderingSystemKiosk.Controllers
             var items = all;
             if (ViewBag.CategoryFilter != "all")
                 items = all.Where(i => string.Equals(i.IngredientCategory, categoryFilter, StringComparison.Ordinal)).ToList();
-            ViewBag.ExpiryFilter = string.IsNullOrWhiteSpace(expiryFilter) ? "all" : expiryFilter;
             var today = AppClock.LocalNow.Date;
-            if (ViewBag.ExpiryFilter == "expired")
+            var expiryMaxDate = today.AddDays(14);
+            var selectedExpiryFilter = string.IsNullOrWhiteSpace(expiryFilter)
+                ? "all"
+                : expiryFilter.Trim().ToLowerInvariant();
+            if (selectedExpiryFilter == "near")
+                selectedExpiryFilter = "7days";
+
+            DateTime? expiryEndDate = selectedExpiryFilter switch
+            {
+                "3days" => today.AddDays(3),
+                "7days" or "week" => today.AddDays(7),
+                "14days" or "2weeks" => expiryMaxDate,
+                "custom" => expiryUntil.HasValue
+                    ? expiryUntil.Value.Date < today
+                        ? today
+                        : expiryUntil.Value.Date > expiryMaxDate
+                            ? expiryMaxDate
+                            : expiryUntil.Value.Date
+                    : expiryMaxDate,
+                _ => null
+            };
+
+            ViewBag.ExpiryFilter = selectedExpiryFilter;
+            ViewBag.ExpiryUntil = expiryEndDate;
+            ViewBag.ExpiryToday = today;
+            ViewBag.ExpiryMaxDate = expiryMaxDate;
+
+            if (selectedExpiryFilter == "expired")
                 items = items.Where(i => i.ExpirationDate.HasValue && i.ExpirationDate.Value.Date < today).ToList();
-            else if (ViewBag.ExpiryFilter == "near")
-                items = items.Where(i => i.ExpirationDate.HasValue && i.ExpirationDate.Value.Date >= today && i.ExpirationDate.Value.Date <= today.AddDays(7)).ToList();
+            else if (expiryEndDate.HasValue)
+                items = items.Where(i => i.ExpirationDate.HasValue && i.ExpirationDate.Value.Date >= today && i.ExpirationDate.Value.Date <= expiryEndDate.Value).ToList();
 
             var visibleItems = items ?? new List<IngredientItem>();
             ViewBag.ItemCount = visibleItems.Count;

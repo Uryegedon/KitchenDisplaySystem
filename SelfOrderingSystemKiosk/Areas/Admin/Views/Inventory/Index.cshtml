@@ -8,6 +8,9 @@
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     var catFilter = ViewBag.CategoryFilter as string ?? "all";
     var expiryFilter = ViewBag.ExpiryFilter as string ?? "all";
+    var expiryToday = ViewBag.ExpiryToday is DateTime expiryTodayValue ? expiryTodayValue : AppClock.LocalNow.Date;
+    var expiryMaxDate = ViewBag.ExpiryMaxDate is DateTime expiryMaxValue ? expiryMaxValue : expiryToday.AddDays(14);
+    var expiryUntil = ViewBag.ExpiryUntil is DateTime expiryUntilValue ? expiryUntilValue : (DateTime?)null;
     var categories = IngredientCategoryRegistry.All;
     var branchName = ViewData["BranchName"] as string ?? "Unknown";
     var isOwner = ViewBag.IsOwner == true;
@@ -435,6 +438,7 @@
     </div>
 
     <form method="get" asp-area="Admin" asp-controller="Inventory" asp-action="Index" class="inventory-filters" style="margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <input type="hidden" name="branchFilter" value="@ViewBag.BranchFilter" />
         <label for="categoryFilter" style="font-weight: 600; margin: 0;">Category</label>
         <select name="categoryFilter" id="categoryFilter" onchange="this.form.submit()" style="padding: 8px 12px; min-width: 260px; border: 2px solid #ddd; border-radius: 5px;">
             @if (catFilter == "all")
@@ -462,9 +466,22 @@
         <label for="expiryFilter" style="font-weight: 600; margin: 0;">Expiry</label>
         <select name="expiryFilter" id="expiryFilter" onchange="this.form.submit()" style="padding: 8px 12px; min-width: 180px; border: 2px solid #ddd; border-radius: 5px;">
             <option value="all" selected="@(expiryFilter == "all")">All</option>
-            <option value="near" selected="@(expiryFilter == "near")">Near expiry</option>
+            <option value="3days" selected="@(expiryFilter == "3days")">Next 3 days</option>
+            <option value="7days" selected="@(expiryFilter == "7days" || expiryFilter == "near")">This week</option>
+            <option value="14days" selected="@(expiryFilter == "14days")">Next 2 weeks</option>
+            <option value="custom" selected="@(expiryFilter == "custom")">Until selected date</option>
             <option value="expired" selected="@(expiryFilter == "expired")">Expired</option>
         </select>
+        <input type="date"
+               name="expiryUntil"
+               id="expiryUntil"
+               value="@(expiryUntil?.ToString("yyyy-MM-dd") ?? "")"
+               min="@expiryToday.ToString("yyyy-MM-dd")"
+               max="@expiryMaxDate.ToString("yyyy-MM-dd")"
+               onchange="applyExpiryUntil(this)"
+               title="Expiration range is capped at 2 weeks"
+               style="padding: 8px 12px; min-width: 165px; border: 2px solid #ddd; border-radius: 5px;" />
+        <span style="color: #777; font-size: 0.85em;">Max 2 weeks</span>
     </form>
 
     <div class="inv-modal-overlay" id="addIngredientModal" aria-hidden="true">
@@ -1461,10 +1478,19 @@
             window.location.href = url.toString();
         }
 
+        function applyExpiryUntil(input) {
+            const expiryFilter = document.getElementById('expiryFilter');
+            if (input.value && expiryFilter) {
+                expiryFilter.value = 'custom';
+            }
+            input.form.submit();
+        }
+
         function printAllSupplies() {
             const url = new URL(window.location.href);
             url.searchParams.set('categoryFilter', 'all');
             url.searchParams.set('expiryFilter', 'all');
+            url.searchParams.delete('expiryUntil');
             url.searchParams.set('print', 'true');
             window.location.href = url.toString();
         }
