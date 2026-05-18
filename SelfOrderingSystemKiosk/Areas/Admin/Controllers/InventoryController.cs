@@ -30,7 +30,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             _qrCodes = qrCodes;
         }
 
-        public async Task<IActionResult> Index(string? categoryFilter = null, string? branchFilter = null, string? expiryFilter = null, DateTime? expiryUntil = null, bool print = false)
+        public async Task<IActionResult> Index(string? categoryFilter = null, string? branchFilter = null, string? expiryFilter = null, DateTime? expiryUntil = null, string? actionView = null, bool print = false)
         {
             ViewData["Title"] = "Kitchen/Supplies inventory";
 
@@ -75,6 +75,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             ViewBag.CategoryFilter = string.IsNullOrWhiteSpace(categoryFilter) || categoryFilter == "all" ? "all" : categoryFilter;
             ViewBag.BranchFilter = branchFilter;
 
+            var menuItems = await _menuItems.GetAllByBranchAsync(effectiveBranchId);
+            var usageByIngredient = BuildInventoryUsageImpact(all, menuItems);
             var items = all;
             if (ViewBag.CategoryFilter != "all")
                 items = all.Where(i => string.Equals(i.IngredientCategory, categoryFilter, StringComparison.Ordinal)).ToList();
@@ -111,20 +113,28 @@ namespace SelfOrderingSystemKiosk.Controllers
             else if (expiryEndDate.HasValue)
                 items = items.Where(i => i.ExpirationDate.HasValue && i.ExpirationDate.Value.Date >= today && i.ExpirationDate.Value.Date <= expiryEndDate.Value).ToList();
 
+            var selectedActionView = NormalizeInventoryActionView(actionView);
+            var actionCounts = BuildInventoryActionCounts(items, usageByIngredient, today);
+            items = ApplyInventoryActionView(items, usageByIngredient, selectedActionView, today);
+
             var visibleItems = items ?? new List<IngredientItem>();
             ViewBag.ItemCount = visibleItems.Count;
             ViewBag.IngredientCategories = IngredientCategoryRegistry.All;
             ViewBag.IsOwner = isOwner;
             ViewBag.AllBranches = allBranches;
             ViewBag.AutoPrint = print;
-            ViewBag.PrintStockStats = await BuildPrintStockStatsAsync(visibleItems);
+            ViewBag.ActionView = selectedActionView;
+            ViewBag.InventoryUsageByIngredient = usageByIngredient;
+            ViewBag.InventoryActionCounts = actionCounts;
+            ViewBag.ImportIngredientOptions = all;
+            ViewBag.PrintStockStats = await BuildPrintStockStatsAsync(visibleItems, effectiveBranchId);
             return View(visibleItems);
         }
 
-        private async Task<Dictionary<string, PrintStockSummary>> BuildPrintStockStatsAsync(List<IngredientItem> items)
+        private async Task<Dictionary<string, PrintStockSummary>> BuildPrintStockStatsAsync(List<IngredientItem> items, string? branchId)
         {
             var (startUtc, endUtc) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
-            var movements = await _stockMovements.GetForInventoryItemsAsync(items.Select(i => i.Id), startUtc, endUtc, User.GetBranchId());
+            var movements = await _stockMovements.GetForInventoryItemsAsync(items.Select(i => i.Id), startUtc, endUtc, branchId);
             var byItem = movements
                 .GroupBy(m => m.InventoryItemId ?? "", StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.OrderBy(m => m.TimestampUtc).ToList(), StringComparer.OrdinalIgnoreCase);
@@ -152,6 +162,129 @@ namespace SelfOrderingSystemKiosk.Controllers
                     };
                 },
                 StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static Dictionary<string, InventoryUsageImpact> BuildInventoryUsageImpact(List<IngredientItem> ingredients, List<MenuItem> menuItems)
+        {
+            var impactByIngredient = ingredients
+                .Where(i => !string.IsNullOrWhiteSpace(i.Id))
+                .GroupBy(i => i.Id.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    g => g.Key,
+                    g => new InventoryUsageImpact { IngredientId = g.Key },
+                    StringComparer.OrdinalIgnoreCase);
+
+            var ingredientById = ingredients
+                .Where(i => !string.IsNullOrWhiteSpace(i.Id))
+                .ToDictionary(i => i.Id.Trim(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var menuItem in menuItems.Where(m => !string.Equals(m.Category, "Unavailable", StringComparison.OrdinalIgnoreCase)))
+            {
+                foreach (var line in menuItem.Recipe ?? new List<MenuRecipeLine>())
+                {
+                    if (string.IsNullOrWhiteSpace(line.IngredientId) || line.QuantityPerUnit <= 0)
+                        continue;
+
+                    var ingredientId = line.IngredientId.Trim();
+                    if (!impactByIngredient.TryGetValue(ingredientId, out var impact))
+                        continue;
+
+                    impact.UsedBy.Add(new InventoryMenuUsage
+                    {
+                        MenuItemId = menuItem.Id ?? string.Empty,
+                        MenuItemName = menuItem.Item ?? "Unnamed menu item",
+                        MenuCategory = menuItem.Category ?? string.Empty,
+                        QuantityPerUnit = line.QuantityPerUnit,
+                        Unit = ingredientById.TryGetValue(ingredientId, out var ingredient) ? ingredient.Unit ?? string.Empty : string.Empty
+                    });
+                }
+            }
+
+            foreach (var impact in impactByIngredient.Values)
+            {
+                ingredientById.TryGetValue(impact.IngredientId, out var ingredient);
+                if (ingredient?.CurrentStock <= 0 && impact.AffectedMenuItemCount > 0)
+                {
+                    impact.BlockingMenuItemCount = impact.AffectedMenuItemCount;
+                    impact.ImpactLabel = $"Blocking {impact.BlockingMenuItemCount} item(s)";
+                    impact.ImpactLevel = "blocked";
+                    impact.ImpactSortValue = 3000 + impact.BlockingMenuItemCount;
+                }
+                else if (impact.AffectedMenuItemCount > 0)
+                {
+                    impact.ImpactLabel = $"Affects {impact.AffectedMenuItemCount} item(s)";
+                    impact.ImpactLevel = "linked";
+                    impact.ImpactSortValue = 2000 + impact.AffectedMenuItemCount;
+                }
+                else
+                {
+                    impact.ImpactLabel = "No recipe link";
+                    impact.ImpactLevel = "none";
+                    impact.ImpactSortValue = 1000;
+                }
+            }
+
+            return impactByIngredient;
+        }
+
+        private static string NormalizeInventoryActionView(string? actionView)
+        {
+            var normalized = string.IsNullOrWhiteSpace(actionView)
+                ? "needs"
+                : actionView.Trim().ToLowerInvariant();
+
+            return normalized is "needs" or "low" or "expiring" or "unused" or "recipe" or "all"
+                ? normalized
+                : "needs";
+        }
+
+        private static List<IngredientItem> ApplyInventoryActionView(List<IngredientItem> items, Dictionary<string, InventoryUsageImpact> usageByIngredient, string actionView, DateTime today)
+        {
+            return actionView switch
+            {
+                "needs" => items.Where(i => NeedsInventoryAction(i, usageByIngredient, today)).ToList(),
+                "low" => items.Where(IsLowStock).ToList(),
+                "expiring" => items.Where(i => IsExpiredOrExpiringSoon(i, today)).ToList(),
+                "unused" => items.Where(i => GetUsage(i, usageByIngredient).AffectedMenuItemCount == 0).ToList(),
+                "recipe" => items.Where(i => GetUsage(i, usageByIngredient).AffectedMenuItemCount > 0).ToList(),
+                _ => items
+            };
+        }
+
+        private static Dictionary<string, int> BuildInventoryActionCounts(List<IngredientItem> items, Dictionary<string, InventoryUsageImpact> usageByIngredient, DateTime today)
+        {
+            return new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["needs"] = items.Count(i => NeedsInventoryAction(i, usageByIngredient, today)),
+                ["low"] = items.Count(IsLowStock),
+                ["expiring"] = items.Count(i => IsExpiredOrExpiringSoon(i, today)),
+                ["unused"] = items.Count(i => GetUsage(i, usageByIngredient).AffectedMenuItemCount == 0),
+                ["recipe"] = items.Count(i => GetUsage(i, usageByIngredient).AffectedMenuItemCount > 0),
+                ["all"] = items.Count
+            };
+        }
+
+        private static bool NeedsInventoryAction(IngredientItem item, Dictionary<string, InventoryUsageImpact> usageByIngredient, DateTime today)
+        {
+            var usage = GetUsage(item, usageByIngredient);
+            return item.CurrentStock == 0
+                || IsLowStock(item)
+                || IsExpiredOrExpiringSoon(item, today)
+                || usage.AffectedMenuItemCount == 0;
+        }
+
+        private static bool IsLowStock(IngredientItem item)
+            => item.CurrentStock <= item.ReorderLevel;
+
+        private static bool IsExpiredOrExpiringSoon(IngredientItem item, DateTime today)
+            => item.ExpirationDate.HasValue && item.ExpirationDate.Value.Date <= today.AddDays(14);
+
+        private static InventoryUsageImpact GetUsage(IngredientItem item, Dictionary<string, InventoryUsageImpact> usageByIngredient)
+        {
+            if (!string.IsNullOrWhiteSpace(item.Id) && usageByIngredient.TryGetValue(item.Id.Trim(), out var usage))
+                return usage;
+
+            return new InventoryUsageImpact { IngredientId = item.Id ?? string.Empty };
         }
 
         [HttpPost]
@@ -407,19 +540,19 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(string id, string item, string ingredientCategory, string unit, decimal costPerUnit, DateTime? expirationDate)
+        public async Task<IActionResult> Edit(string id, string item, string ingredientCategory, string unit, decimal costPerUnit, DateTime? expirationDate, string? branchFilter = null, string? actionView = null)
         {
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(item))
             {
                 TempData["Message"] = "Invalid data.";
-                return RedirectToAction("Index");
+                return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
             var existing = await _ingredients.GetByIdAsync(id);
             if (existing == null)
             {
                 TempData["Message"] = "Ingredient not found.";
-                return RedirectToAction("Index");
+                return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
             // Branch managers can only edit items from their branch or shared items
@@ -433,13 +566,13 @@ namespace SelfOrderingSystemKiosk.Controllers
                  !string.Equals(existing.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase)))
             {
                 TempData["Message"] = "You can only edit items from your assigned branch.";
-                return RedirectToAction("Index");
+                return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
             if (!_ingredientCategories.IsValid(ingredientCategory))
             {
                 TempData["Message"] = "Invalid ingredient category.";
-                return RedirectToAction("Index");
+                return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
             // Check for duplicate name if name changed
@@ -449,7 +582,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 if (allItems.Any(i => i.Id != id && string.Equals(i.Item, item.Trim(), StringComparison.OrdinalIgnoreCase)))
                 {
                     TempData["Message"] = $"An ingredient with the name '{item.Trim()}' already exists.";
-                    return RedirectToAction("Index");
+                    return RedirectToInventoryIndex(branchFilter, actionView);
                 }
             }
 
@@ -463,7 +596,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             await _menuItems.SeedRecipesFromMenuItemNamesAsync();
             await _menuItems.SyncAvailabilityForIngredientAsync(existing.Id);
             TempData["Message"] = $"Ingredient '{existing.Item}' updated.";
-            return RedirectToAction("Index");
+            return RedirectToInventoryIndex(branchFilter, actionView);
         }
 
         [HttpGet]
@@ -494,13 +627,13 @@ namespace SelfOrderingSystemKiosk.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Restock(string id, int amount, string? batchNote = null)
+        public async Task<IActionResult> Restock(string id, int amount, string? batchNote = null, string? branchFilter = null, string? actionView = null)
         {
             var item = await _ingredients.GetByIdAsync(id);
             if (item == null)
             {
                 TempData["Message"] = "Ingredient not found.";
-                return RedirectToAction("Index");
+                return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
             // Branch managers can only restock items from their branch or shared items
@@ -514,13 +647,13 @@ namespace SelfOrderingSystemKiosk.Controllers
                  !string.Equals(item.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase)))
             {
                 TempData["Message"] = "You can only restock items from your assigned branch.";
-                return RedirectToAction("Index");
+                return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
             if (amount <= 0)
             {
                 TempData["Message"] = "Invalid restock amount.";
-                return RedirectToAction("Index");
+                return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
             var previousStock = item.CurrentStock;
@@ -554,18 +687,18 @@ namespace SelfOrderingSystemKiosk.Controllers
             TempData["Message"] = string.IsNullOrWhiteSpace(batchNote)
                 ? $"Restocked '{item.Item}' by {amount} units."
                 : $"Restocked '{item.Item}' by {amount} units. Batch/Delivery: {batchNote.Trim()}";
-            return RedirectToAction("Index");
+            return RedirectToInventoryIndex(branchFilter, actionView);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> ClearStock(string id)
+        public async Task<IActionResult> ClearStock(string id, string? branchFilter = null, string? actionView = null)
         {
             var item = await _ingredients.GetByIdAsync(id);
             if (item == null)
             {
                 TempData["Message"] = "Ingredient not found.";
-                return RedirectToAction("Index");
+                return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
             // Branch managers can only clear items from their branch or shared items
@@ -579,7 +712,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                  !string.Equals(item.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase)))
             {
                 TempData["Message"] = "You can only clear items from your assigned branch.";
-                return RedirectToAction("Index");
+                return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
             var previousStock = item.CurrentStock;
@@ -596,7 +729,16 @@ namespace SelfOrderingSystemKiosk.Controllers
             await _menuItems.SyncAvailabilityForIngredientAsync(item.Id);
 
             TempData["Message"] = $"Stock for '{item.Item}' was cleared to 0.";
-            return RedirectToAction("Index");
+            return RedirectToInventoryIndex(branchFilter, actionView);
+        }
+
+        private RedirectToActionResult RedirectToInventoryIndex(string? branchFilter, string? actionView)
+        {
+            return RedirectToAction("Index", new
+            {
+                branchFilter,
+                actionView = NormalizeInventoryActionView(actionView)
+            });
         }
 
         [HttpGet]

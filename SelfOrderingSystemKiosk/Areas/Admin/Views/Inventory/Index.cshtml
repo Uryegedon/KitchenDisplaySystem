@@ -1,5 +1,6 @@
 @model IEnumerable<SelfOrderingSystemKiosk.Models.IngredientItem>
 @using SelfOrderingSystemKiosk.Services
+@using SelfOrderingSystemKiosk.Models
 @using System.Net
 @using System.Text.Encodings.Web
 @using System.Text.Json
@@ -11,12 +12,26 @@
     var expiryToday = ViewBag.ExpiryToday is DateTime expiryTodayValue ? expiryTodayValue : AppClock.LocalNow.Date;
     var expiryMaxDate = ViewBag.ExpiryMaxDate is DateTime expiryMaxValue ? expiryMaxValue : expiryToday.AddDays(14);
     var expiryUntil = ViewBag.ExpiryUntil is DateTime expiryUntilValue ? expiryUntilValue : (DateTime?)null;
+    var actionView = ViewBag.ActionView as string ?? "needs";
+    var usageByIngredient = ViewBag.InventoryUsageByIngredient as Dictionary<string, InventoryUsageImpact> ?? new(StringComparer.OrdinalIgnoreCase);
+    var actionCounts = ViewBag.InventoryActionCounts as Dictionary<string, int> ?? new(StringComparer.OrdinalIgnoreCase);
+    string ActionTabUrl(string tab) => Url.Action("Index", "Inventory", new
+    {
+        area = "Admin",
+        categoryFilter = catFilter,
+        branchFilter = ViewBag.BranchFilter,
+        expiryFilter,
+        expiryUntil = expiryUntil?.ToString("yyyy-MM-dd"),
+        actionView = tab
+    }) ?? "#";
+    int ActionCount(string tab) => actionCounts.TryGetValue(tab, out var count) ? count : 0;
     var categories = IngredientCategoryRegistry.All;
     var branchName = ViewData["BranchName"] as string ?? "Unknown";
     var isOwner = ViewBag.IsOwner == true;
     var autoPrint = ViewBag.AutoPrint == true;
     var printRows = (Model ?? Enumerable.Empty<SelfOrderingSystemKiosk.Models.IngredientItem>()).ToList();
-    var importIngredientOptionsJson = JsonSerializer.Serialize(printRows
+    var importRows = ViewBag.ImportIngredientOptions as IEnumerable<SelfOrderingSystemKiosk.Models.IngredientItem> ?? printRows;
+    var importIngredientOptionsJson = JsonSerializer.Serialize(importRows
         .OrderBy(i => i.Item ?? "", StringComparer.OrdinalIgnoreCase)
         .Select(i => new
         {
@@ -132,6 +147,73 @@
         top: 0;
         background: white;
         z-index: 1;
+    }
+    .inventory-action-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 0 0 14px;
+    }
+    .inventory-action-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 1px solid #f0d7bf;
+        border-radius: 6px;
+        color: #555;
+        background: #fffaf5;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 0.9rem;
+    }
+    .inventory-action-tab.active {
+        background: #e67e22;
+        border-color: #d35400;
+        color: white;
+    }
+    .inventory-action-tab-count {
+        min-width: 24px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.08);
+        text-align: center;
+        font-size: 0.8rem;
+    }
+    .inventory-action-tab.active .inventory-action-tab-count {
+        background: rgba(255, 255, 255, 0.25);
+    }
+    .recipe-usage-list {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 190px;
+        max-width: 260px;
+    }
+    .recipe-usage-list span {
+        white-space: normal;
+        line-height: 1.25;
+    }
+    .impact-badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 4px 9px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .impact-badge.blocked {
+        color: #842029;
+        background: #f8d7da;
+    }
+    .impact-badge.linked {
+        color: #0f5132;
+        background: #d1e7dd;
+    }
+    .impact-badge.none {
+        color: #664d03;
+        background: #fff3cd;
     }
     .inv-modal-actions {
         display: flex;
@@ -322,13 +404,16 @@
         .topbar,
         .inv-page-toolbar,
         .inventory-filters,
+        .inventory-action-tabs,
         .btn,
         .btn-clear-stock,
         .restock-container,
         .inv-modal-overlay,
         .alert,
         #inventoryTable th:nth-child(5),
-        #inventoryTable td:nth-child(5) {
+        #inventoryTable td:nth-child(5),
+        #inventoryTable th:nth-child(9),
+        #inventoryTable td:nth-child(9) {
             display: none !important;
         }
         body {
@@ -439,6 +524,7 @@
 
     <form method="get" asp-area="Admin" asp-controller="Inventory" asp-action="Index" class="inventory-filters" style="margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <input type="hidden" name="branchFilter" value="@ViewBag.BranchFilter" />
+        <input type="hidden" name="actionView" value="@actionView" />
         <label for="categoryFilter" style="font-weight: 600; margin: 0;">Category</label>
         <select name="categoryFilter" id="categoryFilter" onchange="this.form.submit()" style="padding: 8px 12px; min-width: 260px; border: 2px solid #ddd; border-radius: 5px;">
             @if (catFilter == "all")
@@ -483,6 +569,27 @@
                style="padding: 8px 12px; min-width: 165px; border: 2px solid #ddd; border-radius: 5px;" />
         <span style="color: #777; font-size: 0.85em;">Max 2 weeks</span>
     </form>
+
+    <div class="inventory-action-tabs" aria-label="Kitchen supplies views">
+        <a class="inventory-action-tab @(actionView == "needs" ? "active" : "")" href="@ActionTabUrl("needs")">
+            Needs Action <span class="inventory-action-tab-count">@ActionCount("needs")</span>
+        </a>
+        <a class="inventory-action-tab @(actionView == "low" ? "active" : "")" href="@ActionTabUrl("low")">
+            Low Stock <span class="inventory-action-tab-count">@ActionCount("low")</span>
+        </a>
+        <a class="inventory-action-tab @(actionView == "expiring" ? "active" : "")" href="@ActionTabUrl("expiring")">
+            Expiring Soon <span class="inventory-action-tab-count">@ActionCount("expiring")</span>
+        </a>
+        <a class="inventory-action-tab @(actionView == "recipe" ? "active" : "")" href="@ActionTabUrl("recipe")">
+            Recipe Usage <span class="inventory-action-tab-count">@ActionCount("recipe")</span>
+        </a>
+        <a class="inventory-action-tab @(actionView == "unused" ? "active" : "")" href="@ActionTabUrl("unused")">
+            Unused <span class="inventory-action-tab-count">@ActionCount("unused")</span>
+        </a>
+        <a class="inventory-action-tab @(actionView == "all" ? "active" : "")" href="@ActionTabUrl("all")">
+            All Supplies <span class="inventory-action-tab-count">@ActionCount("all")</span>
+        </a>
+    </div>
 
     <div class="inv-modal-overlay" id="addIngredientModal" aria-hidden="true">
         <div class="inv-modal-content" role="dialog" aria-labelledby="addIngredientTitle">
@@ -565,6 +672,12 @@
                         <th class="sortable" data-column="expiry" onclick="sortTable(6, 'expiry'); return false;" style="cursor: pointer;">
                             Expiration <span class="sort-icon" style="margin-left: 5px;">⇅</span>
                         </th>
+                        <th class="sortable" data-column="usedIn" onclick="sortTable(7, 'stock'); return false;" style="cursor: pointer;">
+                            Used In Menu <span class="sort-icon" style="margin-left: 5px;">⇅</span>
+                        </th>
+                        <th class="sortable" data-column="impact" onclick="sortTable(8, 'stock'); return false;" style="cursor: pointer;">
+                            Menu Impact <span class="sort-icon" style="margin-left: 5px;">⇅</span>
+                        </th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -579,6 +692,9 @@
                                 ? "background:#fff3cd;"
                                 : "";
                         var canManageItem = isOwner || !string.IsNullOrWhiteSpace(i.BranchId);
+                        var usage = !string.IsNullOrWhiteSpace(i.Id) && usageByIngredient.TryGetValue(i.Id.Trim(), out var matchedUsage)
+                            ? matchedUsage
+                            : new InventoryUsageImpact { IngredientId = i.Id ?? "" };
                         <tr style="@expiryStyle">
                             <td data-sort-value="@(i.Item ?? "").ToLower()">@i.Item</td>
                             <td data-sort-value="@(i.IngredientCategory ?? "").ToLower()">@i.IngredientCategory</td>
@@ -601,6 +717,28 @@
                             <td data-sort-value="@i.CostPerUnit">@i.CostPerUnit.ToString("N2")</td>
                             <td data-sort-value="@(i.ExpirationDate?.ToString("yyyyMMdd") ?? "99999999")">
                                 @(i.ExpirationDate.HasValue ? AppClock.ToLocal(i.ExpirationDate.Value).ToString("yyyy-MM-dd") : "No expiry")
+                            </td>
+                            <td data-sort-value="@usage.AffectedMenuItemCount">
+                                @if (usage.UsedBy.Count > 0)
+                                {
+                                    <div class="recipe-usage-list">
+                                        @foreach (var usedBy in usage.UsedBy.OrderBy(x => x.MenuItemName).Take(3))
+                                        {
+                                            <span>@usedBy.MenuItemName: @usedBy.QuantityPerUnit @usedBy.Unit</span>
+                                        }
+                                        @if (usage.UsedBy.Count > 3)
+                                        {
+                                            <span style="color:#777;">+@(usage.UsedBy.Count - 3) more</span>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span style="color:#999;">Not used</span>
+                                }
+                            </td>
+                            <td data-sort-value="@usage.ImpactSortValue">
+                                <span class="impact-badge @usage.ImpactLevel">@usage.ImpactLabel</span>
                             </td>
                             <td>
                                 @if (canManageItem)
@@ -629,6 +767,8 @@
                                     <form method="post" asp-area="Admin" asp-controller="Inventory" asp-action="ClearStock" style="display:inline; margin:0;">
                                         @Html.AntiForgeryToken()
                                         <input type="hidden" name="id" value="@i.Id" />
+                                        <input type="hidden" name="branchFilter" value="@ViewBag.BranchFilter" />
+                                        <input type="hidden" name="actionView" value="@actionView" />
                                         <button type="submit" class="btn-clear-stock" onclick="return confirm('Set @JavaScriptEncoder.Default.Encode(i.Item ?? "this ingredient") stock quantity to 0?');">
                                             Clear
                                         </button>
@@ -712,6 +852,8 @@
         <form asp-area="Admin" asp-controller="Inventory" asp-action="Edit" method="post" class="inv-form-grid" id="invEditForm">
             @Html.AntiForgeryToken()
             <input type="hidden" name="id" id="invEditId" />
+            <input type="hidden" name="branchFilter" value="@ViewBag.BranchFilter" />
+            <input type="hidden" name="actionView" value="@actionView" />
             <label>Name<br />
                 <input type="text" name="item" id="invEditItem" required />
             </label>
@@ -852,10 +994,9 @@
                     let visibleCount = 0;
                     
                     rows.forEach(row => {
-                        const itemCell = row.cells[0]; // Item name is in first column
-                        const itemName = itemCell ? itemCell.textContent.trim().toLowerCase() : '';
+                        const rowText = row.textContent.trim().toLowerCase();
                         
-                        if (searchTerm === '' || itemName.includes(searchTerm)) {
+                        if (searchTerm === '' || rowText.includes(searchTerm)) {
                             row.style.display = '';
                             visibleCount++;
                         } else {
@@ -868,7 +1009,7 @@
                         if (!document.getElementById('noSearchResults')) {
                             const noResults = document.createElement('tr');
                             noResults.id = 'noSearchResults';
-                            noResults.innerHTML = '<td colspan="8" style="text-align: center; padding: 20px; color: #999;">No ingredients match your search.</td>';
+                            noResults.innerHTML = '<td colspan="10" style="text-align: center; padding: 20px; color: #999;">No ingredients match your search.</td>';
                             tableBody.appendChild(noResults);
                         }
                     } else {
@@ -1381,10 +1522,22 @@
             batchInput.type = 'hidden';
             batchInput.name = 'batchNote';
             batchInput.value = batchNote;
+
+            const branchInput = document.createElement('input');
+            branchInput.type = 'hidden';
+            branchInput.name = 'branchFilter';
+            branchInput.value = document.getElementById('branchFilter')?.value || '@ViewBag.BranchFilter';
+
+            const actionInput = document.createElement('input');
+            actionInput.type = 'hidden';
+            actionInput.name = 'actionView';
+            actionInput.value = '@actionView';
             
             form.appendChild(idInput);
             form.appendChild(amountInput);
             form.appendChild(batchInput);
+            form.appendChild(branchInput);
+            form.appendChild(actionInput);
             document.body.appendChild(form);
             
             closeRestockModal();
@@ -1490,6 +1643,7 @@
             const url = new URL(window.location.href);
             url.searchParams.set('categoryFilter', 'all');
             url.searchParams.set('expiryFilter', 'all');
+            url.searchParams.set('actionView', 'all');
             url.searchParams.delete('expiryUntil');
             url.searchParams.set('print', 'true');
             window.location.href = url.toString();

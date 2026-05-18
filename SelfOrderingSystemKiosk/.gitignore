@@ -75,3 +75,40 @@ docs/*.pdf
 tools/generate_instruction_manual_pdf.py
 docs/instruction_manual_source.txt
 
+# Local deployment / maintenance procedure documents
+CLOUD_PRIMARY_LOCAL_BACKUP_DEPLOYMENT_PROCEDURE.md
+*_DEPLOYMENT_PROCEDURE.md
+*_MAINTENANCE_PROCEDURE.md
+*_DISASTER_RECOVERY_PROCEDURE.md
+DEPLOYMENT_PLAN_PROCEDURE.md
+MAINTENANCE_AND_DISASTER_RECOVERY_PLAN_PROCEDURE.md
+docs/*Deployment*Procedure*.pdf
+docs/*Maintenance*Procedure*.pdf
+docs/*Disaster*Recovery*Procedure*.pdf
+
+# Local failover scripts and generated operational runbooks
+run-cloud-db.ps1
+run-local-db.ps1
+*.local.ps1
+*.local.cmd
+*.local.bat
+local-backup/
+KioskLocalBackup/
+KioskBackups/
+
+# MongoDB backup/export artifacts
+mongodump/
+mongo-dumps/
+mongo-backups/
+backups/
+backup/
+*.bson
+*.metadata.json
+*.archive
+*.dump
+*.bak
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tgz
