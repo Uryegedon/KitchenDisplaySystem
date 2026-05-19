@@ -50,27 +50,69 @@ namespace SelfOrderingSystemKiosk.Services
             return session;
         }
 
-        public async Task SaveUploadedTextAsync(string token, string rawText)
+        public async Task<(bool Success, string Message)> TrySaveUploadedTextAsync(
+            string token,
+            string rawText,
+            string? contentType,
+            string? userAgent,
+            string? remoteIp)
         {
             var session = await GetActiveByTokenAsync(token);
             if (session == null)
-                return;
+                return (false, "This scan session is invalid or expired.");
+            if (session.UploadedAtUtc.HasValue)
+                return (false, "This scan session was already uploaded. Start a new scan if you need to replace it.");
 
             var rows = await ParseRowsAsync(rawText, session.BranchId);
             var update = Builders<DeliveryImportSession>.Update
                 .Set(s => s.RawText, rawText ?? string.Empty)
                 .Set(s => s.Rows, rows)
                 .Set(s => s.UploadedAtUtc, DateTime.UtcNow)
+                .Set(s => s.UploadContentType, contentType ?? string.Empty)
+                .Set(s => s.UploadUserAgent, userAgent ?? string.Empty)
+                .Set(s => s.UploadRemoteIp, remoteIp ?? string.Empty)
                 .Set(s => s.Status, rows.Any() ? "Uploaded" : "NeedsReview");
 
-            await _sessions.UpdateOneAsync(s => s.Id == session.Id, update);
+            var filter = Builders<DeliveryImportSession>.Filter.And(
+                Builders<DeliveryImportSession>.Filter.Eq(s => s.Id, session.Id),
+                Builders<DeliveryImportSession>.Filter.Eq(s => s.UploadedAtUtc, null),
+                Builders<DeliveryImportSession>.Filter.Gt(s => s.ExpiresAtUtc, DateTime.UtcNow));
+            var result = await _sessions.UpdateOneAsync(filter, update);
+            return result.ModifiedCount == 1
+                ? (true, "Upload received. Return to the desktop to review.")
+                : (false, "This scan session was already uploaded or expired.");
         }
 
         public async Task MarkConfirmedAsync(string token)
         {
             await _sessions.UpdateOneAsync(
                 s => s.Token == token.Trim(),
-                Builders<DeliveryImportSession>.Update.Set(s => s.Status, "Confirmed"));
+                Builders<DeliveryImportSession>.Update
+                    .Set(s => s.Status, "Confirmed")
+                    .Set(s => s.ConfirmedAtUtc, DateTime.UtcNow));
+        }
+
+        public async Task EnsureIndexesAsync(CancellationToken cancellationToken = default)
+        {
+            await _sessions.Indexes.CreateOneAsync(
+                new CreateIndexModel<DeliveryImportSession>(
+                    Builders<DeliveryImportSession>.IndexKeys.Ascending(s => s.Token),
+                    new CreateIndexOptions { Name = "ux_delivery_import_token", Unique = true }),
+                cancellationToken: cancellationToken);
+
+            await _sessions.Indexes.CreateOneAsync(
+                new CreateIndexModel<DeliveryImportSession>(
+                    Builders<DeliveryImportSession>.IndexKeys
+                        .Ascending(s => s.BranchId)
+                        .Descending(s => s.CreatedAtUtc),
+                    new CreateIndexOptions { Name = "ix_delivery_import_branch_created" }),
+                cancellationToken: cancellationToken);
+
+            await _sessions.Indexes.CreateOneAsync(
+                new CreateIndexModel<DeliveryImportSession>(
+                    Builders<DeliveryImportSession>.IndexKeys.Ascending(s => s.ExpiresAtUtc),
+                    new CreateIndexOptions { Name = "ix_delivery_import_expires" }),
+                cancellationToken: cancellationToken);
         }
 
         private async Task<List<DeliveryImportRow>> ParseRowsAsync(string rawText, string branchId)

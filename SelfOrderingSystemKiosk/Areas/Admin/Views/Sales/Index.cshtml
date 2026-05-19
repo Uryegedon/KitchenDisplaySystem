@@ -1,4 +1,5 @@
 @using SelfOrderingSystemKiosk.Models
+@using SelfOrderingSystemKiosk.Controllers
 @{
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     var bestSellersAll = ViewBag.BestSellersAllTime as List<BestSeller> ?? new List<BestSeller>();
@@ -14,8 +15,25 @@
     var rangeRevenueDineIn = ViewBag.RangeRevenueDineIn != null ? (decimal)ViewBag.RangeRevenueDineIn : 0m;
     var rangeRevenueTakeOut = ViewBag.RangeRevenueTakeOut != null ? (decimal)ViewBag.RangeRevenueTakeOut : 0m;
     var rangeOrderCount = ViewBag.RangeOrderCount != null ? (int)ViewBag.RangeOrderCount : 0;
+    var grossBillableRevenue = ViewBag.GrossBillableRevenue != null ? (decimal)ViewBag.GrossBillableRevenue : 0m;
+    var unpaidOrderCount = ViewBag.UnpaidOrderCount != null ? (int)ViewBag.UnpaidOrderCount : 0;
+    var unpaidBillableRevenue = ViewBag.UnpaidBillableRevenue != null ? (decimal)ViewBag.UnpaidBillableRevenue : 0m;
+    var canceledOrderCount = ViewBag.CanceledOrderCount != null ? (int)ViewBag.CanceledOrderCount : 0;
+    var canceledRevenue = ViewBag.CanceledRevenue != null ? (decimal)ViewBag.CanceledRevenue : 0m;
+    var completedOrderCount = ViewBag.CompletedOrderCount != null ? (int)ViewBag.CompletedOrderCount : 0;
+    var paidOrderCount = ViewBag.PaidOrderCount != null ? (int)ViewBag.PaidOrderCount : 0;
+    var averageOrderValue = ViewBag.AverageOrderValue != null ? (decimal)ViewBag.AverageOrderValue : 0m;
+    var profitMarginPercent = ViewBag.ProfitMarginPercent != null ? (decimal)ViewBag.ProfitMarginPercent : 0m;
+    var missingCostCount = ViewBag.MissingCostCount != null ? (int)ViewBag.MissingCostCount : 0;
+    var reportBasis = ViewBag.ReportBasis as string ?? "paid";
+    var reportBasisLabel = reportBasis == "completed" ? "Completed orders" : reportBasis == "allBillable" ? "All non-canceled billable orders" : "Paid orders";
     var chartData = ViewBag.ChartData as Dictionary<string, decimal> ?? new Dictionary<string, decimal>();
-    var branchRevenueStats = ViewBag.BranchRevenueStats as List<SelfOrderingSystemKiosk.Controllers.BranchRevenueSummary> ?? new();
+    var branchRevenueStats = ViewBag.BranchRevenueStats as List<BranchRevenueSummary> ?? new();
+    var paymentBreakdown = ViewBag.PaymentBreakdown as List<SalesBreakdownSummary> ?? new();
+    var statusBreakdown = ViewBag.StatusBreakdown as List<SalesBreakdownSummary> ?? new();
+    var hourlySales = ViewBag.HourlySales as List<HourlySalesSummary> ?? new();
+    var categoryStats = ViewBag.CategoryStats as List<CategorySalesSummary> ?? new();
+    var topItemsByRevenue = ViewBag.TopItemsByRevenue as List<BestSeller> ?? new();
     var chartLabelsJson = System.Text.Json.JsonSerializer.Serialize(chartData.Keys.OrderBy(k => k).Select(k => DateTime.Parse(k).ToString("MMM dd")).ToList());
     var chartValuesJson = System.Text.Json.JsonSerializer.Serialize(chartData.Keys.OrderBy(k => k).Select(k => chartData[k]).ToList());
     var hasCustomRange = ViewBag.HasCustomRange != null && (bool)ViewBag.HasCustomRange;
@@ -35,6 +53,7 @@
             <form method="get" asp-area="Admin" asp-controller="Sales" asp-action="Index" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <input type="hidden" name="startDate" value="@rangeStart.ToString("yyyy-MM-dd")" />
                 <input type="hidden" name="endDate" value="@rangeEnd.ToString("yyyy-MM-dd")" />
+                <input type="hidden" name="reportBasis" value="@reportBasis" />
                 <label for="branchFilter" style="color:#666;font-weight:600;">Branch</label>
                 <select name="branchFilter" id="branchFilter" onchange="this.form.submit()" style="padding:8px 12px;border:2px solid #ddd;border-radius:6px;min-width:220px;">
                     <option value="all" selected="@(branchFilter == "all")">All branches</option>
@@ -49,6 +68,42 @@
     
     <p style="margin-top: 0;">Revenue charts, date ranges, and best sellers</p>
 
+    <div class="report-controls">
+        <form method="get" asp-area="Admin" asp-controller="Sales" asp-action="Index">
+            <input type="hidden" name="startDate" value="@rangeStart.ToString("yyyy-MM-dd")" />
+            <input type="hidden" name="endDate" value="@rangeEnd.ToString("yyyy-MM-dd")" />
+            @if (isOwner)
+            {
+                <input type="hidden" name="branchFilter" value="@branchFilter" />
+            }
+            <label for="reportBasis">Report basis</label>
+            <select name="reportBasis" id="reportBasis" onchange="this.form.submit()">
+                <option value="paid" selected="@(reportBasis == "paid")">Paid sales</option>
+                <option value="completed" selected="@(reportBasis == "completed")">Completed orders</option>
+                <option value="allBillable" selected="@(reportBasis == "allBillable")">All non-canceled billable orders</option>
+            </select>
+        </form>
+        <span class="report-basis-note">Showing @(reportBasisLabel.ToLowerInvariant())</span>
+    </div>
+
+    @if (missingCostCount > 0 || unpaidOrderCount > 0 || canceledOrderCount > 0)
+    {
+        <div class="report-warning-panel">
+            @if (missingCostCount > 0)
+            {
+                <span><strong>@missingCostCount</strong> reported order@(missingCostCount == 1 ? "" : "s") have no recorded COGS yet.</span>
+            }
+            @if (unpaidOrderCount > 0)
+            {
+                <span><strong>@unpaidOrderCount</strong> unpaid billable order@(unpaidOrderCount == 1 ? "" : "s") total ₱@unpaidBillableRevenue.ToString("N2").</span>
+            }
+            @if (canceledOrderCount > 0)
+            {
+                <span><strong>@canceledOrderCount</strong> canceled order@(canceledOrderCount == 1 ? "" : "s") in this range.</span>
+            }
+        </div>
+    }
+
     <div class="revenue-analytics-section" style="margin-top: 24px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
             <h2 style="color: #e67e22; margin: 0; display: flex; align-items: center; gap: 10px;"><i class="bi bi-graph-up"></i> <span>Revenue analytics</span></h2>
@@ -60,6 +115,39 @@
                     <i class="bi bi-calendar-range"></i> <span>Custom range</span>
                 </button>
             </div>
+        </div>
+    </div>
+
+    <div class="report-metric-grid">
+        <div class="report-metric-card primary">
+            <span>Reported sales</span>
+            <strong>₱@rangeRevenue.ToString("N2")</strong>
+            <small>@rangeOrderCount paid/billable order@(rangeOrderCount == 1 ? "" : "s")</small>
+        </div>
+        <div class="report-metric-card">
+            <span>Gross billable</span>
+            <strong>₱@grossBillableRevenue.ToString("N2")</strong>
+            <small>Before report-basis filtering</small>
+        </div>
+        <div class="report-metric-card">
+            <span>Average order</span>
+            <strong>₱@averageOrderValue.ToString("N2")</strong>
+            <small>Reported sales / reported orders</small>
+        </div>
+        <div class="report-metric-card">
+            <span>COGS</span>
+            <strong>₱@rangeCost.ToString("N2")</strong>
+            <small>@missingCostCount missing cost record@(missingCostCount == 1 ? "" : "s")</small>
+        </div>
+        <div class="report-metric-card">
+            <span>Gross profit</span>
+            <strong class="@(rangeProfit < 0 ? "metric-negative" : "metric-positive")">₱@rangeProfit.ToString("N2")</strong>
+            <small>@profitMarginPercent.ToString("N1")% margin</small>
+        </div>
+        <div class="report-metric-card">
+            <span>Unpaid / canceled</span>
+            <strong>₱@unpaidBillableRevenue.ToString("N2")</strong>
+            <small>@unpaidOrderCount unpaid · @canceledOrderCount canceled</small>
         </div>
     </div>
 
@@ -162,6 +250,7 @@
                 {
                     <input type="hidden" name="branchFilter" value="@branchFilter" />
                 }
+                <input type="hidden" name="reportBasis" value="@reportBasis" />
                 <div class="date-range-fields">
                     <label>
                         From
@@ -183,6 +272,7 @@
                         <span class="pill" style="background: #D1ECF1; color: #0C5460; border: 1px solid #BEE5EB;">Dine In: ₱@rangeRevenueDineIn.ToString("N2")</span>
                         <span class="pill" style="background: #F8D7DA; color: #721C24; border: 1px solid #F5C6CB;">Take Out: ₱@rangeRevenueTakeOut.ToString("N2")</span>
                         <span class="pill info">Orders: @rangeOrderCount</span>
+                        <span class="pill muted">Basis: @reportBasisLabel</span>
                     </div>
                 </div>
                 <div class="date-range-actions">
@@ -199,6 +289,160 @@
         </h3>
         <div style="width: 100%; height: 350px; position: relative;">
             <canvas id="revenueChart"></canvas>
+        </div>
+    </div>
+
+    <div class="report-breakdown-grid">
+        <div class="report-table-card">
+            <h3>Payment methods</h3>
+            @if (paymentBreakdown.Any())
+            {
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th>Orders</th>
+                            <th>Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in paymentBreakdown)
+                        {
+                            <tr>
+                                <td>@row.Label</td>
+                                <td>@row.OrderCount</td>
+                                <td>₱@row.Revenue.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <p class="lowstock-empty">No reported sales for this range.</p>
+            }
+        </div>
+
+        <div class="report-table-card">
+            <h3>Order status</h3>
+            @if (statusBreakdown.Any())
+            {
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Orders</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in statusBreakdown)
+                        {
+                            <tr>
+                                <td>@row.Label</td>
+                                <td>@row.OrderCount</td>
+                                <td>₱@row.Revenue.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <p class="lowstock-empty">No orders for this range.</p>
+            }
+        </div>
+
+        <div class="report-table-card">
+            <h3>Peak hours</h3>
+            @if (hourlySales.Any())
+            {
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            <th>Hour</th>
+                            <th>Orders</th>
+                            <th>Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in hourlySales)
+                        {
+                            <tr>
+                                <td>@row.Label</td>
+                                <td>@row.OrderCount</td>
+                                <td>₱@row.Revenue.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <p class="lowstock-empty">No reported sales for this range.</p>
+            }
+        </div>
+    </div>
+
+    <div class="report-breakdown-grid two-column">
+        <div class="report-table-card">
+            <h3>Category sales</h3>
+            @if (categoryStats.Any())
+            {
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th>Qty</th>
+                            <th>Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in categoryStats)
+                        {
+                            <tr>
+                                <td>@row.Category</td>
+                                <td>@row.Quantity</td>
+                                <td>₱@row.Revenue.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <p class="lowstock-empty">No category sales for this range.</p>
+            }
+        </div>
+
+        <div class="report-table-card">
+            <h3>Top items by revenue</h3>
+            @if (topItemsByRevenue.Any())
+            {
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Qty</th>
+                            <th>Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in topItemsByRevenue)
+                        {
+                            <tr>
+                                <td>@row.ItemName</td>
+                                <td>@row.Quantity</td>
+                                <td>₱@row.Revenue.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <p class="lowstock-empty">No item sales for this range.</p>
+            }
         </div>
     </div>
 
@@ -282,6 +526,106 @@
 
 @section Scripts {
     <style>
+        .report-controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin: 18px 0;
+            padding: 14px 16px;
+            border: 1px solid #f0d7bf;
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .report-controls form {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .report-controls label {
+            color: #555;
+            font-weight: 700;
+        }
+
+        .report-controls select {
+            min-width: 230px;
+            padding: 9px 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            background: #fff;
+            color: #333;
+        }
+
+        .report-basis-note {
+            color: #666;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .report-warning-panel {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 0 0 18px;
+            padding: 12px 14px;
+            border: 1px solid #f0c36d;
+            border-radius: 8px;
+            background: #fff8e6;
+            color: #8a5a00;
+            font-size: 0.92rem;
+        }
+
+        .report-warning-panel span {
+            padding-right: 10px;
+            border-right: 1px solid #efdcad;
+        }
+
+        .report-warning-panel span:last-child {
+            border-right: 0;
+            padding-right: 0;
+        }
+
+        .report-metric-grid {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(145px, 1fr));
+            gap: 14px;
+            margin: 0 0 24px;
+        }
+
+        .report-metric-card {
+            min-width: 0;
+            padding: 16px;
+            border: 1px solid #f0d7bf;
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .report-metric-card.primary {
+            border-color: #e67e22;
+            background: #fff8ef;
+        }
+
+        .report-metric-card span,
+        .report-metric-card small {
+            display: block;
+            color: #777;
+            font-size: 0.82rem;
+            line-height: 1.35;
+        }
+
+        .report-metric-card strong {
+            display: block;
+            color: #333;
+            font-size: 1.12rem;
+            line-height: 1.2;
+            margin: 7px 0 5px;
+            overflow-wrap: anywhere;
+        }
+
         .sales-top-grid {
             display: grid;
             grid-template-columns: minmax(0, 4fr) minmax(180px, 1fr);
@@ -403,7 +747,69 @@
             padding: 18px;
         }
 
+        .report-breakdown-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 18px;
+            margin: 24px 0;
+            align-items: start;
+        }
+
+        .report-breakdown-grid.two-column {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .report-table-card {
+            min-width: 0;
+            padding: 18px;
+            border: 2px solid #f0d7bf;
+            border-radius: 8px;
+            background: #fff;
+            overflow-x: auto;
+        }
+
+        .report-table-card h3 {
+            color: #e67e22;
+            margin: 0 0 14px;
+            font-size: 1.05rem;
+        }
+
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .report-table th,
+        .report-table td {
+            padding: 9px 8px;
+            border-bottom: 1px solid #f8e3cf;
+            vertical-align: top;
+        }
+
+        .report-table th {
+            color: #555;
+            font-size: 0.84rem;
+            text-align: left;
+            white-space: nowrap;
+        }
+
+        .report-table td:not(:first-child),
+        .report-table th:not(:first-child) {
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        .report-table td:first-child {
+            overflow-wrap: anywhere;
+        }
+
         @@media (max-width: 900px) {
+            .report-metric-grid,
+            .report-breakdown-grid,
+            .report-breakdown-grid.two-column {
+                grid-template-columns: 1fr 1fr;
+            }
+
             .sales-top-grid {
                 grid-template-columns: 1fr;
             }
@@ -418,6 +824,12 @@
         }
 
         @@media (max-width: 520px) {
+            .report-metric-grid,
+            .report-breakdown-grid,
+            .report-breakdown-grid.two-column {
+                grid-template-columns: 1fr;
+            }
+
             .branch-detail-summary {
                 grid-template-columns: 1fr;
             }
@@ -427,6 +839,7 @@
     <script>
         const salesIndexUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("Index", "Sales", new { area = "Admin" })));
         const selectedBranchFilter = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(branchFilter));
+        const selectedReportBasis = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(reportBasis));
         const ctx = document.getElementById('revenueChart');
         let revenueChart;
         const chartLabels = @Html.Raw(chartLabelsJson);
@@ -525,6 +938,9 @@
             }
             if (selectedBranchFilter) {
                 url.searchParams.set('branchFilter', selectedBranchFilter);
+            }
+            if (selectedReportBasis) {
+                url.searchParams.set('reportBasis', selectedReportBasis);
             }
 
             window.location.href = url.toString();

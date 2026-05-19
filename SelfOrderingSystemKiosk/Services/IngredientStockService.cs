@@ -36,22 +36,21 @@ namespace SelfOrderingSystemKiosk.Services
             if (quantity <= 0)
                 return true;
 
-            var item = await GetByIdAsync(ingredientId);
+            var item = await _collection.FindOneAndUpdateAsync(
+                Builders<IngredientItem>.Filter.And(
+                    Builders<IngredientItem>.Filter.Eq(x => x.Id, ingredientId),
+                    Builders<IngredientItem>.Filter.Gte(x => x.CurrentStock, quantity)),
+                Builders<IngredientItem>.Update.Inc(x => x.CurrentStock, -quantity),
+                new FindOneAndUpdateOptions<IngredientItem> { ReturnDocument = ReturnDocument.Before });
             if (item == null)
             {
-                _logger.LogWarning("Recipe: ingredient id {Id} not found (menu item {Menu}).", ingredientId, menuItemName);
+                _logger.LogWarning("Recipe: ingredient id {Id} missing or has insufficient stock (menu item {Menu}).", ingredientId, menuItemName);
                 return false;
             }
 
             var oldStock = item.CurrentStock;
-            var newStock = Math.Max(0, oldStock - quantity);
-            var status = newStock == 0 ? "No Stock" : newStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
-
-            await _collection.UpdateOneAsync(
-                x => x.Id == ingredientId,
-                Builders<IngredientItem>.Update
-                    .Set(x => x.CurrentStock, newStock)
-                    .Set(x => x.Status, status));
+            var newStock = oldStock - quantity;
+            await SetStatusAsync(item.Id, newStock, item.ReorderLevel);
 
             var delta = newStock - oldStock;
             if (delta != 0)
@@ -130,6 +129,18 @@ namespace SelfOrderingSystemKiosk.Services
                 .FirstOrDefaultAsync();
         }
 
+        public async Task<string> GetCategoryByNameAsync(string itemName, string? branchId = null)
+        {
+            var item = await GetByNameAsync(itemName.Trim(), branchId);
+            return item?.IngredientCategory ?? string.Empty;
+        }
+
+        public async Task<bool> ExistsByNameAsync(string itemName, string? branchId = null)
+        {
+            var item = await GetByNameAsync(itemName.Trim(), branchId);
+            return item != null;
+        }
+
         public async Task AddAsync(IngredientItem item)
         {
             item.Status = item.CurrentStock == 0 ? "No Stock" : item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
@@ -168,15 +179,16 @@ namespace SelfOrderingSystemKiosk.Services
             if (quantityAdded <= 0)
                 return false;
 
-            var item = await GetByIdAsync(ingredientId);
+            var item = await _collection.FindOneAndUpdateAsync(
+                x => x.Id == ingredientId,
+                Builders<IngredientItem>.Update.Inc(x => x.CurrentStock, quantityAdded),
+                new FindOneAndUpdateOptions<IngredientItem> { ReturnDocument = ReturnDocument.Before });
             if (item == null)
                 return false;
 
             var oldStock = item.CurrentStock;
-            item.CurrentStock += quantityAdded;
-            item.Status = item.CurrentStock == 0 ? "No Stock" : item.CurrentStock <= item.ReorderLevel ? "Low Stock" : "In Stock";
-
-            await UpdateAsync(item);
+            var newStock = oldStock + quantityAdded;
+            await SetStatusAsync(item.Id, newStock, item.ReorderLevel);
 
             await _movements.InsertAsync(new StockMovement
             {
@@ -184,7 +196,7 @@ namespace SelfOrderingSystemKiosk.Services
                 ItemName = item.Item ?? "",
                 QuantityDelta = quantityAdded,
                 StockBefore = oldStock,
-                StockAfter = item.CurrentStock,
+                StockAfter = newStock,
                 Reason = "Restock",
                 ReferenceType = referenceType,
                 ReferenceId = referenceId,
@@ -258,55 +270,70 @@ namespace SelfOrderingSystemKiosk.Services
             }
 
             var transferGroupId = ObjectId.GenerateNewId().ToString();
-            var sourceBefore = source.CurrentStock;
-            var destinationBefore = destination.CurrentStock;
+            var sourceBeforeItem = await _collection.FindOneAndUpdateAsync(
+                Builders<IngredientItem>.Filter.And(
+                    Builders<IngredientItem>.Filter.Eq(i => i.Id, source.Id),
+                    Builders<IngredientItem>.Filter.Gte(i => i.CurrentStock, quantity)),
+                Builders<IngredientItem>.Update.Inc(i => i.CurrentStock, -quantity),
+                new FindOneAndUpdateOptions<IngredientItem> { ReturnDocument = ReturnDocument.Before });
+            if (sourceBeforeItem == null)
+                return (false, $"Not enough stock. Available stock changed before transfer could complete.");
 
-            source.CurrentStock -= quantity;
-            source.Status = source.CurrentStock == 0 ? "No Stock" : source.CurrentStock <= source.ReorderLevel ? "Low Stock" : "In Stock";
-            destination.CurrentStock += quantity;
-            destination.Status = destination.CurrentStock == 0 ? "No Stock" : destination.CurrentStock <= destination.ReorderLevel ? "Low Stock" : "In Stock";
+            var sourceBefore = sourceBeforeItem.CurrentStock;
+            var sourceAfter = sourceBefore - quantity;
+            await SetStatusAsync(sourceBeforeItem.Id, sourceAfter, sourceBeforeItem.ReorderLevel);
 
-            await _collection.ReplaceOneAsync(i => i.Id == source.Id, source);
+            IngredientItem? destinationBeforeItem;
             try
             {
-                await _collection.ReplaceOneAsync(i => i.Id == destination.Id, destination);
+                destinationBeforeItem = await _collection.FindOneAndUpdateAsync(
+                    i => i.Id == destination.Id,
+                    Builders<IngredientItem>.Update.Inc(i => i.CurrentStock, quantity),
+                    new FindOneAndUpdateOptions<IngredientItem> { ReturnDocument = ReturnDocument.Before });
+                if (destinationBeforeItem == null)
+                    throw new InvalidOperationException("Destination ingredient was not available for transfer.");
             }
             catch
             {
-                source.CurrentStock = sourceBefore;
-                source.Status = source.CurrentStock == 0 ? "No Stock" : source.CurrentStock <= source.ReorderLevel ? "Low Stock" : "In Stock";
-                await _collection.ReplaceOneAsync(i => i.Id == source.Id, source);
+                await _collection.UpdateOneAsync(
+                    i => i.Id == sourceBeforeItem.Id,
+                    Builders<IngredientItem>.Update.Inc(i => i.CurrentStock, quantity));
+                await SetStatusAsync(sourceBeforeItem.Id, sourceBefore, sourceBeforeItem.ReorderLevel);
                 throw;
             }
+
+            var destinationBefore = destinationBeforeItem.CurrentStock;
+            var destinationAfter = destinationBefore + quantity;
+            await SetStatusAsync(destinationBeforeItem.Id, destinationAfter, destinationBeforeItem.ReorderLevel);
 
             var trimmedNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
             await _movements.InsertAsync(new StockMovement
             {
-                InventoryItemId = source.Id,
-                ItemName = source.Item ?? "",
+                InventoryItemId = sourceBeforeItem.Id,
+                ItemName = sourceBeforeItem.Item ?? "",
                 QuantityDelta = -quantity,
                 StockBefore = sourceBefore,
-                StockAfter = source.CurrentStock,
+                StockAfter = sourceAfter,
                 Reason = "Transfer Out",
                 ReferenceType = "Transfer",
                 ReferenceId = transferGroupId,
                 Note = trimmedNote,
-                BranchId = source.BranchId,
+                BranchId = sourceBeforeItem.BranchId,
                 PerformedBy = performedBy,
                 TransferGroupId = transferGroupId
             });
             await _movements.InsertAsync(new StockMovement
             {
-                InventoryItemId = destination.Id,
-                ItemName = destination.Item ?? "",
+                InventoryItemId = destinationBeforeItem.Id,
+                ItemName = destinationBeforeItem.Item ?? "",
                 QuantityDelta = quantity,
                 StockBefore = destinationBefore,
-                StockAfter = destination.CurrentStock,
+                StockAfter = destinationAfter,
                 Reason = "Transfer In",
                 ReferenceType = "Transfer",
                 ReferenceId = transferGroupId,
                 Note = trimmedNote,
-                BranchId = destination.BranchId,
+                BranchId = destinationBeforeItem.BranchId,
                 PerformedBy = performedBy,
                 TransferGroupId = transferGroupId
             });
@@ -382,6 +409,35 @@ namespace SelfOrderingSystemKiosk.Services
             );
             var list = await _collection.Find(filter).ToListAsync();
             return PreferBranchItemsOverShared(list, trimmedBranchId).LongCount();
+        }
+
+        public async Task EnsureIndexesAsync(CancellationToken cancellationToken = default)
+        {
+            await _collection.Indexes.CreateOneAsync(
+                new CreateIndexModel<IngredientItem>(
+                    Builders<IngredientItem>.IndexKeys
+                        .Ascending(i => i.BranchId)
+                        .Ascending(i => i.Item)
+                        .Ascending(i => i.Unit),
+                    new CreateIndexOptions { Name = "ix_ingredients_branch_item_unit" }),
+                cancellationToken: cancellationToken);
+
+            await _collection.Indexes.CreateOneAsync(
+                new CreateIndexModel<IngredientItem>(
+                    Builders<IngredientItem>.IndexKeys
+                        .Ascending(i => i.BranchId)
+                        .Ascending(i => i.IngredientCategory)
+                        .Ascending(i => i.Item),
+                    new CreateIndexOptions { Name = "ix_ingredients_branch_category_item" }),
+                cancellationToken: cancellationToken);
+        }
+
+        private async Task SetStatusAsync(string ingredientId, int currentStock, int reorderLevel)
+        {
+            var status = currentStock == 0 ? "No Stock" : currentStock <= reorderLevel ? "Low Stock" : "In Stock";
+            await _collection.UpdateOneAsync(
+                i => i.Id == ingredientId,
+                Builders<IngredientItem>.Update.Set(i => i.Status, status));
         }
 
         private static FilterDefinition<IngredientItem> SharedBranchFilter()

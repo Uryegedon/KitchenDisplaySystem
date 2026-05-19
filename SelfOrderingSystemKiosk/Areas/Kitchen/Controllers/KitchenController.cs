@@ -808,7 +808,7 @@ namespace SelfOrderingSystemKiosk.Areas.Kitchen.Controllers
             if (order?.PersonCount is > 0)
                 return order.PersonCount.Value;
 
-            const decimal pricePerHead = 477m;
+            const decimal pricePerHead = RestaurantPricing.UnlimitedPricePerHead;
             if (order != null &&
                 string.Equals(order.OrderType, "Unlimited", StringComparison.OrdinalIgnoreCase) &&
                 order.Subtotal >= pricePerHead)

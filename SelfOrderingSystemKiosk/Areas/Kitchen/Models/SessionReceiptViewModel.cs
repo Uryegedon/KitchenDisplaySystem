@@ -1,10 +1,11 @@
 using SelfOrderingSystemKiosk.Areas.Customer.Models;
+using SelfOrderingSystemKiosk.Services;
 
 namespace SelfOrderingSystemKiosk.Areas.Kitchen.Models
 {
     public class SessionReceiptViewModel
     {
-        private const decimal UnlimitedPricePerHead = 477m;
+        private const decimal UnlimitedPricePerHead = RestaurantPricing.UnlimitedPricePerHead;
 
         public List<Order> Orders { get; set; } = new();
         public Order? AnchorOrder { get; set; }

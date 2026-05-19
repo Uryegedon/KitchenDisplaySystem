@@ -131,6 +131,22 @@ namespace SelfOrderingSystemKiosk.Services
 
         public async Task EnsureIndexesAsync(CancellationToken cancellationToken = default)
         {
+            var populatedOrderNumberFilter = Builders<Order>.Filter.And(
+                Builders<Order>.Filter.Exists(o => o.OrderNumber),
+                Builders<Order>.Filter.Ne(o => o.OrderNumber, null),
+                Builders<Order>.Filter.Ne(o => o.OrderNumber, string.Empty));
+
+            await _orders.Indexes.CreateOneAsync(
+                new CreateIndexModel<Order>(
+                    Builders<Order>.IndexKeys.Ascending(o => o.OrderNumber),
+                    new CreateIndexOptions<Order>
+                    {
+                        Name = "ux_orders_orderNumber",
+                        Unique = true,
+                        PartialFilterExpression = populatedOrderNumberFilter
+                    }),
+                cancellationToken: cancellationToken);
+
             await _orders.Indexes.CreateOneAsync(
                 new CreateIndexModel<Order>(
                     Builders<Order>.IndexKeys.Ascending(o => o.OrderNumber),
@@ -219,8 +235,27 @@ namespace SelfOrderingSystemKiosk.Services
         // Create new order
         public async Task CreateAsync(Order order)
         {
-            await _orders.InsertOneAsync(order);
+            if (order == null)
+                throw new ArgumentNullException(nameof(order));
+
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                try
+                {
+                    await _orders.InsertOneAsync(order);
+                    return;
+                }
+                catch (MongoWriteException ex) when (IsDuplicateKey(ex) && !string.IsNullOrWhiteSpace(order.OrderNumber))
+                {
+                    order.OrderNumber = await CreateUniqueOrderNumberAsync(order.TableNumber, order.BranchId);
+                }
+            }
+
+            throw new InvalidOperationException("Unable to create a unique order number after multiple attempts.");
         }
+
+        private static bool IsDuplicateKey(MongoWriteException ex)
+            => ex.WriteError?.Category == ServerErrorCategory.DuplicateKey || ex.WriteError?.Code == 11000;
 
         // Update order
         public async Task UpdateAsync(string id, Order order)

@@ -27,6 +27,9 @@ namespace SelfOrderingSystemKiosk.Models
         [BsonElement("uploadedAtUtc")]
         public DateTime? UploadedAtUtc { get; set; }
 
+        [BsonElement("confirmedAtUtc")]
+        public DateTime? ConfirmedAtUtc { get; set; }
+
         [BsonElement("status")]
         public string Status { get; set; } = "Waiting";
 
@@ -35,6 +38,15 @@ namespace SelfOrderingSystemKiosk.Models
 
         [BsonElement("rows")]
         public List<DeliveryImportRow> Rows { get; set; } = new();
+
+        [BsonElement("uploadContentType")]
+        public string UploadContentType { get; set; } = string.Empty;
+
+        [BsonElement("uploadUserAgent")]
+        public string UploadUserAgent { get; set; } = string.Empty;
+
+        [BsonElement("uploadRemoteIp")]
+        public string UploadRemoteIp { get; set; } = string.Empty;
     }
 
     public class DeliveryImportRow

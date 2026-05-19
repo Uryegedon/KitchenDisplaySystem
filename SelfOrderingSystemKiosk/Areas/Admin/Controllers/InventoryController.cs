@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
@@ -326,6 +327,9 @@ namespace SelfOrderingSystemKiosk.Controllers
         [HttpPost]
         [AllowAnonymous]
         [IgnoreAntiforgeryToken]
+        [EnableRateLimiting("delivery-import-upload")]
+        [RequestSizeLimit(5 * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 5 * 1024 * 1024, ValueLengthLimit = 64 * 1024)]
         public async Task<IActionResult> UploadDeliveryImport(string token, string? rawText, IFormFile? sheetImage)
         {
             var session = await _deliveryImports.GetActiveByTokenAsync(token);
@@ -334,9 +338,25 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             if (sheetImage == null && string.IsNullOrWhiteSpace(rawText))
                 return Json(new { success = false, message = "Upload a sheet photo or recognized text." });
+            if (sheetImage != null)
+            {
+                if (sheetImage.Length > 5 * 1024 * 1024)
+                    return Json(new { success = false, message = "The sheet photo is too large. Use an image under 5 MB." });
+                if (!IsAllowedDeliveryImageContentType(sheetImage.ContentType))
+                    return Json(new { success = false, message = "Upload a JPG, PNG, HEIC, or WebP image." });
+            }
 
-            await _deliveryImports.SaveUploadedTextAsync(token, rawText ?? string.Empty);
-            return Json(new { success = true, message = "Upload received. Return to the desktop to review." });
+            rawText = (rawText ?? string.Empty).Trim();
+            if (rawText.Length > 64 * 1024)
+                return Json(new { success = false, message = "The recognized text is too large. Shorten it and try again." });
+
+            var result = await _deliveryImports.TrySaveUploadedTextAsync(
+                token,
+                rawText,
+                sheetImage?.ContentType,
+                Request.Headers["User-Agent"].ToString(),
+                HttpContext.Connection.RemoteIpAddress?.ToString());
+            return Json(new { success = result.Success, message = result.Message });
         }
 
         [HttpGet]
@@ -430,6 +450,18 @@ namespace SelfOrderingSystemKiosk.Controllers
             return !string.IsNullOrWhiteSpace(userBranchId)
                 && !string.IsNullOrWhiteSpace(branchId)
                 && string.Equals(userBranchId.Trim(), branchId.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAllowedDeliveryImageContentType(string? contentType)
+        {
+            if (string.IsNullOrWhiteSpace(contentType))
+                return false;
+
+            return contentType.Trim().ToLowerInvariant() switch
+            {
+                "image/jpeg" or "image/jpg" or "image/png" or "image/webp" or "image/heic" or "image/heif" => true,
+                _ => false
+            };
         }
 
         [HttpPost]
@@ -749,8 +781,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (!User.HasAllBranchAccess() && string.IsNullOrWhiteSpace(userBranchId))
                 return Json(new { category = "" });
             var effectiveBranchId = User.HasAllBranchAccess() ? null : userBranchId;
-            var item = (await _ingredients.GetAllByBranchAsync(effectiveBranchId)).FirstOrDefault(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
-            return Json(new { category = item?.IngredientCategory ?? "" });
+            var category = await _ingredients.GetCategoryByNameAsync(itemName, effectiveBranchId);
+            return Json(new { category });
         }
 
         [HttpGet]
@@ -761,7 +793,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (!User.HasAllBranchAccess() && string.IsNullOrWhiteSpace(userBranchId))
                 return Json(new { exists = false });
             var effectiveBranchId = User.HasAllBranchAccess() ? null : userBranchId;
-            var exists = (await _ingredients.GetAllByBranchAsync(effectiveBranchId)).Any(i => string.Equals(i.Item, itemName.Trim(), StringComparison.OrdinalIgnoreCase));
+            var exists = await _ingredients.ExistsByNameAsync(itemName, effectiveBranchId);
             return Json(new { exists });
         }
     }

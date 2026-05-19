@@ -291,7 +291,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (order?.PersonCount is > 0)
                 return order.PersonCount.Value;
 
-            const decimal pricePerHead = 477m;
+            const decimal pricePerHead = RestaurantPricing.UnlimitedPricePerHead;
             if (order != null && IsUnlimitedOrder(order) && order.Subtotal >= pricePerHead)
                 return Math.Max(1, (int)Math.Floor(order.Subtotal / pricePerHead));
 
@@ -1097,7 +1097,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
 
                 if (isUnlimitedOrder)
                 {
-                    const decimal pricePerHead = 477m;
+                    const decimal pricePerHead = RestaurantPricing.UnlimitedPricePerHead;
                     var chargeablePersonCount = personCount!.Value;
                     if (isRealQrTableOrder)
                     {
@@ -1251,7 +1251,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
             if (order == null || !IsUnlimitedOrder(order))
                 return 0;
 
-            const decimal pricePerHead = 477m;
+            const decimal pricePerHead = RestaurantPricing.UnlimitedPricePerHead;
             var addOnSubtotal = (order.Items ?? new List<OrderItem>())
                 .Where(i => i.Price > 0)
                 .Sum(i => i.Price * i.Quantity);
@@ -1454,7 +1454,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                     chargeablePersonCount = reservation.ChargeablePersonCount;
                 }
 
-                const decimal pricePerHead = 477m;
+                const decimal pricePerHead = RestaurantPricing.UnlimitedPricePerHead;
                 var alaCarteAddOnSubtotal = validation.Items.Sum(i => i.Price * i.Quantity);
                 var subtotal = (chargeablePersonCount * pricePerHead) + alaCarteAddOnSubtotal;
 

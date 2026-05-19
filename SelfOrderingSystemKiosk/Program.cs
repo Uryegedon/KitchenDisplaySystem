@@ -2,11 +2,13 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
 using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,6 +35,16 @@ builder.Services.AddControllersWithViews(options =>
         options.JsonSerializerOptions.PropertyNamingPolicy = null; // Use exact property names
     });
 builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("delivery-import-upload", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 6;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueLimit = 0;
+        limiterOptions.AutoReplenishment = true;
+    });
+});
 
 // Bind all settings classes
 builder.Services.Configure<DataConSettings>(
@@ -117,7 +129,25 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
     });
-builder.Services.AddDistributedMemoryCache();
+var redisConnectionString = CleanConfigValue(builder.Configuration["DistributedCache:RedisConnectionString"])
+    ?? CleanConfigValue(builder.Configuration["Redis:ConnectionString"])
+    ?? CleanConfigValue(Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING"));
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnectionString;
+        options.InstanceName = "SelfOrderingSystemKiosk:";
+    });
+}
+else
+{
+    if (!builder.Environment.IsDevelopment())
+    {
+        Console.WriteLine("Warning: using in-memory session cache. Set DistributedCache__RedisConnectionString for multi-instance cloud deployment.");
+    }
+    builder.Services.AddDistributedMemoryCache();
+}
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromHours(2);
@@ -165,6 +195,7 @@ app.UseHttpsRedirection();
 app.UseStaticFiles();
 
 app.UseRouting();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
