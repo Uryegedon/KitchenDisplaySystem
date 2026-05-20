@@ -9,9 +9,12 @@ using CustomerOrderItem = SelfOrderingSystemKiosk.Areas.Customer.Models.OrderIte
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Owner,BranchManager,Admin")]
+    [Authorize(Roles = "Owner,BranchManager")]
+    [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
     public class SalesController : Controller
     {
+        private const int MaxReportRangeDays = 370;
+
         private readonly OrderService _orderService;
         private readonly BranchService _branchService;
         private readonly MenuItemService _menuItemService;
@@ -23,10 +26,13 @@ namespace SelfOrderingSystemKiosk.Controllers
             _menuItemService = menuItemService;
         }
 
-        public async Task<IActionResult> Index(string? startDate = null, string? endDate = null, string? branchFilter = null, string? reportBasis = null)
+        public async Task<IActionResult> Index(string? startDate = null, string? endDate = null, string? branchFilter = null)
         {
+            Response.Headers.CacheControl = "no-store, no-cache, max-age=0";
+            Response.Headers.Pragma = "no-cache";
+            Response.Headers["Referrer-Policy"] = "same-origin";
+
             ViewData["Title"] = "Sales & reports";
-            var selectedReportBasis = NormalizeReportBasis(reportBasis);
 
             // Get user's branch context
             var userBranchId = User.GetBranchId();
@@ -38,11 +44,15 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             if (isOwner)
             {
-                effectiveBranchId = string.Equals(branchFilter, "all", StringComparison.OrdinalIgnoreCase)
+                var normalizedBranchFilter = NormalizeBranchFilter(branchFilter);
+                if (!IsValidOwnerBranchFilter(normalizedBranchFilter, allBranches))
+                    return BadRequest("Invalid branch filter.");
+
+                effectiveBranchId = string.Equals(normalizedBranchFilter, "all", StringComparison.OrdinalIgnoreCase)
                     ? null
-                    : string.IsNullOrWhiteSpace(branchFilter) ? null : branchFilter;
+                    : normalizedBranchFilter;
                 ViewBag.AllBranches = allBranches;
-                ViewBag.BranchFilter = string.IsNullOrWhiteSpace(branchFilter) ? "all" : branchFilter;
+                ViewBag.BranchFilter = normalizedBranchFilter;
             }
 
             // Get branch info for display
@@ -77,13 +87,13 @@ namespace SelfOrderingSystemKiosk.Controllers
             {
                 (rangeStart, rangeEnd) = AppClock.LocalDateRange(parsedStart, parsedEnd);
             }
+            if (rangeEnd <= rangeStart)
+                return BadRequest("End date must be after start date.");
+            if ((rangeEnd - rangeStart).TotalDays > MaxReportRangeDays)
+                return BadRequest($"Sales reports are limited to {MaxReportRangeDays} days per request.");
 
             var rangeOrders = await _orderService.GetByDateRangeHalfOpenAsync(rangeStart, rangeEnd, effectiveBranchId);
-            var reportOrders = FilterOrdersForReport(rangeOrders, selectedReportBasis).ToList();
-            var reportBillableOrders = reportOrders.Where(o => o.Total > 0).ToList();
-            var nonCanceledBillableOrders = rangeOrders
-                .Where(o => !IsCanceled(o) && o.Total > 0)
-                .ToList();
+            var reportBillableOrders = FilterSalesOrders(rangeOrders).ToList();
 
             var rangeRevenue = reportBillableOrders.Sum(o => o.Total);
             var rangeCost = reportBillableOrders.Sum(o => o.OrderCost);
@@ -101,7 +111,6 @@ namespace SelfOrderingSystemKiosk.Controllers
                 .Where(o => o.DiningType == "TakeOut" && o.Total > 0)
                 .Sum(o => o.Total);
             var rangeOrderCount = reportBillableOrders.Count;
-            var grossBillableRevenue = nonCanceledBillableOrders.Sum(o => o.Total);
             var unpaidBillableOrders = rangeOrders
                 .Where(o => !IsCanceled(o) && !IsPaid(o) && o.Total > 0)
                 .ToList();
@@ -114,12 +123,12 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             var historyStart = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             var allOrdersForBestSellers = await _orderService.GetByDateRangeHalfOpenAsync(historyStart, DateTime.UtcNow.AddDays(1), effectiveBranchId);
-            var bestSellersAllTime = OrderSalesAnalytics.BuildBestSellers(FilterOrdersForReport(allOrdersForBestSellers, selectedReportBasis));
-            var bestSellersToday = OrderSalesAnalytics.BuildBestSellers(FilterOrdersForReport(todayOrders, selectedReportBasis));
+            var bestSellersAllTime = OrderSalesAnalytics.BuildBestSellers(FilterSalesOrders(allOrdersForBestSellers));
+            var bestSellersToday = OrderSalesAnalytics.BuildBestSellers(FilterSalesOrders(todayOrders));
 
             var (monthStart, monthEnd) = AppClock.CurrentLocalMonthRange();
             var monthOrders = await _orderService.GetByDateRangeHalfOpenAsync(monthStart, monthEnd, effectiveBranchId);
-            var bestSellersMonthly = OrderSalesAnalytics.BuildBestSellers(FilterOrdersForReport(monthOrders, selectedReportBasis));
+            var bestSellersMonthly = OrderSalesAnalytics.BuildBestSellers(FilterSalesOrders(monthOrders));
 
             var menuItems = await _menuItemService.GetAllByBranchAsync(effectiveBranchId);
             var categoryStats = BuildCategoryStats(reportBillableOrders, menuItems);
@@ -129,18 +138,7 @@ namespace SelfOrderingSystemKiosk.Controllers
                 .ToList();
             var paymentBreakdown = BuildBreakdown(reportBillableOrders, o => string.IsNullOrWhiteSpace(o.PaymentMethod) ? "Unspecified" : o.PaymentMethod.Trim());
             var statusBreakdown = BuildBreakdown(rangeOrders, o => string.IsNullOrWhiteSpace(o.Status) ? "Unspecified" : o.Status.Trim());
-            var hourlySales = reportBillableOrders
-                .GroupBy(o => AppClock.ToLocal(o.OrderDate).Hour)
-                .Select(g => new HourlySalesSummary
-                {
-                    Hour = g.Key,
-                    OrderCount = g.Count(),
-                    Revenue = g.Sum(o => o.Total)
-                })
-                .OrderByDescending(s => s.Revenue)
-                .ThenBy(s => s.Hour)
-                .Take(8)
-                .ToList();
+            var peakHourGroups = BuildPeakHourGroups(reportBillableOrders);
 
             var chartData = new Dictionary<string, decimal>();
             if (reportBillableOrders.Any())
@@ -185,7 +183,6 @@ namespace SelfOrderingSystemKiosk.Controllers
             ViewBag.RangeRevenueDineIn = rangeRevenueDineIn;
             ViewBag.RangeRevenueTakeOut = rangeRevenueTakeOut;
             ViewBag.RangeOrderCount = rangeOrderCount;
-            ViewBag.GrossBillableRevenue = grossBillableRevenue;
             ViewBag.UnpaidOrderCount = unpaidBillableOrders.Count;
             ViewBag.UnpaidBillableRevenue = unpaidBillableOrders.Sum(o => o.Total);
             ViewBag.CanceledOrderCount = canceledOrders.Count;
@@ -195,10 +192,9 @@ namespace SelfOrderingSystemKiosk.Controllers
             ViewBag.AverageOrderValue = averageOrderValue;
             ViewBag.ProfitMarginPercent = profitMarginPercent;
             ViewBag.MissingCostCount = missingCostCount;
-            ViewBag.ReportBasis = selectedReportBasis;
             ViewBag.PaymentBreakdown = paymentBreakdown;
             ViewBag.StatusBreakdown = statusBreakdown;
-            ViewBag.HourlySales = hourlySales;
+            ViewBag.PeakHourGroups = peakHourGroups;
             ViewBag.CategoryStats = categoryStats;
             ViewBag.TopItemsByRevenue = topItemsByRevenue;
             ViewBag.ChartData = chartData;
@@ -211,23 +207,50 @@ namespace SelfOrderingSystemKiosk.Controllers
             return View();
         }
 
-        private static string NormalizeReportBasis(string? reportBasis)
+        private static string NormalizeBranchFilter(string? branchFilter)
         {
-            if (string.Equals(reportBasis, "completed", StringComparison.OrdinalIgnoreCase))
-                return "completed";
-            if (string.Equals(reportBasis, "allBillable", StringComparison.OrdinalIgnoreCase))
-                return "allBillable";
-            return "paid";
+            if (string.IsNullOrWhiteSpace(branchFilter))
+                return "all";
+
+            var trimmed = branchFilter.Trim();
+            return string.Equals(trimmed, "all", StringComparison.OrdinalIgnoreCase)
+                ? "all"
+                : trimmed;
         }
 
-        private static IEnumerable<CustomerOrder> FilterOrdersForReport(IEnumerable<CustomerOrder> orders, string reportBasis)
+        private static bool IsValidOwnerBranchFilter(string branchFilter, IEnumerable<Branch> branches)
         {
-            return reportBasis switch
-            {
-                "completed" => orders.Where(o => !IsCanceled(o) && IsCompleted(o)),
-                "allBillable" => orders.Where(o => !IsCanceled(o) && o.Total > 0),
-                _ => orders.Where(o => !IsCanceled(o) && IsPaid(o))
-            };
+            return string.Equals(branchFilter, "all", StringComparison.OrdinalIgnoreCase)
+                || branches.Any(branch => string.Equals(branch.Id, branchFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static IEnumerable<CustomerOrder> FilterSalesOrders(IEnumerable<CustomerOrder> orders) =>
+            orders.Where(o => !IsCanceled(o) && o.Total > 0);
+
+        private static List<PeakHourSummary> BuildPeakHourGroups(IEnumerable<CustomerOrder> orders)
+        {
+            return orders
+                .GroupBy(order =>
+                {
+                    var hour = AppClock.ToLocal(order.OrderDate).Hour;
+                    return hour == 0 ? 7 : (hour - 1) / 3;
+                })
+                .Select(group =>
+                {
+                    var startHour = (group.Key * 3) + 1;
+                    var endHour = startHour + 2;
+                    return new PeakHourSummary
+                    {
+                        StartHour = startHour % 24,
+                        EndHour = endHour % 24,
+                        OrderCount = group.Count(),
+                        Revenue = group.Sum(o => o.Total)
+                    };
+                })
+                .OrderByDescending(s => s.Revenue)
+                .ThenBy(s => s.StartHour == 0 ? 24 : s.StartHour)
+                .Take(8)
+                .ToList();
         }
 
         private static bool IsCanceled(CustomerOrder order) =>
@@ -310,12 +333,13 @@ namespace SelfOrderingSystemKiosk.Controllers
         public decimal Revenue { get; set; }
     }
 
-    public class HourlySalesSummary
+    public class PeakHourSummary
     {
-        public int Hour { get; set; }
+        public int StartHour { get; set; }
+        public int EndHour { get; set; }
         public int OrderCount { get; set; }
         public decimal Revenue { get; set; }
-        public string Label => $"{DateTime.Today.AddHours(Hour):h tt}";
+        public string Label => $"{DateTime.Today.AddHours(StartHour):h tt} - {DateTime.Today.AddHours(EndHour):h tt}";
     }
 
     public class CategorySalesSummary

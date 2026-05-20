@@ -9,7 +9,7 @@ using SelfOrderingSystemKiosk.Areas.Admin.Models;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Owner,BranchManager,Admin")]
+    [Authorize(Roles = "Owner,BranchManager")]
     public class StockMovementController : Controller
     {
         private readonly StockMovementService _movementService;

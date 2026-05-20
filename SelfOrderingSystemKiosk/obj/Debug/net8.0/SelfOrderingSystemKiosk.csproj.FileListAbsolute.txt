@@ -425,3 +425,4 @@ E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\System.Drawing.
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\runtimes\win\lib\net6.0\Microsoft.Win32.SystemEvents.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\runtimes\unix\lib\net6.0\System.Drawing.Common.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\runtimes\win\lib\net6.0\System.Drawing.Common.dll
+E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\appsettings.Development.json

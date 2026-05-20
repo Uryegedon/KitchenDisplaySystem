@@ -33,27 +33,21 @@ namespace SelfOrderingSystemKiosk.Services
             => user.IsInRole(UserRoles.BranchManager);
 
         /// <summary>
-        /// Checks if user has Admin role (legacy, treats as Owner for backward compatibility)
-        /// </summary>
-        public static bool IsAdmin(this ClaimsPrincipal user)
-            => user.IsInRole(UserRoles.Admin);
-
-        /// <summary>
         /// Checks if user has Kitchen role
         /// </summary>
         public static bool IsKitchen(this ClaimsPrincipal user)
             => user.IsInRole(UserRoles.Kitchen);
 
         /// <summary>
-        /// Returns true if user can access all branches (Owner or Admin)
+        /// Returns true if user can access all branches
         /// </summary>
         public static bool HasAllBranchAccess(this ClaimsPrincipal user)
-            => user.IsOwner() || user.IsAdmin();
+            => user.IsOwner();
 
         /// <summary>
         /// Returns true if user should be restricted to a single branch
         /// </summary>
         public static bool IsBranchRestricted(this ClaimsPrincipal user)
-            => user.IsBranchManager();
+            => user.IsBranchManager() || user.IsKitchen();
     }
 }

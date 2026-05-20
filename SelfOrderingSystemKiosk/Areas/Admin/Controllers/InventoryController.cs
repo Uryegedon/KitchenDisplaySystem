@@ -4,12 +4,13 @@ using Microsoft.AspNetCore.RateLimiting;
 using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Owner,BranchManager,Admin")]
+    [Authorize(Roles = "Owner,BranchManager")]
     public class InventoryController : Controller
     {
         private readonly IngredientStockService _ingredients;
@@ -296,7 +297,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (string.IsNullOrWhiteSpace(effectiveBranchId))
                 return Json(new { success = false, message = "Choose a branch before starting phone scan." });
 
-            var session = await _deliveryImports.CreateAsync(effectiveBranchId, User.Identity?.Name ?? "Admin");
+            var session = await _deliveryImports.CreateAsync(effectiveBranchId, User.Identity?.Name ?? "System");
             var scanUrl = Url.Action("ScanDeliveryImport", "Inventory", new { area = "Admin", token = session.Token }, Request.Scheme)
                 ?? string.Empty;
             var qrBytes = _qrCodes.GetPngBytes(scanUrl, 8);
@@ -320,7 +321,17 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (session == null)
                 return Content("This delivery scan link is invalid or expired.");
 
+            var ingredients = await _ingredients.GetAllByBranchAsync(session.BranchId);
             ViewBag.Token = token;
+            ViewBag.DeliveryIngredientOptionsJson = JsonSerializer.Serialize(
+                ingredients
+                    .Where(i => !string.IsNullOrWhiteSpace(i.Item))
+                    .OrderBy(i => i.Item)
+                    .Select(i => new
+                    {
+                        name = i.Item,
+                        unit = i.Unit ?? string.Empty
+                    }));
             return View("ScanDeliveryImport");
         }
 
@@ -336,8 +347,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             if (session == null)
                 return Json(new { success = false, message = "This scan session is invalid or expired." });
 
-            if (sheetImage == null && string.IsNullOrWhiteSpace(rawText))
-                return Json(new { success = false, message = "Upload a sheet photo or recognized text." });
+            if (string.IsNullOrWhiteSpace(rawText))
+                return Json(new { success = false, message = "Read the sheet or type the delivery rows before uploading." });
             if (sheetImage != null)
             {
                 if (sheetImage.Length > 5 * 1024 * 1024)
@@ -374,6 +385,8 @@ namespace SelfOrderingSystemKiosk.Controllers
                 success = true,
                 status = session.ExpiresAtUtc < DateTime.UtcNow ? "Expired" : session.Status,
                 uploaded = session.UploadedAtUtc.HasValue,
+                expiresAt = AppClock.ToLocal(session.ExpiresAtUtc).ToString("h:mm tt"),
+                uploadedAt = session.UploadedAtUtc.HasValue ? AppClock.ToLocal(session.UploadedAtUtc.Value).ToString("h:mm tt") : "",
                 rows = session.Rows.Select(r => new
                 {
                     itemName = r.ItemName,
@@ -396,6 +409,8 @@ namespace SelfOrderingSystemKiosk.Controllers
             var session = await _deliveryImports.GetByTokenAsync(request.Token);
             if (session == null || session.ExpiresAtUtc < DateTime.UtcNow)
                 return Json(new { success = false, message = "Import session is invalid or expired." });
+            if (string.Equals(session.Status, "Confirmed", StringComparison.OrdinalIgnoreCase))
+                return Json(new { success = false, message = "This delivery import was already confirmed." });
             if (!CanAccessInventoryBranch(session.BranchId))
                 return Forbid();
 
@@ -404,6 +419,9 @@ namespace SelfOrderingSystemKiosk.Controllers
                 .ToList() ?? new List<ConfirmDeliveryImportRow>();
             if (!rows.Any())
                 return Json(new { success = false, message = "No valid rows to import." });
+
+            if (!await _deliveryImports.TryBeginConfirmationAsync(session.Token))
+                return Json(new { success = false, message = "This delivery import is already being confirmed, already confirmed, or expired." });
 
             var imported = 0;
             foreach (var row in rows)
@@ -423,7 +441,15 @@ namespace SelfOrderingSystemKiosk.Controllers
                 }
             }
 
-            await _deliveryImports.MarkConfirmedAsync(session.Token);
+            if (imported == 0)
+            {
+                await _deliveryImports.MarkNeedsReviewAsync(session.Token);
+                return Json(new { success = false, message = "No delivery rows were imported. Check the ingredient matches and quantities." });
+            }
+
+            if (!await _deliveryImports.TryMarkConfirmedAsync(session.Token))
+                return Json(new { success = false, message = "This delivery import was already confirmed or expired." });
+
             return Json(new { success = true, message = $"Imported {imported} delivery row(s)." });
         }
 

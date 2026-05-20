@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
+using System.Text.RegularExpressions;
 
 namespace SelfOrderingSystemKiosk.Services
 {
@@ -25,14 +26,6 @@ namespace SelfOrderingSystemKiosk.Services
             return isPasswordValid ? user : null;
         }
 
-        public async Task CreateAdminAsync(AdminUser newUser)
-        {
-            PrepareUserForSave(newUser);
-            await _users.InsertOneAsync(newUser);
-        }
-
-
-        
         public async Task CreateUserAsync(AdminUser user)
         {
             PrepareUserForSave(user);
@@ -49,6 +42,47 @@ namespace SelfOrderingSystemKiosk.Services
         public async Task<AdminUser?> GetUserByEmailAsync(string email)
         {
             return await _users.Find(u => u.Email == email).FirstOrDefaultAsync();
+        }
+
+        public async Task<AdminUser?> FindByUsernameOrEmailAsync(string usernameOrEmail)
+        {
+            if (string.IsNullOrWhiteSpace(usernameOrEmail))
+                return null;
+
+            var escaped = Regex.Escape(usernameOrEmail.Trim());
+            var exact = new BsonRegularExpression($"^{escaped}$", "i");
+            var filter = Builders<AdminUser>.Filter.Or(
+                Builders<AdminUser>.Filter.Regex(u => u.Username, exact),
+                Builders<AdminUser>.Filter.Regex(u => u.Email, exact));
+
+            return await _users.Find(filter).FirstOrDefaultAsync();
+        }
+
+        public async Task<List<AdminUser>> GetPasswordResetRecipientsAsync(AdminUser account)
+        {
+            var filters = new List<FilterDefinition<AdminUser>>
+            {
+                Builders<AdminUser>.Filter.Eq(u => u.Role, UserRoles.Owner)
+            };
+
+            var canBranchManagerReset =
+                !string.Equals(account.Role, UserRoles.Owner, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(account.Role, UserRoles.BranchManager, StringComparison.OrdinalIgnoreCase);
+
+            if (canBranchManagerReset && !string.IsNullOrWhiteSpace(account.BranchId))
+            {
+                filters.Add(Builders<AdminUser>.Filter.And(
+                    Builders<AdminUser>.Filter.Eq(u => u.Role, UserRoles.BranchManager),
+                    Builders<AdminUser>.Filter.Eq(u => u.BranchId, account.BranchId.Trim())));
+            }
+
+            var recipients = await _users.Find(Builders<AdminUser>.Filter.Or(filters)).ToListAsync();
+            return recipients
+                .Where(u => !string.Equals(u.Id, account.Id, StringComparison.OrdinalIgnoreCase))
+                .Where(u => !string.IsNullOrWhiteSpace(u.Email))
+                .GroupBy(u => u.Email.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
         }
 
         //  Validate login 
@@ -69,7 +103,7 @@ namespace SelfOrderingSystemKiosk.Services
         }
 
         /// <summary>
-        /// Gets all users (for Owner/Admin only)
+        /// Gets all users (for Owner only)
         /// </summary>
         public async Task<List<AdminUser>> GetAllUsersAsync()
         {
@@ -203,7 +237,7 @@ namespace SelfOrderingSystemKiosk.Services
             user.Username = user.Username?.Trim() ?? string.Empty;
             user.Email = user.Email?.Trim() ?? string.Empty;
             user.FullName = user.FullName?.Trim() ?? string.Empty;
-            user.Role = string.IsNullOrWhiteSpace(user.Role) ? UserRoles.Admin : user.Role.Trim();
+            user.Role = string.IsNullOrWhiteSpace(user.Role) ? UserRoles.BranchManager : user.Role.Trim();
             user.BranchId = string.IsNullOrWhiteSpace(user.BranchId) ? null : user.BranchId.Trim();
         }
     }

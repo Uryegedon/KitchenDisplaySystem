@@ -568,9 +568,12 @@
             <a class="header-action" asp-area="Kitchen" asp-controller="Kitchen" asp-action="Receipts">
                 <i class="bi bi-table"></i> Receipts / Tables
             </a>
-            <a class="header-action" asp-area="Admin" asp-controller="Account" asp-action="Logout">
-                <i class="bi bi-box-arrow-right"></i> Logout
-            </a>
+            <form asp-area="Admin" asp-controller="Account" asp-action="Logout" method="post" style="display:inline;">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="header-action">
+                    <i class="bi bi-box-arrow-right"></i> Logout
+                </button>
+            </form>
         </div>
     </div>
 
@@ -791,6 +794,7 @@
         }
     </div>
 
+    <script src="~/lib/microsoft-signalr/signalr.min.js" asp-append-version="true"></script>
     <script>
         function filterByDate(dateFilter) {
             // Reload page with date filter parameter
@@ -877,73 +881,117 @@
             form.submit();
         }
 
-        // Auto-refresh functionality
+        // Live update functionality
         let refreshInterval;
-        const REFRESH_INTERVAL = 10000; // 10 seconds
+        let liveUpdatesConnected = false;
+        let pendingRealtimeRefresh = false;
+        let reconnectTimer = null;
+        const FALLBACK_REFRESH_INTERVAL = 60000;
 
-        function startAutoRefresh() {
-            // Clear any existing interval
-            if (refreshInterval) {
-                clearInterval(refreshInterval);
-            }
-
-            // Show refresh indicator before reload
-            const indicator = document.getElementById('refreshIndicator');
-            
-            refreshInterval = setInterval(function() {
-                // Only refresh if page is visible
-                if (!document.hidden) {
-                    // Show refresh indicator
-                    if (indicator) {
-                        indicator.classList.add('show');
-                    }
-                    
-                    // Get current filters
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const dateFilter = urlParams.get('dateFilter') || 'all';
-                    
-                    // Reload page with current filters
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 500);
-                }
-            }, REFRESH_INTERVAL);
-        }
-
-        // Start auto-refresh when page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            startAutoRefresh();
-        });
-
-        // Pause refresh when page is hidden, resume when visible
-        document.addEventListener('visibilitychange', function() {
-            if (document.hidden) {
-                if (refreshInterval) {
-                    clearInterval(refreshInterval);
-                    refreshInterval = null;
-                }
-            } else {
-                startAutoRefresh();
-            }
-        });
-
-        // Stop refresh when user is interacting (clicking buttons, etc.)
-        let userInteractionTimeout;
-        document.addEventListener('click', function() {
-            // Clear existing timeout
-            if (userInteractionTimeout) {
-                clearTimeout(userInteractionTimeout);
-            }
-            
-            // Temporarily stop refresh for 30 seconds after user interaction
+        function stopFallbackRefresh() {
             if (refreshInterval) {
                 clearInterval(refreshInterval);
                 refreshInterval = null;
             }
-            
-            // Resume after 30 seconds
+        }
+
+        function startFallbackRefresh() {
+            if (liveUpdatesConnected || refreshInterval) return;
+            refreshInterval = setInterval(function() {
+                if (!document.hidden && !liveUpdatesConnected) {
+                    showRefreshAndReload();
+                }
+            }, FALLBACK_REFRESH_INTERVAL);
+        }
+
+        function showRefreshAndReload() {
+            const indicator = document.getElementById('refreshIndicator');
+            if (indicator) indicator.classList.add('show');
+            setTimeout(function() {
+                window.location.reload();
+            }, 350);
+        }
+
+        function handleRealtimeKitchenChange() {
+            if (document.hidden) {
+                pendingRealtimeRefresh = true;
+                return;
+            }
+
+            showRefreshAndReload();
+        }
+
+        function scheduleRealtimeReconnect() {
+            if (reconnectTimer) return;
+            reconnectTimer = setTimeout(function() {
+                reconnectTimer = null;
+                startKitchenLiveUpdates();
+            }, 5000);
+        }
+
+        function startKitchenLiveUpdates() {
+            if (!window.signalR) {
+                startFallbackRefresh();
+                return;
+            }
+
+            const connection = new signalR.HubConnectionBuilder()
+                .withUrl('/hubs/orders')
+                .withAutomaticReconnect()
+                .build();
+
+            connection.on('KitchenBoardChanged', handleRealtimeKitchenChange);
+
+            connection.onreconnected(function() {
+                liveUpdatesConnected = true;
+                stopFallbackRefresh();
+                connection.invoke('WatchKitchenBoard').catch(console.error);
+                if (pendingRealtimeRefresh && !document.hidden) {
+                    pendingRealtimeRefresh = false;
+                    showRefreshAndReload();
+                }
+            });
+
+            connection.onclose(function() {
+                liveUpdatesConnected = false;
+                startFallbackRefresh();
+                scheduleRealtimeReconnect();
+            });
+
+            connection.start()
+                .then(function() {
+                    liveUpdatesConnected = true;
+                    stopFallbackRefresh();
+                    return connection.invoke('WatchKitchenBoard');
+                })
+                .catch(function(error) {
+                    console.warn('Live kitchen updates unavailable. Falling back to occasional refresh.', error);
+                    liveUpdatesConnected = false;
+                    startFallbackRefresh();
+                    scheduleRealtimeReconnect();
+                });
+        }
+
+        document.addEventListener('DOMContentLoaded', startKitchenLiveUpdates);
+
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden && pendingRealtimeRefresh) {
+                pendingRealtimeRefresh = false;
+                showRefreshAndReload();
+            } else {
+                startFallbackRefresh();
+            }
+        });
+
+        let userInteractionTimeout;
+        document.addEventListener('click', function() {
+            if (userInteractionTimeout) {
+                clearTimeout(userInteractionTimeout);
+            }
+
+            stopFallbackRefresh();
             userInteractionTimeout = setTimeout(function() {
-                startAutoRefresh();
+                startFallbackRefresh();
             }, 30000);
         });
     </script>

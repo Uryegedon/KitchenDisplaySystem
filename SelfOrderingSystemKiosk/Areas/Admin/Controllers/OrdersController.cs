@@ -11,7 +11,7 @@ using SelfOrderingSystemKiosk.Areas.Admin.Models;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Owner,BranchManager,Admin")]
+    [Authorize(Roles = "Owner,BranchManager")]
     public class OrdersController : Controller
     {
         private readonly OrderService _orderService;

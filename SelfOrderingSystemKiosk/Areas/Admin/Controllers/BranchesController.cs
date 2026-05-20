@@ -14,20 +14,23 @@ namespace SelfOrderingSystemKiosk.Controllers
         private readonly OrderService _orderService;
         private readonly TableOrderingSessionService _tableOrderingSessions;
         private readonly TableRegistryService _tableRegistry;
+        private readonly UserService _userService;
 
         public BranchesController(
             BranchService branchService,
             OrderService orderService,
             TableOrderingSessionService tableOrderingSessions,
-            TableRegistryService tableRegistry)
+            TableRegistryService tableRegistry,
+            UserService userService)
         {
             _branchService = branchService;
             _orderService = orderService;
             _tableOrderingSessions = tableOrderingSessions;
             _tableRegistry = tableRegistry;
+            _userService = userService;
         }
 
-        public async Task<IActionResult> Index(string message = null)
+        public async Task<IActionResult> Index(string? message = null)
         {
             ViewData["Title"] = "Branches";
             ViewBag.Message = message;
@@ -35,7 +38,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             return View(branches);
         }
 
-        public async Task<IActionResult> Overview(string branchId = null, string period = "today")
+        public async Task<IActionResult> Overview(string? branchId = null, string period = "today")
         {
             ViewData["Title"] = "Branch Overview";
             ViewBag.SelectedBranchId = branchId;
@@ -43,6 +46,19 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             var allBranches = await _branchService.GetAllAsync();
             ViewBag.AllBranches = allBranches;
+            var branchManagers = await _userService.GetBranchManagersAsync();
+            var managerNamesByBranch = branchManagers
+                .Where(manager => !string.IsNullOrWhiteSpace(manager.BranchId))
+                .GroupBy(manager => manager.BranchId!.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => string.Join(", ", group
+                        .Select(manager => string.IsNullOrWhiteSpace(manager.FullName) ? manager.Username : manager.FullName)
+                        .Where(name => !string.IsNullOrWhiteSpace(name))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)),
+                    StringComparer.OrdinalIgnoreCase);
+            ViewBag.ManagerNamesByBranch = managerNamesByBranch;
 
             var now = AppClock.LocalNow;
             DateTime startUtc, endUtc;
@@ -78,6 +94,9 @@ namespace SelfOrderingSystemKiosk.Controllers
             {
                 var branch = await _branchService.GetByIdAsync(branchId);
                 ViewBag.SelectedBranch = branch;
+                ViewBag.SelectedBranchManagers = managerNamesByBranch.TryGetValue(branchId.Trim(), out var managerNames) && !string.IsNullOrWhiteSpace(managerNames)
+                    ? managerNames
+                    : "Unassigned";
                 var branchOrders = allOrders.Where(o => string.Equals(o.BranchId, branchId, StringComparison.OrdinalIgnoreCase)).ToList();
                 ViewBag.BranchOrders = branchOrders;
                 CalculateBranchStats(branchId, branch, branchOrders, allBranches.Count);
@@ -110,7 +129,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             return RedirectToAction(nameof(Overview), new { branchId });
         }
 
-        private BranchOverviewStats CalculateBranchStats(string branchId, Branch branch, List<Order> orders, int totalBranches)
+        private BranchOverviewStats CalculateBranchStats(string branchId, Branch? branch, List<Order> orders, int totalBranches)
         {
             var billableOrders = orders.Where(o => o.Total > 0).ToList();
             var stats = new BranchOverviewStats

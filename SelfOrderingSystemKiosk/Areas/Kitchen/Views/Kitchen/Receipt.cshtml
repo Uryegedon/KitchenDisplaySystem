@@ -360,9 +360,12 @@
             </a>
             @if (showStaffDetails)
             {
-                <a asp-area="Admin" asp-controller="Account" asp-action="Logout">
-                    <i class="bi bi-box-arrow-right"></i> Logout
-                </a>
+                <form asp-area="Admin" asp-controller="Account" asp-action="Logout" method="post" style="display:inline;">
+                    @Html.AntiForgeryToken()
+                    <button type="submit">
+                        <i class="bi bi-box-arrow-right"></i> Logout
+                    </button>
+                </form>
             }
         </div>
 

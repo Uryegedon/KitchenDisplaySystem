@@ -15,7 +15,6 @@
     var rangeRevenueDineIn = ViewBag.RangeRevenueDineIn != null ? (decimal)ViewBag.RangeRevenueDineIn : 0m;
     var rangeRevenueTakeOut = ViewBag.RangeRevenueTakeOut != null ? (decimal)ViewBag.RangeRevenueTakeOut : 0m;
     var rangeOrderCount = ViewBag.RangeOrderCount != null ? (int)ViewBag.RangeOrderCount : 0;
-    var grossBillableRevenue = ViewBag.GrossBillableRevenue != null ? (decimal)ViewBag.GrossBillableRevenue : 0m;
     var unpaidOrderCount = ViewBag.UnpaidOrderCount != null ? (int)ViewBag.UnpaidOrderCount : 0;
     var unpaidBillableRevenue = ViewBag.UnpaidBillableRevenue != null ? (decimal)ViewBag.UnpaidBillableRevenue : 0m;
     var canceledOrderCount = ViewBag.CanceledOrderCount != null ? (int)ViewBag.CanceledOrderCount : 0;
@@ -25,13 +24,11 @@
     var averageOrderValue = ViewBag.AverageOrderValue != null ? (decimal)ViewBag.AverageOrderValue : 0m;
     var profitMarginPercent = ViewBag.ProfitMarginPercent != null ? (decimal)ViewBag.ProfitMarginPercent : 0m;
     var missingCostCount = ViewBag.MissingCostCount != null ? (int)ViewBag.MissingCostCount : 0;
-    var reportBasis = ViewBag.ReportBasis as string ?? "paid";
-    var reportBasisLabel = reportBasis == "completed" ? "Completed orders" : reportBasis == "allBillable" ? "All non-canceled billable orders" : "Paid orders";
     var chartData = ViewBag.ChartData as Dictionary<string, decimal> ?? new Dictionary<string, decimal>();
     var branchRevenueStats = ViewBag.BranchRevenueStats as List<BranchRevenueSummary> ?? new();
     var paymentBreakdown = ViewBag.PaymentBreakdown as List<SalesBreakdownSummary> ?? new();
     var statusBreakdown = ViewBag.StatusBreakdown as List<SalesBreakdownSummary> ?? new();
-    var hourlySales = ViewBag.HourlySales as List<HourlySalesSummary> ?? new();
+    var peakHourGroups = ViewBag.PeakHourGroups as List<PeakHourSummary> ?? new();
     var categoryStats = ViewBag.CategoryStats as List<CategorySalesSummary> ?? new();
     var topItemsByRevenue = ViewBag.TopItemsByRevenue as List<BestSeller> ?? new();
     var chartLabelsJson = System.Text.Json.JsonSerializer.Serialize(chartData.Keys.OrderBy(k => k).Select(k => DateTime.Parse(k).ToString("MMM dd")).ToList());
@@ -53,7 +50,6 @@
             <form method="get" asp-area="Admin" asp-controller="Sales" asp-action="Index" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <input type="hidden" name="startDate" value="@rangeStart.ToString("yyyy-MM-dd")" />
                 <input type="hidden" name="endDate" value="@rangeEnd.ToString("yyyy-MM-dd")" />
-                <input type="hidden" name="reportBasis" value="@reportBasis" />
                 <label for="branchFilter" style="color:#666;font-weight:600;">Branch</label>
                 <select name="branchFilter" id="branchFilter" onchange="this.form.submit()" style="padding:8px 12px;border:2px solid #ddd;border-radius:6px;min-width:220px;">
                     <option value="all" selected="@(branchFilter == "all")">All branches</option>
@@ -67,24 +63,6 @@
     </div>
     
     <p style="margin-top: 0;">Revenue charts, date ranges, and best sellers</p>
-
-    <div class="report-controls">
-        <form method="get" asp-area="Admin" asp-controller="Sales" asp-action="Index">
-            <input type="hidden" name="startDate" value="@rangeStart.ToString("yyyy-MM-dd")" />
-            <input type="hidden" name="endDate" value="@rangeEnd.ToString("yyyy-MM-dd")" />
-            @if (isOwner)
-            {
-                <input type="hidden" name="branchFilter" value="@branchFilter" />
-            }
-            <label for="reportBasis">Report basis</label>
-            <select name="reportBasis" id="reportBasis" onchange="this.form.submit()">
-                <option value="paid" selected="@(reportBasis == "paid")">Paid sales</option>
-                <option value="completed" selected="@(reportBasis == "completed")">Completed orders</option>
-                <option value="allBillable" selected="@(reportBasis == "allBillable")">All non-canceled billable orders</option>
-            </select>
-        </form>
-        <span class="report-basis-note">Showing @(reportBasisLabel.ToLowerInvariant())</span>
-    </div>
 
     @if (missingCostCount > 0 || unpaidOrderCount > 0 || canceledOrderCount > 0)
     {
@@ -120,19 +98,19 @@
 
     <div class="report-metric-grid">
         <div class="report-metric-card primary">
-            <span>Reported sales</span>
+            <span>Sales revenue</span>
             <strong>₱@rangeRevenue.ToString("N2")</strong>
-            <small>@rangeOrderCount paid/billable order@(rangeOrderCount == 1 ? "" : "s")</small>
+            <small>@rangeOrderCount non-canceled billable order@(rangeOrderCount == 1 ? "" : "s")</small>
         </div>
         <div class="report-metric-card">
-            <span>Gross billable</span>
-            <strong>₱@grossBillableRevenue.ToString("N2")</strong>
-            <small>Before report-basis filtering</small>
+            <span>Completed orders</span>
+            <strong>@completedOrderCount</strong>
+            <small>@paidOrderCount paid in this range</small>
         </div>
         <div class="report-metric-card">
             <span>Average order</span>
             <strong>₱@averageOrderValue.ToString("N2")</strong>
-            <small>Reported sales / reported orders</small>
+            <small>Sales revenue / billable orders</small>
         </div>
         <div class="report-metric-card">
             <span>COGS</span>
@@ -145,9 +123,14 @@
             <small>@profitMarginPercent.ToString("N1")% margin</small>
         </div>
         <div class="report-metric-card">
-            <span>Unpaid / canceled</span>
+            <span>Unpaid billable</span>
             <strong>₱@unpaidBillableRevenue.ToString("N2")</strong>
-            <small>@unpaidOrderCount unpaid · @canceledOrderCount canceled</small>
+            <small>@unpaidOrderCount order@(unpaidOrderCount == 1 ? "" : "s") awaiting payment</small>
+        </div>
+        <div class="report-metric-card">
+            <span>Canceled orders</span>
+            <strong>@canceledOrderCount</strong>
+            <small>₱@canceledRevenue.ToString("N2") canceled value</small>
         </div>
     </div>
 
@@ -250,7 +233,6 @@
                 {
                     <input type="hidden" name="branchFilter" value="@branchFilter" />
                 }
-                <input type="hidden" name="reportBasis" value="@reportBasis" />
                 <div class="date-range-fields">
                     <label>
                         From
@@ -272,7 +254,6 @@
                         <span class="pill" style="background: #D1ECF1; color: #0C5460; border: 1px solid #BEE5EB;">Dine In: ₱@rangeRevenueDineIn.ToString("N2")</span>
                         <span class="pill" style="background: #F8D7DA; color: #721C24; border: 1px solid #F5C6CB;">Take Out: ₱@rangeRevenueTakeOut.ToString("N2")</span>
                         <span class="pill info">Orders: @rangeOrderCount</span>
-                        <span class="pill muted">Basis: @reportBasisLabel</span>
                     </div>
                 </div>
                 <div class="date-range-actions">
@@ -354,19 +335,19 @@
         </div>
 
         <div class="report-table-card">
-            <h3>Peak hours</h3>
-            @if (hourlySales.Any())
+            <h3>Peak time blocks</h3>
+            @if (peakHourGroups.Any())
             {
                 <table class="report-table">
                     <thead>
                         <tr>
-                            <th>Hour</th>
+                            <th>Time block</th>
                             <th>Orders</th>
                             <th>Revenue</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var row in hourlySales)
+                        @foreach (var row in peakHourGroups)
                         {
                             <tr>
                                 <td>@row.Label</td>
@@ -526,46 +507,6 @@
 
 @section Scripts {
     <style>
-        .report-controls {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin: 18px 0;
-            padding: 14px 16px;
-            border: 1px solid #f0d7bf;
-            border-radius: 8px;
-            background: #fff;
-        }
-
-        .report-controls form {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .report-controls label {
-            color: #555;
-            font-weight: 700;
-        }
-
-        .report-controls select {
-            min-width: 230px;
-            padding: 9px 12px;
-            border: 2px solid #ddd;
-            border-radius: 6px;
-            background: #fff;
-            color: #333;
-        }
-
-        .report-basis-note {
-            color: #666;
-            font-size: 0.9rem;
-            font-weight: 600;
-        }
-
         .report-warning-panel {
             display: flex;
             gap: 10px;
@@ -591,17 +532,22 @@
 
         .report-metric-grid {
             display: grid;
-            grid-template-columns: repeat(6, minmax(145px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            grid-auto-rows: 1fr;
             gap: 14px;
             margin: 0 0 24px;
         }
 
         .report-metric-card {
             min-width: 0;
+            min-height: 124px;
             padding: 16px;
             border: 1px solid #f0d7bf;
             border-radius: 8px;
             background: #fff;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
 
         .report-metric-card.primary {
@@ -752,7 +698,7 @@
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 18px;
             margin: 24px 0;
-            align-items: start;
+            align-items: stretch;
         }
 
         .report-breakdown-grid.two-column {
@@ -761,11 +707,14 @@
 
         .report-table-card {
             min-width: 0;
+            min-height: 100%;
             padding: 18px;
             border: 2px solid #f0d7bf;
             border-radius: 8px;
             background: #fff;
             overflow-x: auto;
+            display: flex;
+            flex-direction: column;
         }
 
         .report-table-card h3 {
@@ -839,7 +788,6 @@
     <script>
         const salesIndexUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("Index", "Sales", new { area = "Admin" })));
         const selectedBranchFilter = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(branchFilter));
-        const selectedReportBasis = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(reportBasis));
         const ctx = document.getElementById('revenueChart');
         let revenueChart;
         const chartLabels = @Html.Raw(chartLabelsJson);
@@ -938,9 +886,6 @@
             }
             if (selectedBranchFilter) {
                 url.searchParams.set('branchFilter', selectedBranchFilter);
-            }
-            if (selectedReportBasis) {
-                url.searchParams.set('reportBasis', selectedReportBasis);
             }
 
             window.location.href = url.toString();

@@ -1,0 +1,292 @@
+.menu-option-select {
+        width: min(100%, 260px);
+        margin: 6px 0;
+        padding: 8px 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: white;
+        font-size: 0.9rem;
+    }
+
+    .flavor-chip-picker,
+    .cart-flavor-picker {
+        margin: 8px 0;
+    }
+
+    .flavor-chip-picker.collapsed,
+    .cart-flavor-picker.collapsed {
+        display: none;
+    }
+
+    .flavor-toggle,
+    .cart-flavor-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 38px;
+        padding: 8px 12px;
+        border: 1px solid #ff6b35;
+        border-radius: 8px;
+        background: rgba(255, 107, 53, 0.08);
+        color: #c94f1e;
+        font-size: 0.9rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .flavor-toggle i,
+    .cart-flavor-toggle i {
+        transition: transform 0.15s ease;
+    }
+
+    .flavor-toggle[aria-expanded="true"] i,
+    .cart-flavor-toggle[aria-expanded="true"] i {
+        transform: rotate(180deg);
+    }
+
+    .flavor-chip-grid,
+    .cart-flavor-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        max-width: 540px;
+    }
+
+    .flavor-chip {
+        min-height: 38px;
+        padding: 8px 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: white;
+        color: #333;
+        font-size: 0.84rem;
+        font-weight: 600;
+        line-height: 1.15;
+        text-align: center;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .flavor-chip.selected {
+        background: #ff6b35;
+        border-color: #ff6b35;
+        color: white;
+    }
+
+    .flavor-chip:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .flavor-count {
+        display: block;
+        color: #666;
+        margin-top: 6px;
+        font-size: 0.82rem;
+    }
+
+    .cart-edit-field {
+        width: 100%;
+        max-width: 230px;
+        margin-top: 6px;
+        padding: 6px 8px;
+        border: 1px solid #ddd;
+        border-radius: 7px;
+        font-size: 0.85rem;
+    }
+
+    .sulit-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 220;
+        display: none;
+        overflow-y: auto;
+        background: #fffaf4;
+        padding: 22px;
+    }
+
+    .sulit-screen.active {
+        display: block;
+    }
+
+    .sulit-screen-shell {
+        width: min(1120px, 100%);
+        margin: 0 auto;
+    }
+
+    .sulit-screen-topbar {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 20px;
+    }
+
+    .sulit-screen-topbar h2 {
+        margin: 0;
+        color: #d35400;
+        font-size: 1.45rem;
+    }
+
+    .sulit-back-btn {
+        width: 44px;
+        height: 44px;
+        border: 0;
+        border-radius: 50%;
+        background: #fff;
+        color: #d35400;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+        cursor: pointer;
+    }
+
+    .sulit-screen-grid {
+        display: grid;
+        grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);
+        gap: 28px;
+        align-items: start;
+    }
+
+    .sulit-preview {
+        position: sticky;
+        top: 18px;
+        background: #fff;
+        border: 1px solid #f2c094;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 10px 24px rgba(0,0,0,0.08);
+    }
+
+    .sulit-preview img {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        object-fit: cover;
+        border-radius: 10px;
+    }
+
+    .sulit-preview h3 {
+        margin: 14px 0 4px;
+        color: #d35400;
+        font-size: 1.25rem;
+    }
+
+    .sulit-preview p {
+        margin: 0;
+        color: #111827;
+        font-size: 1.1rem;
+        font-weight: 900;
+    }
+
+    .sulit-options {
+        display: grid;
+        gap: 18px;
+    }
+
+    .sulit-option-block {
+        background: #fff;
+        border: 1px solid #f2c094;
+        border-radius: 12px;
+        padding: 16px;
+    }
+
+    .sulit-option-block h4 {
+        margin: 0 0 12px;
+        color: #333;
+        font-size: 1rem;
+    }
+
+    .sulit-choice-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 9px;
+    }
+
+    .sulit-choice-grid.compact {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sulit-choice {
+        min-height: 42px;
+        padding: 9px 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fff;
+        color: #333;
+        font-size: 0.86rem;
+        font-weight: 800;
+        cursor: pointer;
+        line-height: 1.15;
+    }
+
+    .sulit-choice.selected {
+        background: #ff6b35;
+        border-color: #ff6b35;
+        color: #fff;
+    }
+
+    .sulit-confirm-btn {
+        min-height: 50px;
+        border: 0;
+        border-radius: 10px;
+        background: #e67e22;
+        color: #fff;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    @media (max-width: 768px) {
+        .sulit-screen {
+            padding: 14px;
+        }
+
+        .sulit-screen-grid {
+            grid-template-columns: 1fr;
+            gap: 14px;
+        }
+
+        .sulit-preview {
+            position: static;
+        }
+
+        .sulit-choice-grid,
+        .sulit-choice-grid.compact {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .flavor-chip-picker {
+            position: fixed;
+            left: 0;
+            right: 0;
+            top: 24px;
+            bottom: 8px;
+            z-index: 160;
+            max-height: none;
+            overflow-y: auto;
+            padding: 18px 14px;
+            border: 1px solid rgba(255, 107, 53, 0.3);
+            border-radius: 18px 18px 0 0;
+            background: #fff;
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .flavor-chip-picker.collapsed {
+            display: none;
+        }
+
+        .flavor-chip-grid,
+        .cart-flavor-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            max-width: none;
+        }
+
+        .flavor-chip {
+            min-height: 48px;
+            padding: 10px;
+            font-size: 0.86rem;
+        }
+
+        .cart-flavor-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+

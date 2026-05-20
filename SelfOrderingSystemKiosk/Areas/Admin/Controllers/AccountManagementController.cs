@@ -7,7 +7,7 @@ using SelfOrderingSystemKiosk.Services;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Owner")]
+    [Authorize(Roles = "Owner,BranchManager")]
     public class AccountManagementController : Controller
     {
         private readonly UserService _userService;
@@ -23,12 +23,33 @@ namespace SelfOrderingSystemKiosk.Controllers
         public async Task<IActionResult> Index()
         {
             ViewData["Title"] = "User Management";
-            var users = await _userService.GetAllUsersAsync();
+            var isOwner = User.HasAllBranchAccess();
+            ViewBag.CanCreateUsers = isOwner;
+            ViewBag.CanEditUsers = isOwner;
+            ViewBag.CanResetPasswords = isOwner || User.IsBranchManager();
+
+            List<AdminUser> users;
+            if (isOwner)
+            {
+                users = await _userService.GetAllUsersAsync();
+            }
+            else
+            {
+                var branchId = User.GetBranchId();
+                if (string.IsNullOrWhiteSpace(branchId))
+                    return Forbid();
+
+                users = (await _userService.GetUsersByBranchAsync(branchId.Trim()))
+                    .Where(u => !string.Equals(u.Role, UserRoles.Owner, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
             await PopulateBranchesAsync();
             return View(users);
         }
 
         // GET: Admin/AccountManagement/Create
+        [Authorize(Roles = "Owner")]
         public async Task<IActionResult> Create()
         {
             ViewData["Title"] = "Create User";
@@ -40,6 +61,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         // POST: Admin/AccountManagement/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Owner")]
         public async Task<IActionResult> Create(AdminUser user)
         {
             ViewData["Title"] = "Create User";
@@ -92,6 +114,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         // GET: Admin/AccountManagement/Edit/{id}
+        [Authorize(Roles = "Owner")]
         public async Task<IActionResult> Edit(string id)
         {
             ViewData["Title"] = "Edit User";
@@ -111,6 +134,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         // POST: Admin/AccountManagement/Edit/{id}
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Owner")]
         public async Task<IActionResult> Edit(string id, AdminUser user)
         {
             ViewData["Title"] = "Edit User";
@@ -193,6 +217,9 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             ViewBag.Username = user.Username;
             ViewBag.FullName = user.FullName;
+            if (!CanResetPasswordFor(user))
+                return Forbid();
+
             return View(new ChangePasswordViewModel { UserId = id });
         }
 
@@ -212,6 +239,8 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             ViewBag.Username = user.Username;
             ViewBag.FullName = user.FullName;
+            if (!CanResetPasswordFor(user))
+                return Forbid();
 
             if (string.IsNullOrWhiteSpace(model.NewPassword))
             {
@@ -242,6 +271,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         }
 
         // GET: Admin/AccountManagement/Delete/{id}
+        [Authorize(Roles = "Owner")]
         public async Task<IActionResult> Delete(string id)
         {
             ViewData["Title"] = "Delete User";
@@ -259,6 +289,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         // POST: Admin/AccountManagement/DeleteConfirmed
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Owner")]
         public async Task<IActionResult> DeleteConfirmed(string id)
         {
             var user = await _userService.GetByIdAsync(id);
@@ -291,14 +322,48 @@ namespace SelfOrderingSystemKiosk.Controllers
             {
                 UserRoles.Owner,
                 UserRoles.BranchManager,
-                UserRoles.Admin,
                 UserRoles.Kitchen
             };
         }
 
+        private bool CanResetPasswordFor(AdminUser user)
+        {
+            if (User.HasAllBranchAccess())
+                return true;
+
+            if (!User.IsBranchManager())
+                return false;
+
+            if (string.Equals(user.Role, UserRoles.Owner, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(user.Role, UserRoles.BranchManager, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var managerBranchId = User.GetBranchId();
+            return !string.IsNullOrWhiteSpace(managerBranchId) &&
+                   !string.IsNullOrWhiteSpace(user.BranchId) &&
+                   string.Equals(managerBranchId.Trim(), user.BranchId.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
         private async Task PopulateBranchesAsync()
         {
-            var branches = await _branchService.GetActiveBranchesAsync();
+            List<Branch> branches;
+            if (User.HasAllBranchAccess())
+            {
+                branches = await _branchService.GetActiveBranchesAsync();
+            }
+            else
+            {
+                var branchId = User.GetBranchId();
+                var branch = string.IsNullOrWhiteSpace(branchId)
+                    ? null
+                    : await _branchService.GetByIdAsync(branchId.Trim());
+                branches = branch?.IsActive == true
+                    ? new List<Branch> { branch }
+                    : new List<Branch>();
+            }
+
             ViewBag.Branches = branches;
             ViewBag.BranchNames = branches.ToDictionary(
                 b => b.Id,

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 using System.Security.Claims;
 
@@ -54,6 +55,7 @@ namespace SelfOrderingSystemKiosk.Controllers
         [HttpPost]
         [AllowAnonymous]
         [ValidateAntiForgeryToken]
+        [EnableRateLimiting("auth-login")]
         public async Task<IActionResult> Login(AdminUser user)
         {
             if (user == null || string.IsNullOrEmpty(user.Username) || string.IsNullOrEmpty(user.Password))
@@ -70,8 +72,8 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return View();
             }
 
-            // Get user role (default to Admin if not set)
-            var userRole = existingUser.Role ?? UserRoles.Admin;
+            // Get user role (default to branch-restricted manager if not set)
+            var userRole = existingUser.Role ?? UserRoles.BranchManager;
 
             // Create claims with user information
             var claims = new List<Claim>
@@ -97,7 +99,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
             else
             {
-                // Owner/Admin goes to overview dashboard
+                // Owner goes to overview dashboard
                 return RedirectToAction("Index", "Dashboard", new { area = "Admin" });
             }
         }
@@ -120,19 +122,44 @@ namespace SelfOrderingSystemKiosk.Controllers
         [HttpPost]
         [AllowAnonymous]
         [ValidateAntiForgeryToken]
-        public IActionResult ForgotPassword(string email)
+        [EnableRateLimiting("auth-login")]
+        public async Task<IActionResult> ForgotPassword(string account)
         {
-            if (string.IsNullOrEmpty(email))
+            if (string.IsNullOrWhiteSpace(account))
             {
-                ViewBag.Error = "Please enter your email address.";
+                ViewBag.Error = "Please enter your username or email address.";
                 return View();
             }
 
-            ViewBag.Message = $"A password reset link has been sent to {email}.";
+            var user = await _userService.FindByUsernameOrEmailAsync(account);
+            if (user != null)
+            {
+                var recipients = await _userService.GetPasswordResetRecipientsAsync(user);
+                if (recipients.Any())
+                {
+                    ViewBag.ResetContacts = recipients
+                        .Select(r => string.IsNullOrWhiteSpace(r.FullName) ? r.Email : $"{r.FullName} <{r.Email}>")
+                        .ToList();
+                    ViewBag.ResetMailto = BuildPasswordResetMailto(recipients, user);
+                }
+            }
+
+            ViewBag.Message = "Ask an owner or your branch manager to reset your password from User Accounts.";
             return View();
         }
 
+        private static string BuildPasswordResetMailto(List<AdminUser> recipients, AdminUser account)
+        {
+            var to = string.Join(",", recipients.Select(r => r.Email.Trim()));
+            var subject = Uri.EscapeDataString("KDS password reset request");
+            var body = Uri.EscapeDataString(
+                $"Please reset the KDS password for {account.FullName} ({account.Username}).\n\nDo not send a password in plain text unless your store policy allows it. Reset it from Admin > User Accounts > Change Password.");
+            return $"mailto:{to}?subject={subject}&body={body}";
+        }
+
         [Authorize]
+        [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Logout()
         {
             HttpContext.Session.Clear();
@@ -140,27 +167,5 @@ namespace SelfOrderingSystemKiosk.Controllers
             return RedirectToAction("Login", "Account");
         }
 
-        [Authorize(Roles = "Owner")]
-        [HttpGet]
-        public IActionResult Signup()
-        {
-            return View();
-        }
-
-        [Authorize(Roles = "Owner")]
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Signup(AdminUser user)
-        {
-            if (!ModelState.IsValid)
-                return View(user);
-
-            // Hash password
-            user.Password = BCrypt.Net.BCrypt.HashPassword(user.Password);
-            await _userService.CreateUserAsync(user);
-
-            TempData["Success"] = "New user registered successfully!";
-            return RedirectToAction("Signup");
-        }
     }
 }

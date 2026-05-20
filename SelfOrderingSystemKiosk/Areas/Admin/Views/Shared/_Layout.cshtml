@@ -50,6 +50,9 @@
                 @if (User.IsInRole("Owner"))
                 {
                     <li><a asp-area="Admin" asp-controller="Branches" asp-action="Overview"><i class="bi bi-geo-alt"></i> <span>Branches</span></a></li>
+                }
+                @if (User.IsInRole("Owner") || User.IsInRole("BranchManager"))
+                {
                     <li><a asp-area="Admin" asp-controller="AccountManagement" asp-action="Index"><i class="bi bi-people"></i> <span>User Accounts</span></a></li>
                 }
                 <li><a asp-area="Admin" asp-controller="Sales" asp-action="Index"><i class="bi bi-graph-up-arrow"></i> <span>Sales &amp; reports</span></a></li>
@@ -63,7 +66,10 @@
             </ul>
 
             <div class="logout-section">
-                <a href="#" class="logout-btn" onclick="confirmLogout(event)"><i class="bi bi-box-arrow-right"></i> <span>Logout</span></a>
+                <form id="logoutForm" asp-area="Admin" asp-controller="Account" asp-action="Logout" method="post">
+                    @Html.AntiForgeryToken()
+                    <button type="button" class="logout-btn" onclick="confirmLogout(event)"><i class="bi bi-box-arrow-right"></i> <span>Logout</span></button>
+                </form>
             </div>
         </nav>
 
@@ -119,7 +125,7 @@
                 confirmButtonText: "Yes, Logout"
             }).then((result) => {
                 if (result.isConfirmed) {
-                    window.location.href = '/Account/Logout';
+                    document.getElementById('logoutForm')?.submit();
                 }
             });
         }

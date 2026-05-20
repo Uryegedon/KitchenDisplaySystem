@@ -1,6 +1,7 @@
 @{
     Layout = null;
     var token = ViewBag.Token as string ?? "";
+    var ingredientOptionsJson = ViewBag.DeliveryIngredientOptionsJson as string ?? "[]";
 }
 <!DOCTYPE html>
 <html lang="en">
@@ -42,6 +43,14 @@
             border-radius: 10px;
             background: #fafafa;
         }
+        input[type=text], input[type=number] {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 11px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            font-size: 1rem;
+        }
         textarea {
             min-height: 230px;
             margin-top: 12px;
@@ -65,12 +74,37 @@
         button:disabled {
             opacity: 0.55;
         }
+        .button-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
         .status {
             margin-top: 12px;
             padding: 10px;
             border-radius: 10px;
             background: #fff8ef;
             color: #555;
+        }
+        .status.warning {
+            background: #fff3cd;
+            color: #7a4d00;
+            border: 1px solid #f0c36d;
+        }
+        .status.error {
+            background: #fff0f0;
+            color: #8f1f1f;
+            border: 1px solid #e7a3a3;
+        }
+        .preview {
+            display: none;
+            margin-top: 12px;
+            width: 100%;
+            max-height: 240px;
+            object-fit: contain;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            background: #f3f4f6;
         }
         .hint {
             color: #666;
@@ -85,6 +119,35 @@
             color: #555;
             font-size: 0.9rem;
         }
+        .examples {
+            margin-top: 8px;
+            color: #555;
+            font-size: 0.86rem;
+            line-height: 1.45;
+        }
+        .manual-entry {
+            margin-top: 12px;
+            padding: 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            background: #fafafa;
+        }
+        .manual-entry-title {
+            margin: 0 0 8px;
+            font-weight: 800;
+            color: #333;
+        }
+        .manual-entry-grid {
+            display: grid;
+            grid-template-columns: 1fr 110px;
+            gap: 10px;
+        }
+        @@media (max-width: 420px) {
+            .button-row,
+            .manual-entry-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -95,9 +158,23 @@
             <div class="format-box">
                 Expected rows: handwritten item name on the left, amount on the right.<br />
                 Example: Chicken wings 20
+                <div class="examples">If the OCR text looks wrong, type the rows manually here before uploading. The desktop will still review and match ingredients before stock is added.</div>
             </div>
             <input id="sheetImage" type="file" accept="image/*" capture="environment" />
-            <button type="button" class="secondary" id="runOcr">Read Sheet</button>
+            <img id="imagePreview" class="preview" alt="Selected delivery sheet preview" />
+            <div class="button-row">
+                <button type="button" class="secondary" id="runOcr">Read Sheet</button>
+                <button type="button" id="clearText">Clear Text</button>
+            </div>
+            <div class="manual-entry">
+                <p class="manual-entry-title">Manual row entry</p>
+                <div class="manual-entry-grid">
+                    <input id="manualItem" type="text" list="ingredientList" placeholder="Ingredient name" autocomplete="off" />
+                    <input id="manualQty" type="number" min="1" inputmode="numeric" placeholder="Amount" />
+                </div>
+                <datalist id="ingredientList"></datalist>
+                <button type="button" id="addManualRow">Add Row To Text</button>
+            </div>
             <textarea id="rawText" placeholder="Recognized delivery rows will appear here. One row per line: item name amount"></textarea>
             <button type="button" id="uploadSheet">Upload To Kitchen</button>
             <div class="status" id="status">Waiting for photo.</div>
@@ -106,16 +183,47 @@
 
     <script>
         const token = '@token';
+        const ingredientOptions = @Html.Raw(ingredientOptionsJson);
         let selectedFile = null;
         const imageInput = document.getElementById('sheetImage');
         const rawText = document.getElementById('rawText');
         const statusBox = document.getElementById('status');
         const runOcrButton = document.getElementById('runOcr');
         const uploadButton = document.getElementById('uploadSheet');
+        const clearTextButton = document.getElementById('clearText');
+        const imagePreview = document.getElementById('imagePreview');
+        const manualItem = document.getElementById('manualItem');
+        const manualQty = document.getElementById('manualQty');
+        const addManualRowButton = document.getElementById('addManualRow');
+        const ingredientList = document.getElementById('ingredientList');
+
+        ingredientList.innerHTML = ingredientOptions
+            .map(item => `<option value="${escapeHtml(item.name || '')}">${escapeHtml(item.unit || '')}</option>`)
+            .join('');
+
+        function setStatus(message, tone = '') {
+            statusBox.textContent = message;
+            statusBox.className = tone ? `status ${tone}` : 'status';
+        }
 
         imageInput.addEventListener('change', function () {
             selectedFile = this.files?.[0] || null;
-            statusBox.textContent = selectedFile ? 'Photo ready. Tap Read Sheet.' : 'Waiting for photo.';
+            if (imagePreview.dataset.previewUrl) {
+                URL.revokeObjectURL(imagePreview.dataset.previewUrl);
+                imagePreview.removeAttribute('data-preview-url');
+            }
+
+            if (selectedFile) {
+                const previewUrl = URL.createObjectURL(selectedFile);
+                imagePreview.src = previewUrl;
+                imagePreview.dataset.previewUrl = previewUrl;
+                imagePreview.style.display = 'block';
+                setStatus('Photo ready. Tap Read Sheet, or type the rows manually.');
+            } else {
+                imagePreview.removeAttribute('src');
+                imagePreview.style.display = 'none';
+                setStatus('Waiting for photo.');
+            }
         });
 
         runOcrButton.addEventListener('click', async function () {
@@ -125,37 +233,187 @@
             }
 
             runOcrButton.disabled = true;
-            statusBox.textContent = 'Reading sheet. Keep this page open...';
+            setStatus('Preparing image for OCR. Keep this page open...');
             try {
-                const result = await Tesseract.recognize(selectedFile, 'eng', {
+                const preparedImage = await prepareImageForOcr(selectedFile);
+                setStatus('Reading sheet. Keep this page open...');
+                const result = await Tesseract.recognize(preparedImage, 'eng', {
                     logger: progress => {
                         if (progress.status) {
                             const pct = progress.progress ? ` ${Math.round(progress.progress * 100)}%` : '';
-                            statusBox.textContent = `${progress.status}${pct}`;
+                            setStatus(`${progress.status}${pct}`);
                         }
-                    }
+                    },
+                    tessedit_pageseg_mode: '6',
+                    preserve_interword_spaces: '1',
+                    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:-/|'
                 });
-                rawText.value = result?.data?.text || '';
-                statusBox.textContent = 'Text recognized. Review it, then upload.';
+                rawText.value = cleanupRecognizedText(result?.data?.text || '');
+                const rowCount = countCandidateRows(rawText.value);
+                if (rowCount === 0) {
+                    setStatus('OCR result does not contain valid rows. Type or correct rows like "Chicken wings 20" before uploading.', 'warning');
+                } else {
+                    setStatus(`Text recognized. Found ${rowCount} possible row(s). Review before uploading.`);
+                }
             } catch (error) {
                 console.error(error);
-                statusBox.textContent = 'OCR failed. You can type the rows manually, then upload.';
+                setStatus('OCR failed. You can type the rows manually, then upload.', 'error');
             } finally {
                 runOcrButton.disabled = false;
             }
         });
 
+        clearTextButton.addEventListener('click', function () {
+            rawText.value = '';
+            setStatus(selectedFile ? 'Text cleared. Read the sheet again or type rows manually.' : 'Text cleared. Waiting for photo.');
+        });
+
+        addManualRowButton.addEventListener('click', function () {
+            const name = (manualItem.value || '').trim();
+            const qty = Number(manualQty.value || 0);
+            if (!name || qty <= 0) {
+                alert('Choose an ingredient and enter an amount.');
+                return;
+            }
+
+            const unit = findIngredientUnit(name);
+            const row = `${name} ${qty}${unit ? ` ${unit}` : ''}`;
+            rawText.value = rawText.value.trim()
+                ? `${rawText.value.trim()}\n${row}`
+                : row;
+            manualItem.value = '';
+            manualQty.value = '';
+            setStatus(`Ready to upload. Found ${countCandidateRows(rawText.value)} possible row(s).`);
+            manualItem.focus();
+        });
+
+        rawText.addEventListener('input', function () {
+            const rowCount = countCandidateRows(rawText.value);
+            if (!rawText.value.trim()) {
+                setStatus(selectedFile ? 'Photo ready. Tap Read Sheet, or type the rows manually.' : 'Waiting for delivery rows.');
+            } else if (rowCount === 0) {
+                setStatus('No valid rows yet. Use one row per line: item name amount.', 'warning');
+            } else {
+                setStatus(`Ready to upload. Found ${rowCount} possible row(s).`);
+            }
+        });
+
+        async function prepareImageForOcr(file) {
+            const image = await loadImage(file);
+            const maxSide = 2200;
+            const scale = Math.min(2, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+            const width = Math.max(1, Math.round(image.naturalWidth * scale));
+            const height = Math.max(1, Math.round(image.naturalHeight * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(image, 0, 0, width, height);
+
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const gray = (data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114);
+                const boosted = Math.max(0, Math.min(255, ((gray - 128) * 1.55) + 128));
+                const value = boosted > 178 ? 255 : boosted < 108 ? 0 : boosted;
+                data[i] = data[i + 1] = data[i + 2] = value;
+                data[i + 3] = 255;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            return canvas;
+        }
+
+        function loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const url = URL.createObjectURL(file);
+                const image = new Image();
+                image.onload = () => {
+                    URL.revokeObjectURL(url);
+                    resolve(image);
+                };
+                image.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    reject(new Error('Unable to load selected image.'));
+                };
+                image.src = url;
+            });
+        }
+
+        function cleanupRecognizedText(value) {
+            return (value || '')
+                .replace(/\r/g, '\n')
+                .split('\n')
+                .map(line => line.replace(/\s+/g, ' ').trim())
+                .filter(Boolean)
+                .join('\n');
+        }
+
+        function countCandidateRows(value) {
+            return cleanupRecognizedText(value)
+                .split('\n')
+                .filter(line => {
+                    const cleaned = line.replace(/\b[xX]\s*(?=\d)/g, '').replace(/\s+/g, ' ');
+                    return /^.+?[\s,|:\t-]+\d+(?:\s*[A-Za-z]+)?$/.test(cleaned)
+                        || /^\d+[\s,|:\t-]+.+?(?:\s+[A-Za-z]+)?$/.test(cleaned);
+                })
+                .length;
+        }
+
+        function hasLikelyOcrNoise(value) {
+            const text = (value || '').trim();
+            if (!text) return false;
+            const rowCount = countCandidateRows(text);
+            if (rowCount === 0) return true;
+
+            const usefulChars = (text.match(/[A-Za-z0-9]/g) || []).length;
+            const symbolChars = (text.match(/[^A-Za-z0-9\s.,:|/-]/g) || []).length;
+            return symbolChars > usefulChars * 0.25;
+        }
+
+        function findIngredientUnit(name) {
+            const normalized = normalize(name);
+            return ingredientOptions.find(item => normalize(item.name || '') === normalized)?.unit || '';
+        }
+
+        function normalize(value) {
+            return (value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         uploadButton.addEventListener('click', function () {
-            if (!selectedFile && !rawText.value.trim()) {
-                alert('Take a photo or enter delivery rows first.');
+            const text = rawText.value.trim();
+            if (!text) {
+                alert('Read the sheet or type delivery rows before uploading.');
+                return;
+            }
+
+            const rowCount = countCandidateRows(text);
+            if (rowCount === 0) {
+                setStatus('Cannot upload yet. Correct the text to one row per line, like "Chicken wings 20".', 'error');
+                alert('No valid delivery rows found. Correct the text before uploading.');
+                return;
+            }
+
+            if (hasLikelyOcrNoise(text) && !confirm('The OCR text still looks noisy. Upload only if the rows and amounts are readable. Continue?')) {
                 return;
             }
 
             uploadButton.disabled = true;
-            statusBox.textContent = 'Uploading...';
+            setStatus('Uploading...');
             const form = new FormData();
             form.append('token', token);
-            form.append('rawText', rawText.value || '');
+            form.append('rawText', text);
             if (selectedFile) form.append('sheetImage', selectedFile);
 
             fetch('/Admin/Inventory/UploadDeliveryImport', {
@@ -164,12 +422,12 @@
             })
             .then(response => response.json())
             .then(data => {
-                statusBox.textContent = data.message || (data.success ? 'Uploaded.' : 'Upload failed.');
+                setStatus(data.message || (data.success ? 'Uploaded.' : 'Upload failed.'), data.success ? '' : 'error');
                 if (!data.success) uploadButton.disabled = false;
             })
             .catch(error => {
                 console.error(error);
-                statusBox.textContent = 'Upload failed. Please try again.';
+                setStatus('Upload failed. Please try again.', 'error');
                 uploadButton.disabled = false;
             });
         });

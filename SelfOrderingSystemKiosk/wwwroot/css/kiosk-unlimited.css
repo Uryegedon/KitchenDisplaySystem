@@ -1,0 +1,190 @@
+.sulit-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 220;
+        display: none;
+        overflow-y: auto;
+        background: #fffaf4;
+        padding: 22px;
+    }
+
+    .sulit-screen.active {
+        display: block;
+    }
+
+    .sulit-screen-shell {
+        width: min(1120px, 100%);
+        margin: 0 auto;
+    }
+
+    .sulit-screen-topbar {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 20px;
+    }
+
+    .sulit-screen-topbar h2 {
+        margin: 0;
+        color: #d35400;
+        font-size: 1.45rem;
+    }
+
+    .sulit-back-btn {
+        width: 44px;
+        height: 44px;
+        border: 0;
+        border-radius: 50%;
+        background: #fff;
+        color: #d35400;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+        cursor: pointer;
+    }
+
+    .sulit-screen-grid {
+        display: grid;
+        grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);
+        gap: 28px;
+        align-items: start;
+    }
+
+    .sulit-preview {
+        position: sticky;
+        top: 18px;
+        background: #fff;
+        border: 1px solid #f2c094;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 10px 24px rgba(0,0,0,0.08);
+    }
+
+    .sulit-preview img {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        object-fit: cover;
+        border-radius: 10px;
+    }
+
+    .sulit-preview h3 {
+        margin: 14px 0 4px;
+        color: #d35400;
+        font-size: 1.25rem;
+    }
+
+    .sulit-preview p {
+        margin: 0;
+        color: #111827;
+        font-size: 1.1rem;
+        font-weight: 900;
+    }
+
+    .sulit-options {
+        display: grid;
+        gap: 18px;
+    }
+
+    .unlimited-included-groups {
+        display: grid;
+        gap: 18px;
+    }
+
+    .sulit-option-block {
+        background: #fff;
+        border: 1px solid #f2c094;
+        border-radius: 12px;
+        padding: 16px;
+    }
+
+    .sulit-option-block h4 {
+        margin: 0 0 12px;
+        color: #333;
+        font-size: 1rem;
+    }
+
+    .sulit-choice-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 9px;
+    }
+
+    .sulit-choice-grid.compact {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sulit-choice {
+        min-height: 42px;
+        padding: 9px 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fff;
+        color: #333;
+        font-size: 0.86rem;
+        font-weight: 800;
+        cursor: pointer;
+        line-height: 1.15;
+    }
+
+    .sulit-choice.selected {
+        background: #ff6b35;
+        border-color: #ff6b35;
+        color: #fff;
+    }
+
+    .sulit-choice:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .unlimited-choice {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 54px;
+        text-align: left;
+    }
+
+    .unlimited-choice img {
+        width: 38px;
+        height: 38px;
+        flex: 0 0 38px;
+        border-radius: 7px;
+        object-fit: cover;
+        background: #fff4ec;
+    }
+
+    .unlimited-choice span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .sulit-confirm-btn {
+        min-height: 50px;
+        border: 0;
+        border-radius: 10px;
+        background: #e67e22;
+        color: #fff;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    @media (max-width: 768px) {
+        .sulit-screen {
+            padding: 14px;
+        }
+
+        .sulit-screen-grid {
+            grid-template-columns: 1fr;
+            gap: 14px;
+        }
+
+        .sulit-preview {
+            position: static;
+        }
+
+        .sulit-choice-grid,
+        .sulit-choice-grid.compact {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+    }
+

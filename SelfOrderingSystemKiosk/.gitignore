@@ -74,6 +74,7 @@ docs/*.pdf
 # Local/generated manual files
 tools/generate_instruction_manual_pdf.py
 docs/instruction_manual_source.txt
+.aspnet-data-protection-keys/
 
 # Local deployment / maintenance procedure documents
 CLOUD_PRIMARY_LOCAL_BACKUP_DEPLOYMENT_PROCEDURE.md

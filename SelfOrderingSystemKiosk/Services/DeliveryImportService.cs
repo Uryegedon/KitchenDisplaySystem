@@ -63,15 +63,22 @@ namespace SelfOrderingSystemKiosk.Services
             if (session.UploadedAtUtc.HasValue)
                 return (false, "This scan session was already uploaded. Start a new scan if you need to replace it.");
 
+            rawText = (rawText ?? string.Empty).Trim();
             var rows = await ParseRowsAsync(rawText, session.BranchId);
+            if (!rows.Any())
+            {
+                return (false,
+                    "No delivery rows could be read. Correct the text to one row per line, like \"Chicken wings 20\", then upload again.");
+            }
+
             var update = Builders<DeliveryImportSession>.Update
-                .Set(s => s.RawText, rawText ?? string.Empty)
+                .Set(s => s.RawText, rawText)
                 .Set(s => s.Rows, rows)
                 .Set(s => s.UploadedAtUtc, DateTime.UtcNow)
                 .Set(s => s.UploadContentType, contentType ?? string.Empty)
                 .Set(s => s.UploadUserAgent, userAgent ?? string.Empty)
                 .Set(s => s.UploadRemoteIp, remoteIp ?? string.Empty)
-                .Set(s => s.Status, rows.Any() ? "Uploaded" : "NeedsReview");
+                .Set(s => s.Status, "Uploaded");
 
             var filter = Builders<DeliveryImportSession>.Filter.And(
                 Builders<DeliveryImportSession>.Filter.Eq(s => s.Id, session.Id),
@@ -83,13 +90,51 @@ namespace SelfOrderingSystemKiosk.Services
                 : (false, "This scan session was already uploaded or expired.");
         }
 
-        public async Task MarkConfirmedAsync(string token)
+        public async Task<bool> TryBeginConfirmationAsync(string token)
         {
-            await _sessions.UpdateOneAsync(
-                s => s.Token == token.Trim(),
+            if (string.IsNullOrWhiteSpace(token))
+                return false;
+
+            var filter = Builders<DeliveryImportSession>.Filter.And(
+                Builders<DeliveryImportSession>.Filter.Eq(s => s.Token, token.Trim()),
+                Builders<DeliveryImportSession>.Filter.Ne(s => s.Status, "Confirmed"),
+                Builders<DeliveryImportSession>.Filter.Ne(s => s.Status, "Confirming"),
+                Builders<DeliveryImportSession>.Filter.Gt(s => s.ExpiresAtUtc, DateTime.UtcNow));
+
+            var result = await _sessions.UpdateOneAsync(
+                filter,
+                Builders<DeliveryImportSession>.Update
+                    .Set(s => s.Status, "Confirming"));
+
+            return result.ModifiedCount == 1;
+        }
+
+        public async Task<bool> TryMarkConfirmedAsync(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return false;
+
+            var filter = Builders<DeliveryImportSession>.Filter.And(
+                Builders<DeliveryImportSession>.Filter.Eq(s => s.Token, token.Trim()),
+                Builders<DeliveryImportSession>.Filter.Eq(s => s.Status, "Confirming"));
+
+            var result = await _sessions.UpdateOneAsync(
+                filter,
                 Builders<DeliveryImportSession>.Update
                     .Set(s => s.Status, "Confirmed")
                     .Set(s => s.ConfirmedAtUtc, DateTime.UtcNow));
+
+            return result.ModifiedCount == 1;
+        }
+
+        public async Task MarkNeedsReviewAsync(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return;
+
+            await _sessions.UpdateOneAsync(
+                s => s.Token == token.Trim() && s.Status == "Confirming",
+                Builders<DeliveryImportSession>.Update.Set(s => s.Status, "NeedsReview"));
         }
 
         public async Task EnsureIndexesAsync(CancellationToken cancellationToken = default)
@@ -128,9 +173,12 @@ namespace SelfOrderingSystemKiosk.Services
                     line.Contains("qty", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                var match = Regex.Match(line, @"^(?<name>.+?)[\s,|\t]+(?<qty>\d+)(?:\s*(?<unit>[A-Za-z]+))?$");
+                line = Regex.Replace(line, @"\b[xX]\s*(?=\d)", string.Empty);
+                line = Regex.Replace(line, @"\s+", " ");
+
+                var match = Regex.Match(line, @"^(?<name>.+?)[\s,|:\t-]+(?<qty>\d+)(?:\s*(?<unit>[A-Za-z]+))?$");
                 if (!match.Success)
-                    match = Regex.Match(line, @"^(?<qty>\d+)[\s,|\t]+(?<name>.+?)(?:\s+(?<unit>[A-Za-z]+))?$");
+                    match = Regex.Match(line, @"^(?<qty>\d+)[\s,|:\t-]+(?<name>.+?)(?:\s+(?<unit>[A-Za-z]+))?$");
                 if (!match.Success)
                     continue;
 

@@ -5,15 +5,16 @@
     var selectedPeriod = ViewBag.SelectedPeriod as string ?? "today";
     var periodLabel = ViewBag.PeriodLabel as string ?? "Today";
     var selectedBranch = ViewBag.SelectedBranch as SelfOrderingSystemKiosk.Areas.Admin.Models.Branch;
-                var branchStats = ViewBag.BranchStats as List<SelfOrderingSystemKiosk.Controllers.BranchOverviewStats> ?? new List<SelfOrderingSystemKiosk.Controllers.BranchOverviewStats>();
-                var branchOrders = ViewBag.BranchOrders as List<SelfOrderingSystemKiosk.Areas.Customer.Models.Order> ?? new List<SelfOrderingSystemKiosk.Areas.Customer.Models.Order>();
-                string NormalizeMetricValue(string value) => new string((value ?? "").Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+    var selectedBranchManagers = ViewBag.SelectedBranchManagers as string ?? "Unassigned";
+    var managerNamesByBranch = ViewBag.ManagerNamesByBranch as Dictionary<string, string> ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var branchStats = ViewBag.BranchStats as List<SelfOrderingSystemKiosk.Controllers.BranchOverviewStats> ?? new List<SelfOrderingSystemKiosk.Controllers.BranchOverviewStats>();
+    var branchOrders = ViewBag.BranchOrders as List<SelfOrderingSystemKiosk.Areas.Customer.Models.Order> ?? new List<SelfOrderingSystemKiosk.Areas.Customer.Models.Order>();
+    string NormalizeMetricValue(string value) => new string((value ?? "").Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 }
 
 <div class="branch-overview-container">
     <div class="overview-header">
         <div>
-            <h1><i class="bi bi-geo-alt"></i> Branch Overview</h1>
             <p class="overview-subtitle">Branch status and ordering channels</p>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
@@ -56,7 +57,10 @@
         <!-- Single Branch Detail View -->
         <div class="single-branch-view">
             <div class="branch-detail-header">
-                <h2>@selectedBranch.BranchName <span class="branch-code">@selectedBranch.BranchCode</span></h2>
+                <div>
+                    <h2>@selectedBranch.BranchName <span class="branch-code">@selectedBranch.BranchCode</span></h2>
+                    <p class="branch-manager-line">Managed by: <strong>@selectedBranchManagers</strong></p>
+                </div>
                 <span class="status-badge @(selectedBranch.IsActive ? "status-active" : "status-inactive")">
                     @(selectedBranch.IsActive ? "Active" : "Inactive")
                 </span>
@@ -227,6 +231,7 @@
                         <thead>
                             <tr>
                                 <th>Branch</th>
+                                <th>Managed By</th>
                                 <th>Status</th>
                                 <th>Orders</th>
                                 <th>Billable</th>
@@ -243,6 +248,9 @@
                             @foreach (var stats in branchStats)
                             {
                                 var branch = allBranches.FirstOrDefault(b => b.Id == stats.BranchId);
+                                var managerNames = managerNamesByBranch.TryGetValue(stats.BranchId, out var names) && !string.IsNullOrWhiteSpace(names)
+                                    ? names
+                                    : "Unassigned";
                                 <tr>
                                     <td>
                                         <div class="branch-name-cell">
@@ -250,6 +258,7 @@
                                             <small>@stats.BranchCode</small>
                                         </div>
                                     </td>
+                                    <td class="manager-name-cell">@managerNames</td>
                                     <td>
                                         <span class="status-badge @(stats.IsActive ? "status-active" : "status-inactive")">
                                             @(stats.IsActive ? "Active" : "Inactive")
@@ -289,15 +298,6 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 24px;
-        }
-
-        .overview-header h1 {
-            margin: 0 0 4px 0;
-            font-size: 1.5em;
-            color: #d35400;
-            display: flex;
-            align-items: center;
-            gap: 12px;
         }
 
         .overview-subtitle {
@@ -502,11 +502,21 @@
         }
 
         .branch-detail-header h2 {
-            margin: 0;
+            margin: 0 0 6px;
             display: flex;
             align-items: center;
             gap: 12px;
             color: #d35400;
+        }
+
+        .branch-manager-line {
+            margin: 0;
+            color: #666;
+            font-size: 0.92rem;
+        }
+
+        .branch-manager-line strong {
+            color: #333;
         }
 
         .branch-code {
@@ -671,6 +681,12 @@
         .branch-name-cell small {
             color: #7f8c8d;
             font-family: monospace;
+        }
+
+        .manager-name-cell {
+            color: #555;
+            min-width: 130px;
+            white-space: normal !important;
         }
 
         .metric-money {

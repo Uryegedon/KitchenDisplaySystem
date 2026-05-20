@@ -1,16 +1,25 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
+using SelfOrderingSystemKiosk.Hubs;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
 using SelfOrderingSystemKiosk.Models;
 using SelfOrderingSystemKiosk.Services;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+
+if (builder.Environment.IsDevelopment())
+{
+    builder.Logging.ClearProviders();
+    builder.Logging.AddConsole();
+    builder.Logging.AddDebug();
+}
 
 static string? CleanConfigValue(string? value) =>
     string.IsNullOrWhiteSpace(value)
@@ -24,6 +33,15 @@ if (!string.IsNullOrEmpty(portEnv))
     builder.WebHost.UseUrls($"http://0.0.0.0:{portEnv}");
 }
 
+if (builder.Environment.IsDevelopment())
+{
+    var dataProtectionKeysPath = Path.Combine(builder.Environment.ContentRootPath, ".aspnet-data-protection-keys");
+    Directory.CreateDirectory(dataProtectionKeysPath);
+    builder.Services.AddDataProtection()
+        .SetApplicationName("SelfOrderingSystemKiosk")
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
+}
+
 // Add services to the container.
 builder.Services.AddControllersWithViews(options =>
     {
@@ -35,8 +53,24 @@ builder.Services.AddControllersWithViews(options =>
         options.JsonSerializerOptions.PropertyNamingPolicy = null; // Use exact property names
     });
 builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
 builder.Services.AddRateLimiter(options =>
 {
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddFixedWindowLimiter("auth-login", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 10;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueLimit = 0;
+        limiterOptions.AutoReplenishment = true;
+    });
+    options.AddFixedWindowLimiter("customer-order-write", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 30;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueLimit = 0;
+        limiterOptions.AutoReplenishment = true;
+    });
     options.AddFixedWindowLimiter("delivery-import-upload", limiterOptions =>
     {
         limiterOptions.PermitLimit = 6;
@@ -110,6 +144,7 @@ builder.Services.AddSingleton<UnlimitedRefillService>();
 builder.Services.AddSingleton<TableOrderingSessionService>();
 builder.Services.AddSingleton<TableRegistryService>();
 builder.Services.AddSingleton<QrCodeService>();
+builder.Services.AddSingleton<OrderRealtimeNotifier>();
 builder.Services.AddScoped<ChickenService>();
 
 builder.Services.AddHostedService<OrderIndexesHostedService>();
@@ -216,5 +251,7 @@ app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Dashboard}/{action=Index}/{id?}",
     defaults: new { area = "Admin" });
+
+app.MapHub<OrderRealtimeHub>("/hubs/orders");
 
 app.Run();

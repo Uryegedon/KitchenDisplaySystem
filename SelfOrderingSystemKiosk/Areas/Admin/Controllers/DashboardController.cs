@@ -9,7 +9,7 @@ using Order = SelfOrderingSystemKiosk.Areas.Customer.Models.Order;
 namespace SelfOrderingSystemKiosk.Controllers
 {
     [Area("Admin")]
-    [Authorize(Roles = "Owner,BranchManager,Admin")]
+    [Authorize(Roles = "Owner,BranchManager")]
     public class DashboardController : Controller
     {
         private readonly MenuItemService _menuItems;
@@ -91,7 +91,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
             else
             {
-                // Branch-restricted view (Manager or legacy Admin)
+                // Branch-restricted view
                 var (todayStart, todayEnd) = AppClock.LocalDateRange(AppClock.LocalNow.Date);
                 var todayOrders = await _orderService.GetByDateRangeHalfOpenAsync(todayStart, todayEnd, userBranchId);
 
