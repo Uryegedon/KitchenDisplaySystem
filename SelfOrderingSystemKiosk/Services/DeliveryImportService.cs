@@ -188,8 +188,10 @@ namespace SelfOrderingSystemKiosk.Services
                 if (!int.TryParse(match.Groups["qty"].Value, out var quantity) || quantity <= 0)
                     continue;
 
-                var unit = match.Groups["unit"].Success ? match.Groups["unit"].Value.Trim() : string.Empty;
                 var matched = FindBestIngredient(name, ingredients);
+                var unit = match.Groups["unit"].Success && !string.IsNullOrWhiteSpace(match.Groups["unit"].Value)
+                    ? match.Groups["unit"].Value.Trim()
+                    : matched.Item?.Unit?.Trim() ?? string.Empty;
                 rows.Add(new DeliveryImportRow
                 {
                     ItemName = name,

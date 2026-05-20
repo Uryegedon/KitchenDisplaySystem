@@ -367,6 +367,8 @@ const inventoryPageConfig = window.inventoryPageConfig ?? {};
         function createDeliveryReviewRow(row) {
             const tr = document.createElement('tr');
             const confidence = Number(row.confidence || 0);
+            const matchedIngredient = findDeliveryIngredient(row.matchedIngredientId);
+            const resolvedUnit = (row.unit || '').trim() || (matchedIngredient?.unit || '').trim();
             const optionHtml = ['<option value="">Ignore row</option>']
                 .concat(deliveryImportIngredients.map(item => {
                     const selected = item.id === row.matchedIngredientId ? ' selected' : '';
@@ -381,21 +383,51 @@ const inventoryPageConfig = window.inventoryPageConfig ?? {};
                 <td><input type="text" class="delivery-ocr-name" value="${escapeHtml(row.itemName || '')}" /></td>
                 <td><select class="delivery-ingredient">${optionHtml}</select></td>
                 <td><input type="number" class="delivery-qty" value="${Number(row.quantity || 0)}" min="0" /></td>
-                <td><input type="text" class="delivery-unit" value="${escapeHtml(row.unit || '')}" /></td>
+                <td><input type="text" class="delivery-unit" value="${escapeHtml(resolvedUnit)}" /></td>
                 <td><span class="confidence-badge">${confidence}%</span></td>
                 <td><input type="text" class="delivery-note" placeholder="Optional" /></td>
                 <td><button type="button" class="delivery-row-remove" onclick="removeDeliveryReviewRow(this)">Remove</button></td>
             `;
             tr.querySelector('.delivery-ingredient')?.addEventListener('change', function() {
-                const selected = this.options[this.selectedIndex];
-                const unit = selected?.getAttribute('data-unit') || '';
-                const unitInput = tr.querySelector('.delivery-unit');
-                if (unitInput && !unitInput.value.trim()) {
-                    unitInput.value = unit;
-                }
+                applySelectedIngredientUnit(tr);
                 tr.classList.toggle('needs-review', !this.value || confidence < 75);
             });
             return tr;
+        }
+
+        function findDeliveryIngredient(ingredientId) {
+            if (!ingredientId) return null;
+            return deliveryImportIngredients.find(item => item.id === ingredientId) || null;
+        }
+
+        function applySelectedIngredientUnit(row) {
+            const select = row.querySelector('.delivery-ingredient');
+            const unitInput = row.querySelector('.delivery-unit');
+            if (!select || !unitInput) return '';
+
+            const selected = select.options[select.selectedIndex];
+            const unit = (selected?.getAttribute('data-unit') || '').trim();
+            if (unit && !unitInput.value.trim()) {
+                unitInput.value = unit;
+            }
+            return unitInput.value.trim() || unit;
+        }
+
+        function fillMissingDeliveryUnitsFromMatches() {
+            return Array.from(document.querySelectorAll('#deliveryReviewRows tr'))
+                .map(row => {
+                    const ingredientId = row.querySelector('.delivery-ingredient')?.value || '';
+                    const quantity = Number(row.querySelector('.delivery-qty')?.value || 0);
+                    if (!ingredientId || quantity <= 0) return null;
+
+                    const unit = applySelectedIngredientUnit(row);
+                    return {
+                        row,
+                        ingredientId,
+                        unit
+                    };
+                })
+                .filter(Boolean);
         }
 
         function removeDeliveryReviewRow(button) {
@@ -409,6 +441,13 @@ const inventoryPageConfig = window.inventoryPageConfig ?? {};
         function confirmDeliveryImport() {
             if (!deliveryImportToken) {
                 alert('No active import session.');
+                return;
+            }
+
+            const matchedRows = fillMissingDeliveryUnitsFromMatches();
+            const missingUnitRows = matchedRows.filter(match => !match.unit);
+            if (missingUnitRows.length > 0) {
+                alert(`${missingUnitRows.length} matched row(s) have no unit set in Kitchen/Supplies. Edit the ingredient unit first, then confirm again.`);
                 return;
             }
 
