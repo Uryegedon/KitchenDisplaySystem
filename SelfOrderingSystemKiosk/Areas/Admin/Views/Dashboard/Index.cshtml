@@ -22,6 +22,9 @@
     var revUnTo = ViewBag.TodaysRevUnlimitedTakeOut != null ? (decimal)ViewBag.TodaysRevUnlimitedTakeOut : 0m;
     var cKiosk = ViewBag.TodaysCountKiosk != null ? (int)ViewBag.TodaysCountKiosk : 0;
     var cQr = ViewBag.TodaysCountQr != null ? (int)ViewBag.TodaysCountQr : 0;
+    var pendingOrders = ViewBag.PendingOrders != null ? (int)ViewBag.PendingOrders : 0;
+    var activeTables = ViewBag.ActiveTables != null ? (int)ViewBag.ActiveTables : 0;
+    var attentionCount = ViewBag.AttentionCount != null ? (int)ViewBag.AttentionCount : 0;
     
     // Branch context
     var branchName = ViewData["BranchName"] as string ?? "Unknown";
@@ -70,6 +73,29 @@
     }
     
     <p style="margin-top: 0;">Today's snapshot and quick actions. Charts and best sellers are on <a asp-area="Admin" asp-controller="Sales" asp-action="Index" style="color: #e67e22; font-weight: 600;">Sales &amp; reports</a>.</p>
+
+    <div class="ops-strip">
+        <a asp-area="Admin" asp-controller="Orders" asp-action="Index" asp-route-filter="today" class="ops-card">
+            <span class="ops-label">Pending work</span>
+            <strong>@pendingOrders</strong>
+            <small>Pending / in progress orders</small>
+        </a>
+        <button type="button" class="ops-card" onclick="showLowStockModal()">
+            <span class="ops-label">Low supplies</span>
+            <strong>@ViewBag.LowStockItems</strong>
+            <small>Need restock attention</small>
+        </button>
+        <div class="ops-card">
+            <span class="ops-label">Active tables</span>
+            <strong>@activeTables</strong>
+            <small>Open table sessions</small>
+        </div>
+        <a asp-area="Admin" asp-controller="StockMovement" asp-action="Index" class="ops-card @(attentionCount > 0 ? "needs-attention" : "")">
+            <span class="ops-label">All logs</span>
+            <strong>@attentionCount</strong>
+            <small>Operational alerts today</small>
+        </a>
+    </div>
 
     <div class="dashboard-cards">
         <div class="stat-card">

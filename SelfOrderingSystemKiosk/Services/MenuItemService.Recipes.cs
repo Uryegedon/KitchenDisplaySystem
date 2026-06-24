@@ -274,12 +274,8 @@ namespace SelfOrderingSystemKiosk.Services
             return 0;
         }
 
-        public async Task SeedRecipesFromMenuItemNamesAsync()
+        public async Task<int> SyncAllAvailabilityAsync()
         {
-            var ingredients = await _ingredients.GetAllAsync();
-            if (ingredients.Count == 0)
-                return;
-
             var items = await _collection.Find(Builders<MenuItem>.Filter.And(
                     Builders<MenuItem>.Filter.Ne(x => x.Item, (string)null!),
                     Builders<MenuItem>.Filter.Ne(x => x.Item, "")))
@@ -288,39 +284,18 @@ namespace SelfOrderingSystemKiosk.Services
             var updated = 0;
             foreach (var item in items)
             {
-                var inferred = InferRecipeFromName(item, ingredients);
-                if (inferred.Count == 0)
-                    continue;
-
-                var existing = SanitizeRecipeLines(item.BranchId, item.Recipe, ingredients);
-                var merged = existing
-                    .GroupBy(r => r.IngredientId.Trim(), StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.First())
-                    .ToList();
-
-                var existingIds = merged
-                    .Select(r => r.IngredientId)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var line in inferred)
-                {
-                    if (existingIds.Add(line.IngredientId))
-                        merged.Add(line);
-                }
-
-                if (merged.Count == existing.Count)
-                    continue;
-
-                await _collection.UpdateOneAsync(
-                    x => x.Id == item.Id,
-                    Builders<MenuItem>.Update.Set(x => x.Recipe, merged));
-                item.Recipe = merged;
+                var wasAvailable = IsAvailableForCustomerMenu(item.Availability);
+                var wasNoStock = string.Equals(item.Status, "No Stock", StringComparison.OrdinalIgnoreCase);
                 await SyncAvailabilityForMenuItemAsync(item);
-                updated++;
+                if (wasAvailable != IsAvailableForCustomerMenu(item.Availability)
+                    || wasNoStock != string.Equals(item.Status, "No Stock", StringComparison.OrdinalIgnoreCase))
+                    updated++;
             }
 
             if (updated > 0)
-                _logger.LogInformation("Seeded inferred recipes for {Count} menu items.", updated);
+                _logger.LogInformation("Reconciled stock availability for {Count} menu items.", updated);
+
+            return updated;
         }
 
         public async Task SyncAvailabilityForIngredientAsync(string ingredientId)

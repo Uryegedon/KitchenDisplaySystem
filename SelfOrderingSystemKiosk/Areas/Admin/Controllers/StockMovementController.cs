@@ -13,18 +13,23 @@ namespace SelfOrderingSystemKiosk.Controllers
     public class StockMovementController : Controller
     {
         private readonly StockMovementService _movementService;
+        private readonly ManagementLogService _managementLogService;
         private readonly BranchService _branchService;
 
-        public StockMovementController(StockMovementService movementService, BranchService branchService)
+        public StockMovementController(
+            StockMovementService movementService,
+            ManagementLogService managementLogService,
+            BranchService branchService)
         {
             _movementService = movementService;
+            _managementLogService = managementLogService;
             _branchService = branchService;
         }
 
         [HttpGet]
         public async Task<IActionResult> Index(string? range = "week", string? startDate = null, string? endDate = null, string? branchFilter = null)
         {
-            ViewData["Title"] = "Stock history";
+            ViewData["Title"] = "All Logs";
 
             // Get user's branch context
             var userBranchId = User.GetBranchId();
@@ -36,11 +41,28 @@ namespace SelfOrderingSystemKiosk.Controllers
             var effectiveBranchId = userBranchId;
             if (isOwner)
             {
+                if (string.IsNullOrWhiteSpace(branchFilter) &&
+                    Request.Cookies.TryGetValue("KdsAdminBranchFilter", out var savedBranchFilter))
+                {
+                    branchFilter = savedBranchFilter;
+                }
+
                 effectiveBranchId = string.Equals(branchFilter, "all", StringComparison.OrdinalIgnoreCase)
                     ? null
                     : string.IsNullOrWhiteSpace(branchFilter) ? null : branchFilter.Trim();
                 ViewBag.AllBranches = allBranches;
                 ViewBag.BranchFilter = string.IsNullOrWhiteSpace(branchFilter) ? "all" : branchFilter;
+                Response.Cookies.Append(
+                    "KdsAdminBranchFilter",
+                    ViewBag.BranchFilter,
+                    new CookieOptions
+                    {
+                        HttpOnly = true,
+                        IsEssential = true,
+                        SameSite = SameSiteMode.Lax,
+                        Secure = Request.IsHttps,
+                        Expires = DateTimeOffset.UtcNow.AddDays(30)
+                    });
             }
 
             // Get branch info for display
@@ -77,12 +99,35 @@ namespace SelfOrderingSystemKiosk.Controllers
                 end,
                 1000,
                 effectiveBranchId);
+            var managementLogs = await _managementLogService.GetRecentAsync(
+                start,
+                end,
+                1000,
+                effectiveBranchId);
+            var branchNames = allBranches
+                .Where(b => !string.IsNullOrWhiteSpace(b.Id))
+                .ToDictionary(b => b.Id, b => b.BranchName, StringComparer.OrdinalIgnoreCase);
+            var combined = movements
+                .Select(AllLogEntry.FromStockMovement)
+                .Concat(managementLogs.Select(AllLogEntry.FromManagementLog))
+                .OrderByDescending(l => l.TimestampUtc)
+                .Take(1000)
+                .ToList();
+
+            foreach (var entry in combined)
+            {
+                if (!string.IsNullOrWhiteSpace(entry.BranchId) &&
+                    branchNames.TryGetValue(entry.BranchId, out var name))
+                {
+                    entry.BranchName = name;
+                }
+            }
             
             ViewBag.Range = range;
             ViewBag.StartDate = AppClock.ToLocal(start).ToString("yyyy-MM-dd");
             ViewBag.EndDate = AppClock.ToLocal(end).AddDays(-1).ToString("yyyy-MM-dd");
             ViewBag.IsOwner = isOwner;
-            return View(movements);
+            return View(combined);
         }
     }
 }

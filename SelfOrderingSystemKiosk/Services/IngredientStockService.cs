@@ -207,6 +207,86 @@ namespace SelfOrderingSystemKiosk.Services
             return true;
         }
 
+        public async Task<(bool Success, IngredientItem? Previous)> ClearStockAsync(string ingredientId, string? note = null)
+        {
+            if (string.IsNullOrWhiteSpace(ingredientId))
+                return (false, null);
+
+            var item = await _collection.FindOneAndUpdateAsync(
+                x => x.Id == ingredientId,
+                Builders<IngredientItem>.Update
+                    .Set(x => x.CurrentStock, 0)
+                    .Set(x => x.Status, "No Stock"),
+                new FindOneAndUpdateOptions<IngredientItem> { ReturnDocument = ReturnDocument.Before });
+            if (item == null)
+                return (false, null);
+
+            if (item.CurrentStock != 0)
+            {
+                await _movements.InsertAsync(new StockMovement
+                {
+                    InventoryItemId = item.Id,
+                    ItemName = item.Item ?? "",
+                    QuantityDelta = -item.CurrentStock,
+                    StockBefore = item.CurrentStock,
+                    StockAfter = 0,
+                    Reason = "Adjustment",
+                    ReferenceType = "Ingredient",
+                    ReferenceId = item.Id,
+                    Note = string.IsNullOrWhiteSpace(note) ? "Stock cleared to 0" : note.Trim(),
+                    BranchId = item.BranchId
+                });
+            }
+
+            return (true, item);
+        }
+
+        public async Task<IngredientItem?> ResolveStockTargetForBranchAsync(string ingredientId, string? branchId)
+        {
+            if (string.IsNullOrWhiteSpace(ingredientId))
+                return null;
+
+            var source = await GetByIdAsync(ingredientId.Trim());
+            if (source == null)
+                return null;
+
+            if (string.IsNullOrWhiteSpace(branchId))
+                return source;
+
+            var targetBranchId = branchId.Trim();
+            if (string.Equals(source.BranchId, targetBranchId, StringComparison.OrdinalIgnoreCase))
+                return source;
+
+            if (!IsSharedBranch(source.BranchId))
+                return null;
+
+            var existingBranchItem = await _collection
+                .Find(i =>
+                    i.BranchId == targetBranchId &&
+                    i.Item == source.Item &&
+                    i.Unit == source.Unit)
+                .FirstOrDefaultAsync();
+            if (existingBranchItem != null)
+                return existingBranchItem;
+
+            var branchItem = new IngredientItem
+            {
+                Id = ObjectId.GenerateNewId().ToString(),
+                Item = source.Item,
+                IngredientCategory = source.IngredientCategory,
+                CurrentStock = 0,
+                Unit = source.Unit,
+                CostPerUnit = source.CostPerUnit,
+                ExpirationDate = source.ExpirationDate,
+                ReorderLevel = source.ReorderLevel,
+                Status = "No Stock",
+                BranchId = targetBranchId
+            };
+
+            await _collection.InsertOneAsync(branchItem);
+            return branchItem;
+        }
+
         public async Task RecordAdjustmentAsync(string ingredientId, string itemName, int stockBefore, int stockAfter, string note)
         {
             var item = await GetByIdAsync(ingredientId);
@@ -447,6 +527,9 @@ namespace SelfOrderingSystemKiosk.Services
                 Builders<IngredientItem>.Filter.Eq(i => i.BranchId, string.Empty),
                 Builders<IngredientItem>.Filter.Not(Builders<IngredientItem>.Filter.Exists(i => i.BranchId)));
         }
+
+        private static bool IsSharedBranch(string? branchId)
+            => string.IsNullOrWhiteSpace(branchId);
 
         private static IEnumerable<IngredientItem> PreferBranchItemsOverShared(IEnumerable<IngredientItem> items, string branchId)
         {

@@ -28,7 +28,6 @@ namespace SelfOrderingSystemKiosk.Services
             }
 
             username = username.Trim();
-            password = password.Trim();
 
             
             var safe = Regex.Escape(username);

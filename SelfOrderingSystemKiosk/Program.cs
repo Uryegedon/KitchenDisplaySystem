@@ -126,6 +126,7 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
 // Register services that use IMongoClient instead of IMongoDatabase
 // Each service gets the database itself internally
 builder.Services.AddSingleton<StockMovementService>();
+builder.Services.AddSingleton<ManagementLogService>();
 builder.Services.AddSingleton<MenuCategoryRegistry>();
 builder.Services.AddSingleton<FoodCategoryRegistry>();
 builder.Services.AddSingleton<IngredientCategoryRegistry>();
@@ -149,7 +150,7 @@ builder.Services.AddScoped<ChickenService>();
 
 builder.Services.AddHostedService<OrderIndexesHostedService>();
 builder.Services.AddHostedService<OrderExpirationHostedService>();
-builder.Services.AddHostedService<MenuRecipeSeedHostedService>();
+builder.Services.AddHostedService<MenuAvailabilitySyncHostedService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -226,6 +227,14 @@ if (!app.Environment.IsDevelopment())
 
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers.TryAdd("X-Content-Type-Options", "nosniff");
+    headers.TryAdd("Referrer-Policy", "same-origin");
+    headers.TryAdd("X-Frame-Options", "DENY");
+    await next();
+});
 
 app.UseStaticFiles();
 

@@ -8,9 +8,9 @@
         <div class="delete-icon">
             <i class="bi bi-exclamation-triangle"></i>
         </div>
-        <h1>Delete Branch</h1>
+        <h1>Deactivate Branch</h1>
         <p class="delete-warning">
-            This action cannot be undone. All data associated with this branch will be affected.
+            This keeps historical orders, users, inventory, QR tables, and logs linked to this branch.
         </p>
 
         <div class="branch-info">
@@ -44,7 +44,7 @@
 
             <div class="form-actions">
                 <button type="submit" id="deleteBtn" class="btn-delete" disabled>
-                    <i class="bi bi-trash"></i> Yes, Delete This Branch
+                    <i class="bi bi-pause-circle"></i> Yes, Deactivate This Branch
                 </button>
                 <a asp-action="Index" class="btn-cancel">No, Go Back</a>
             </div>
@@ -245,7 +245,7 @@
         document.querySelector('.delete-form').addEventListener('submit', function(e) {
             if (confirmInput.value !== expectedValue) {
                 e.preventDefault();
-                alert('Please type the branch name exactly to confirm deletion.');
+                alert('Please type the branch name exactly to confirm deactivation.');
             }
         });
     </script>

@@ -1,14 +1,16 @@
+using MongoDB.Bson;
 using MongoDB.Driver;
 using SelfOrderingSystemKiosk.Areas.Admin.Models;
 using SelfOrderingSystemKiosk.Areas.Customer.Models;
+using BestSeller = SelfOrderingSystemKiosk.Models.BestSeller;
 
 
 namespace SelfOrderingSystemKiosk.Services
 {
     public class OrderService
     {
-        private const string PendingStatus = "Pending";
-        private const string CanceledStatus = "Canceled";
+        private const string PendingStatus = OrderStatuses.Pending;
+        private const string CanceledStatus = OrderStatuses.Canceled;
         private static readonly TimeSpan PendingOrderExpiration = TimeSpan.FromHours(24);
         private readonly IMongoCollection<Order> _orders;
         private readonly IMongoCollection<Branch> _branches;
@@ -28,6 +30,57 @@ namespace SelfOrderingSystemKiosk.Services
             return await _orders
                 .Find(o => o.OrderDate >= startUtcInclusive && o.OrderDate < endUtcExclusive)
                 .ToListAsync();
+        }
+
+        public async Task<List<BestSeller>> GetBestSellersAsync(
+            DateTime? startUtcInclusive = null,
+            DateTime? endUtcExclusive = null,
+            string? branchId = null,
+            int take = 5)
+        {
+            var match = new BsonDocument
+            {
+                ["status"] = new BsonDocument("$ne", OrderStatuses.Canceled),
+                ["total"] = new BsonDocument("$gt", 0)
+            };
+            if (!string.IsNullOrWhiteSpace(branchId))
+                match["branchId"] = branchId.Trim();
+
+            var dateFilter = new BsonDocument();
+            if (startUtcInclusive.HasValue)
+                dateFilter["$gte"] = startUtcInclusive.Value;
+            if (endUtcExclusive.HasValue)
+                dateFilter["$lt"] = endUtcExclusive.Value;
+            if (dateFilter.ElementCount > 0)
+                match["orderDate"] = dateFilter;
+
+            var pipeline = new[]
+            {
+                new BsonDocument("$match", match),
+                new BsonDocument("$unwind", "$items"),
+                new BsonDocument("$match", new BsonDocument("items.itemName", new BsonDocument("$nin", new BsonArray { BsonNull.Value, "" }))),
+                new BsonDocument("$group", new BsonDocument
+                {
+                    ["_id"] = "$items.itemName",
+                    ["quantity"] = new BsonDocument("$sum", "$items.quantity"),
+                    ["revenue"] = new BsonDocument("$sum", new BsonDocument("$multiply", new BsonArray { "$items.price", "$items.quantity" }))
+                }),
+                new BsonDocument("$sort", new BsonDocument
+                {
+                    ["quantity"] = -1,
+                    ["revenue"] = -1
+                }),
+                new BsonDocument("$limit", Math.Max(1, take))
+            };
+
+            var rows = await _orders.Aggregate<BsonDocument>(pipeline).ToListAsync();
+            return rows.Select(row => new BestSeller
+                {
+                    ItemName = row.GetValue("_id", string.Empty).AsString,
+                    Quantity = ReadInt32(row.GetValue("quantity", 0)),
+                    Revenue = ReadDecimal(row.GetValue("revenue", 0))
+                })
+                .ToList();
         }
 
         /// <summary>Kitchen board: filter in MongoDB by date preset instead of loading all orders.</summary>
@@ -121,6 +174,32 @@ namespace SelfOrderingSystemKiosk.Services
                 return 0;
 
             return int.Parse(trimmed[2..]);
+        }
+
+        private static int ReadInt32(BsonValue value)
+        {
+            if (value.IsInt32)
+                return value.AsInt32;
+            if (value.IsInt64)
+                return checked((int)value.AsInt64);
+            if (value.IsDouble)
+                return checked((int)value.AsDouble);
+            if (value.IsDecimal128)
+                return checked((int)(decimal)value.AsDecimal128);
+            return 0;
+        }
+
+        private static decimal ReadDecimal(BsonValue value)
+        {
+            if (value.IsDecimal128)
+                return (decimal)value.AsDecimal128;
+            if (value.IsDouble)
+                return Convert.ToDecimal(value.AsDouble);
+            if (value.IsInt32)
+                return value.AsInt32;
+            if (value.IsInt64)
+                return value.AsInt64;
+            return 0m;
         }
 
         private async Task<long> CountOrderNumberAsync(string orderNumber, CancellationToken cancellationToken)
@@ -397,7 +476,7 @@ namespace SelfOrderingSystemKiosk.Services
                 Builders<Order>.Filter.Eq(o => o.TableNumber, tableNumber),
                 Builders<Order>.Filter.Eq(o => o.DiningType, "DineIn"),
                 Builders<Order>.Filter.Eq(o => o.OrderType, "Unlimited"),
-                Builders<Order>.Filter.Ne(o => o.Status, "Canceled"),
+                Builders<Order>.Filter.Ne(o => o.Status, CanceledStatus),
                 Builders<Order>.Filter.Eq(o => o.BillArchived, false)
             };
             if (!string.IsNullOrWhiteSpace(branchId))
@@ -430,14 +509,14 @@ namespace SelfOrderingSystemKiosk.Services
         // Cancel order by ID
         public async Task CancelOrderAsync(string id)
         {
-            var update = Builders<Order>.Update.Set(o => o.Status, "Canceled");
+            var update = Builders<Order>.Update.Set(o => o.Status, CanceledStatus);
             await _orders.UpdateOneAsync(o => o.Id == id, update);
         }
 
         // Cancel order by order number
         public async Task CancelOrderByOrderNumberAsync(string orderNumber)
         {
-            var update = Builders<Order>.Update.Set(o => o.Status, "Canceled");
+            var update = Builders<Order>.Update.Set(o => o.Status, CanceledStatus);
             await _orders.UpdateOneAsync(o => o.OrderNumber == orderNumber, update);
         }
 
@@ -450,7 +529,7 @@ namespace SelfOrderingSystemKiosk.Services
             var filters = new List<FilterDefinition<Order>>
             {
                 Builders<Order>.Filter.Eq(o => o.TableNumber, tableNumber),
-                Builders<Order>.Filter.Ne(o => o.Status, "Canceled"),
+                Builders<Order>.Filter.Ne(o => o.Status, CanceledStatus),
                 Builders<Order>.Filter.Eq(o => o.DiningType, "DineIn")
             };
             if (!string.IsNullOrWhiteSpace(branchId))
@@ -475,7 +554,7 @@ namespace SelfOrderingSystemKiosk.Services
             var filters = new List<FilterDefinition<Order>>
             {
                 Builders<Order>.Filter.Eq(o => o.TableNumber, tableNumber),
-                Builders<Order>.Filter.Ne(o => o.Status, "Canceled"),
+                Builders<Order>.Filter.Ne(o => o.Status, CanceledStatus),
                 Builders<Order>.Filter.Eq(o => o.DiningType, "DineIn")
             };
             if (!string.IsNullOrWhiteSpace(branchId))

@@ -121,14 +121,11 @@ namespace SelfOrderingSystemKiosk.Controllers
             var profitMarginPercent = rangeRevenue == 0 ? 0m : (rangeProfit / rangeRevenue) * 100m;
             var missingCostCount = reportBillableOrders.Count(o => o.OrderCost <= 0 && (o.Items?.Any(i => i.Quantity > 0) ?? false));
 
-            var historyStart = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            var allOrdersForBestSellers = await _orderService.GetByDateRangeHalfOpenAsync(historyStart, DateTime.UtcNow.AddDays(1), effectiveBranchId);
-            var bestSellersAllTime = OrderSalesAnalytics.BuildBestSellers(FilterSalesOrders(allOrdersForBestSellers));
-            var bestSellersToday = OrderSalesAnalytics.BuildBestSellers(FilterSalesOrders(todayOrders));
+            var bestSellersAllTime = await _orderService.GetBestSellersAsync(branchId: effectiveBranchId);
+            var bestSellersToday = await _orderService.GetBestSellersAsync(todayStart, todayEnd, effectiveBranchId);
 
             var (monthStart, monthEnd) = AppClock.CurrentLocalMonthRange();
-            var monthOrders = await _orderService.GetByDateRangeHalfOpenAsync(monthStart, monthEnd, effectiveBranchId);
-            var bestSellersMonthly = OrderSalesAnalytics.BuildBestSellers(FilterSalesOrders(monthOrders));
+            var bestSellersMonthly = await _orderService.GetBestSellersAsync(monthStart, monthEnd, effectiveBranchId);
 
             var menuItems = await _menuItemService.GetAllByBranchAsync(effectiveBranchId);
             var categoryStats = BuildCategoryStats(reportBillableOrders, menuItems);

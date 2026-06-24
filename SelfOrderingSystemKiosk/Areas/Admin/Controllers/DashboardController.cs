@@ -16,13 +16,20 @@ namespace SelfOrderingSystemKiosk.Controllers
         private readonly IngredientStockService _ingredients;
         private readonly OrderService _orderService;
         private readonly BranchService _branchService;
+        private readonly TableOrderingSessionService _tableOrderingSessions;
 
-        public DashboardController(MenuItemService menuItems, IngredientStockService ingredients, OrderService orderService, BranchService branchService)
+        public DashboardController(
+            MenuItemService menuItems,
+            IngredientStockService ingredients,
+            OrderService orderService,
+            BranchService branchService,
+            TableOrderingSessionService tableOrderingSessions)
         {
             _menuItems = menuItems;
             _ingredients = ingredients;
             _orderService = orderService;
             _branchService = branchService;
+            _tableOrderingSessions = tableOrderingSessions;
         }
 
         public async Task<IActionResult> Index()
@@ -123,6 +130,12 @@ namespace SelfOrderingSystemKiosk.Controllers
             ViewBag.LowStockList = lowRows;
             ViewBag.LowStockItems = lowRows.Count;
             ViewBag.IsOwner = isOwner;
+            var tableSessions = await _tableOrderingSessions.GetAllAsync();
+            ViewBag.ActiveTables = tableSessions.Count(s =>
+                s.IsOrderingOpen &&
+                (isOwner || string.Equals(s.BranchId, userBranchId, StringComparison.OrdinalIgnoreCase)));
+            var pendingOrderCount = ViewBag.PendingOrders != null ? (int)ViewBag.PendingOrders : 0;
+            ViewBag.AttentionCount = pendingOrderCount + lowRows.Count;
 
             return View();
         }
@@ -173,6 +186,9 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             ViewBag.TodaysCountKiosk = todayOrders.Count(o => string.Equals(o.OrderChannel, "Kiosk", StringComparison.OrdinalIgnoreCase));
             ViewBag.TodaysCountQr = todayOrders.Count(o => string.Equals(o.OrderChannel, "Qr", StringComparison.OrdinalIgnoreCase));
+            ViewBag.PendingOrders = todayOrders.Count(o =>
+                string.Equals(o.Status, "Pending", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(o.Status, "In Progress", StringComparison.OrdinalIgnoreCase));
         }
 
         [HttpPost]

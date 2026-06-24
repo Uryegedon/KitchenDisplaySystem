@@ -93,23 +93,23 @@
             return false;
 
         var name = item.Item.Trim();
-        if (string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal))
+        if (string.Equals(item.Category, "Unlimited Inclusions", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (string.Equals(item.Category, "Wings", StringComparison.Ordinal))
+        if (string.Equals(item.Category, "Wings", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (string.Equals(item.Category, "Drinks", StringComparison.Ordinal))
+        if (string.Equals(item.Category, "Drinks", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (string.Equals(item.Category, "Add Ons", StringComparison.Ordinal))
+        if (string.Equals(item.Category, "Add Ons", StringComparison.OrdinalIgnoreCase))
         {
             return name.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)
                 || name.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)
                 || name.Equals("Extra Gravy", StringComparison.OrdinalIgnoreCase);
         }
 
-        if (string.Equals(item.Category, "Appetizer", StringComparison.Ordinal))
+        if (string.Equals(item.Category, "Appetizer", StringComparison.OrdinalIgnoreCase))
         {
             return name.Equals("Nachos", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("Potato Thins", StringComparison.OrdinalIgnoreCase);
@@ -119,27 +119,26 @@
     }
 
     static bool IsUnlimitedRice(SelfOrderingSystemKiosk.Models.MenuItem item) =>
-        string.Equals(item.Category, "Add Ons", StringComparison.Ordinal)
-        && (item.Item.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)
-            || item.Item.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase));
+        IsUnlimitedIncludedMenuItem(item)
+        && item.Item.Contains("Rice", StringComparison.OrdinalIgnoreCase);
 
     static bool IsUnlimitedSauce(SelfOrderingSystemKiosk.Models.MenuItem item) =>
-        string.Equals(item.Category, "Add Ons", StringComparison.Ordinal)
+        string.Equals(item.Category, "Add Ons", StringComparison.OrdinalIgnoreCase)
         && item.Item.Equals("Extra Gravy", StringComparison.OrdinalIgnoreCase);
 
     static bool IsUnlimitedSide(SelfOrderingSystemKiosk.Models.MenuItem item) =>
-        string.Equals(item.Category, "Appetizer", StringComparison.Ordinal)
+        string.Equals(item.Category, "Appetizer", StringComparison.OrdinalIgnoreCase)
         && (item.Item.Equals("Nachos", StringComparison.OrdinalIgnoreCase)
             || item.Item.StartsWith("Potato Thins", StringComparison.OrdinalIgnoreCase));
 
     static bool IsUnlimitedPasta(SelfOrderingSystemKiosk.Models.MenuItem item) =>
-        string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal)
-        && (string.Equals(item.FoodCategory, "pasta", StringComparison.OrdinalIgnoreCase)
+        IsUnlimitedIncludedMenuItem(item)
+        && (string.Equals(item.Category, "Pasta", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(item.FoodCategory, "pasta", StringComparison.OrdinalIgnoreCase)
             || item.Item.Contains("Pasta", StringComparison.OrdinalIgnoreCase));
 
     static bool IsUnlimitedDrink(SelfOrderingSystemKiosk.Models.MenuItem item) =>
-        (string.Equals(item.Category, "Drinks", StringComparison.Ordinal)
-            || string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal))
+        IsUnlimitedIncludedMenuItem(item)
         && !IsUnlimitedPasta(item)
         && (string.Equals(item.FoodCategory, "drink", StringComparison.OrdinalIgnoreCase)
             || item.Item.Contains("Tea", StringComparison.OrdinalIgnoreCase)
@@ -147,6 +146,15 @@
             || item.Item.Contains("Drink", StringComparison.OrdinalIgnoreCase)
             || item.Item.Contains("Softdrinks", StringComparison.OrdinalIgnoreCase)
             || item.Item.Equals("Water", StringComparison.OrdinalIgnoreCase));
+
+    static bool IsUnclassifiedUnlimitedItem(SelfOrderingSystemKiosk.Models.MenuItem item) =>
+        IsUnlimitedIncludedMenuItem(item)
+        && !string.Equals(item.Category, "Wings", StringComparison.OrdinalIgnoreCase)
+        && !IsUnlimitedRice(item)
+        && !IsUnlimitedSide(item)
+        && !IsUnlimitedSauce(item)
+        && !IsUnlimitedPasta(item)
+        && !IsUnlimitedDrink(item);
 
     static string SulitMealBaseName(string itemName) =>
         itemName.Contains(" - ", StringComparison.Ordinal)
@@ -321,6 +329,27 @@
                                 defaultQuantity = 1,
                                 options = includedItems
                                     .Where(IsUnlimitedDrink)
+                                    .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
+                                    .Select(g => g.OrderByDescending(i => i.MenuOrder).First())
+                                    .OrderByDescending(i => i.MenuOrder)
+                                    .ThenBy(i => i.Item)
+                                    .Select(i => new
+                                    {
+                                        name = i.Item,
+                                        label = i.Item,
+                                        image = Url.Content(KpImages.ResolveDisplayPath(i.Item, i.Image))
+                                    })
+                                    .ToList()
+                            },
+                            new
+                            {
+                                key = "other",
+                                title = "More included items",
+                                hint = "Included",
+                                maxSelections = 0,
+                                defaultQuantity = 1,
+                                options = includedItems
+                                    .Where(IsUnclassifiedUnlimitedItem)
                                     .GroupBy(i => i.Item.Trim(), StringComparer.OrdinalIgnoreCase)
                                     .Select(g => g.OrderByDescending(i => i.MenuOrder).First())
                                     .OrderByDescending(i => i.MenuOrder)

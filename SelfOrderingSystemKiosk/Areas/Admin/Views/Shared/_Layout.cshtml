@@ -58,7 +58,7 @@
                 <li><a asp-area="Admin" asp-controller="Sales" asp-action="Index"><i class="bi bi-graph-up-arrow"></i> <span>Sales &amp; reports</span></a></li>
                 <li><a asp-area="Admin" asp-controller="Menu" asp-action="Index"><i class="bi bi-egg-fried"></i> <span>Menu (foods)</span></a></li>
                 <li><a asp-area="Admin" asp-controller="Inventory" asp-action="Index"><i class="bi bi-box-seam"></i> <span>Kitchen/Supplies</span></a></li>
-                <li><a asp-area="Admin" asp-controller="StockMovement" asp-action="Index"><i class="bi bi-arrow-left-right"></i> <span>Stock history</span></a></li>
+                <li><a asp-area="Admin" asp-controller="StockMovement" asp-action="Index"><i class="bi bi-journal-text"></i> <span>All logs</span></a></li>
                 @if (User.IsInRole("Owner") || User.IsInRole("BranchManager"))
                 {
                     <li><a asp-area="Admin" asp-controller="TableQr" asp-action="Index"><i class="bi bi-qr-code"></i> <span>Print table QR codes</span></a></li>
@@ -76,7 +76,7 @@
         <!-- Content -->
         <div class="main-content">
             <header class="header">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="admin-topbar">
                     <h1>@ViewData["Title"]</h1>
                     @if (User.Identity?.IsAuthenticated == true)
                     {
@@ -87,17 +87,17 @@
                             }
                             @if (User.IsInRole("Owner"))
                             {
-                                <span class="user-role-badge owner">Owner</span>
+                                <span class="user-role-badge owner" title="Owner access: all branches and management areas">Owner</span>
                             }
                             else if (User.IsInRole("BranchManager"))
                             {
-                                <span class="user-role-badge manager">Manager</span>
+                                <span class="user-role-badge manager" title="Branch manager access: assigned branch operations">Manager</span>
                             }
                             else if (User.IsInRole("Kitchen"))
                             {
-                                <span class="user-role-badge">Kitchen</span>
+                                <span class="user-role-badge" title="Kitchen access: kitchen order workflow">Kitchen</span>
                             }
-                            <span style="color: #666;">@User.Identity.Name</span>
+                            <span class="admin-user-name">@User.Identity.Name</span>
                         </div>
                     }
                 </div>

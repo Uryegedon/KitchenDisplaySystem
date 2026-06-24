@@ -2,14 +2,18 @@ using SelfOrderingSystemKiosk.Services;
 
 namespace SelfOrderingSystemKiosk.Services
 {
-    public class MenuRecipeSeedHostedService : IHostedService
+    /// <summary>
+    /// Reconciles stock-driven availability after a restart. Recipes are maintained only
+    /// through the menu editor; they must never be inferred from item or ingredient names.
+    /// </summary>
+    public class MenuAvailabilitySyncHostedService : IHostedService
     {
         private readonly MenuItemService _menuItems;
-        private readonly ILogger<MenuRecipeSeedHostedService> _logger;
+        private readonly ILogger<MenuAvailabilitySyncHostedService> _logger;
 
-        public MenuRecipeSeedHostedService(
+        public MenuAvailabilitySyncHostedService(
             MenuItemService menuItems,
-            ILogger<MenuRecipeSeedHostedService> logger)
+            ILogger<MenuAvailabilitySyncHostedService> logger)
         {
             _menuItems = menuItems;
             _logger = logger;
@@ -19,11 +23,11 @@ namespace SelfOrderingSystemKiosk.Services
         {
             try
             {
-                await _menuItems.SeedRecipesFromMenuItemNamesAsync();
+                await _menuItems.SyncAllAvailabilityAsync();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unable to seed menu item recipes from names.");
+                _logger.LogError(ex, "Unable to reconcile menu availability from ingredient stock.");
             }
         }
 

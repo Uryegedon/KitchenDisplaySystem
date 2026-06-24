@@ -15,12 +15,10 @@ namespace SelfOrderingSystemKiosk.Controllers
     public class AccountController : Controller
     {
         private readonly AuthService _authService;
-        private readonly UserService _userService;
 
-        public AccountController(AuthService authService, UserService userService)
+        public AccountController(AuthService authService)
         {
             _authService = authService;
-            _userService = userService;
         }
 
 
@@ -131,30 +129,9 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return View();
             }
 
-            var user = await _userService.FindByUsernameOrEmailAsync(account);
-            if (user != null)
-            {
-                var recipients = await _userService.GetPasswordResetRecipientsAsync(user);
-                if (recipients.Any())
-                {
-                    ViewBag.ResetContacts = recipients
-                        .Select(r => string.IsNullOrWhiteSpace(r.FullName) ? r.Email : $"{r.FullName} <{r.Email}>")
-                        .ToList();
-                    ViewBag.ResetMailto = BuildPasswordResetMailto(recipients, user);
-                }
-            }
-
-            ViewBag.Message = "Ask an owner or your branch manager to reset your password from User Accounts.";
+            await Task.CompletedTask;
+            ViewBag.Message = "If this account exists, ask an owner or your branch manager to reset the password from User Accounts.";
             return View();
-        }
-
-        private static string BuildPasswordResetMailto(List<AdminUser> recipients, AdminUser account)
-        {
-            var to = string.Join(",", recipients.Select(r => r.Email.Trim()));
-            var subject = Uri.EscapeDataString("KDS password reset request");
-            var body = Uri.EscapeDataString(
-                $"Please reset the KDS password for {account.FullName} ({account.Username}).\n\nDo not send a password in plain text unless your store policy allows it. Reset it from Admin > User Accounts > Change Password.");
-            return $"mailto:{to}?subject={subject}&body={body}";
         }
 
         [Authorize]

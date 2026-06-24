@@ -20,8 +20,9 @@ namespace SelfOrderingSystemKiosk.Controllers
         private readonly StockMovementService _stockMovements;
         private readonly DeliveryImportService _deliveryImports;
         private readonly QrCodeService _qrCodes;
+        private readonly ManagementLogService _managementLogs;
 
-        public InventoryController(IngredientStockService ingredients, MenuItemService menuItems, IngredientCategoryRegistry ingredientCategories, BranchService branchService, StockMovementService stockMovements, DeliveryImportService deliveryImports, QrCodeService qrCodes)
+        public InventoryController(IngredientStockService ingredients, MenuItemService menuItems, IngredientCategoryRegistry ingredientCategories, BranchService branchService, StockMovementService stockMovements, DeliveryImportService deliveryImports, QrCodeService qrCodes, ManagementLogService managementLogs)
         {
             _ingredients = ingredients;
             _menuItems = menuItems;
@@ -30,6 +31,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             _stockMovements = stockMovements;
             _deliveryImports = deliveryImports;
             _qrCodes = qrCodes;
+            _managementLogs = managementLogs;
         }
 
         public async Task<IActionResult> Index(string? categoryFilter = null, string? branchFilter = null, string? expiryFilter = null, DateTime? expiryUntil = null, string? actionView = null, bool print = false)
@@ -298,6 +300,16 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return Json(new { success = false, message = "Choose a branch before starting phone scan." });
 
             var session = await _deliveryImports.CreateAsync(effectiveBranchId, User.Identity?.Name ?? "System");
+            await _managementLogs.RecordAsync(
+                "Started",
+                "Delivery import",
+                "Started delivery import scan",
+                session.Id,
+                session.Token,
+                $"Expires: {AppClock.ToLocal(session.ExpiresAtUtc):h:mm tt}",
+                effectiveBranchId,
+                User.GetUsername(),
+                category: "Inventory");
             var scanUrl = Url.Action("ScanDeliveryImport", "Inventory", new { area = "Admin", token = session.Token }, Request.Scheme)
                 ?? string.Empty;
             var qrBytes = _qrCodes.GetPngBytes(scanUrl, 8);
@@ -426,7 +438,7 @@ namespace SelfOrderingSystemKiosk.Controllers
             var imported = 0;
             foreach (var row in rows)
             {
-                var item = await _ingredients.GetByIdAsync(row.IngredientId);
+                var item = await _ingredients.ResolveStockTargetForBranchAsync(row.IngredientId, session.BranchId);
                 if (item == null || !CanAccessInventoryBranch(item.BranchId))
                     continue;
 
@@ -449,6 +461,16 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             if (!await _deliveryImports.TryMarkConfirmedAsync(session.Token))
                 return Json(new { success = false, message = "This delivery import was already confirmed or expired." });
+            await _managementLogs.RecordAsync(
+                "Confirmed",
+                "Delivery import",
+                $"Confirmed delivery import with {imported} row(s)",
+                session.Id,
+                session.Token,
+                $"Imported rows: {imported}",
+                session.BranchId,
+                User.GetUsername(),
+                category: "Inventory");
 
             return Json(new { success = true, message = $"Imported {imported} delivery row(s)." });
         }
@@ -588,8 +610,6 @@ namespace SelfOrderingSystemKiosk.Controllers
                 await _ingredients.AddAsync(newItem);
                 await _menuItems.SyncAvailabilityForIngredientAsync(newItem.Id);
             }
-            await _menuItems.SeedRecipesFromMenuItemNamesAsync();
-
             TempData["Message"] = rows.Count == 1
                 ? "Ingredient added!"
                 : $"{rows.Count} ingredients added!";
@@ -651,7 +671,6 @@ namespace SelfOrderingSystemKiosk.Controllers
             existing.ExpirationDate = expirationDate;
 
             await _ingredients.UpdateAsync(existing);
-            await _menuItems.SeedRecipesFromMenuItemNamesAsync();
             await _menuItems.SyncAvailabilityForIngredientAsync(existing.Id);
             TempData["Message"] = $"Ingredient '{existing.Item}' updated.";
             return RedirectToInventoryIndex(branchFilter, actionView);
@@ -714,37 +733,21 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
-            var previousStock = item.CurrentStock;
-            item.CurrentStock += amount;
-
-            // Update status based on new logic
-            if (item.CurrentStock == 0)
+            var note = string.IsNullOrWhiteSpace(batchNote)
+                ? $"Restock by {amount} units"
+                : $"Restock by {amount} units - Batch/Delivery: {batchNote.Trim()}";
+            var restocked = await _ingredients.IncreaseStockAsync(item.Id, amount, "Restock", null, note);
+            if (!restocked)
             {
-                item.Status = "No Stock";
+                TempData["Message"] = "Could not restock ingredient.";
+                return RedirectToInventoryIndex(branchFilter, actionView);
             }
-            else if (item.CurrentStock <= item.ReorderLevel)
-            {
-                item.Status = "Low Stock";
-            }
-            else
-            {
-                item.Status = "In Stock";
-            }
-
-            await _ingredients.UpdateAsync(item);
-            await _ingredients.RecordAdjustmentAsync(
-                item.Id,
-                item.Item ?? "",
-                previousStock,
-                item.CurrentStock,
-                string.IsNullOrWhiteSpace(batchNote)
-                    ? $"Restock by {amount} units"
-                    : $"Restock by {amount} units - Batch/Delivery: {batchNote.Trim()}");
             await _menuItems.SyncAvailabilityForIngredientAsync(item.Id);
+            var updatedItem = await _ingredients.GetByIdAsync(item.Id);
 
             TempData["Message"] = string.IsNullOrWhiteSpace(batchNote)
-                ? $"Restocked '{item.Item}' by {amount} units."
-                : $"Restocked '{item.Item}' by {amount} units. Batch/Delivery: {batchNote.Trim()}";
+                ? $"Restocked '{updatedItem?.Item ?? item.Item}' by {amount} units."
+                : $"Restocked '{updatedItem?.Item ?? item.Item}' by {amount} units. Batch/Delivery: {batchNote.Trim()}";
             return RedirectToInventoryIndex(branchFilter, actionView);
         }
 
@@ -773,20 +776,15 @@ namespace SelfOrderingSystemKiosk.Controllers
                 return RedirectToInventoryIndex(branchFilter, actionView);
             }
 
-            var previousStock = item.CurrentStock;
-            item.CurrentStock = 0;
-            item.Status = "No Stock";
-
-            await _ingredients.UpdateAsync(item);
-            await _ingredients.RecordAdjustmentAsync(
-                item.Id,
-                item.Item ?? "",
-                previousStock,
-                item.CurrentStock,
-                "Stock cleared to 0");
+            var cleared = await _ingredients.ClearStockAsync(item.Id);
+            if (!cleared.Success)
+            {
+                TempData["Message"] = "Could not clear ingredient stock.";
+                return RedirectToInventoryIndex(branchFilter, actionView);
+            }
             await _menuItems.SyncAvailabilityForIngredientAsync(item.Id);
 
-            TempData["Message"] = $"Stock for '{item.Item}' was cleared to 0.";
+            TempData["Message"] = $"Stock for '{cleared.Previous?.Item ?? item.Item}' was cleared to 0.";
             return RedirectToInventoryIndex(branchFilter, actionView);
         }
 

@@ -4,6 +4,39 @@ using System.Text.Json.Serialization;
 
 namespace SelfOrderingSystemKiosk.Areas.Customer.Models
 {
+    public static class OrderStatuses
+    {
+        public const string Pending = "Pending";
+        public const string InProgress = "In Progress";
+        public const string Completed = "Completed";
+        public const string Canceled = "Canceled";
+
+        private static readonly HashSet<string> Allowed = new(StringComparer.OrdinalIgnoreCase)
+        {
+            Pending,
+            InProgress,
+            Completed,
+            Canceled,
+            "Cancelled"
+        };
+
+        public static bool TryNormalize(string? status, out string normalized)
+        {
+            normalized = string.Empty;
+            if (string.IsNullOrWhiteSpace(status))
+                return false;
+
+            var trimmed = status.Trim();
+            if (!Allowed.Contains(trimmed))
+                return false;
+
+            normalized = string.Equals(trimmed, "Cancelled", StringComparison.OrdinalIgnoreCase)
+                ? Canceled
+                : trimmed;
+            return true;
+        }
+    }
+
     public class Order
     {
         [BsonId]
@@ -108,7 +141,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Models
         {
             Items = new List<OrderItem>();
             OrderDate = DateTime.UtcNow;
-            Status = "Pending";
+            Status = OrderStatuses.Pending;
             OrderType = "AlaCarte";
             OrderChannel = "Kiosk";
             PaymentMethod = "Cash";

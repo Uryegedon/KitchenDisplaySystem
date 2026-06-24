@@ -369,12 +369,7 @@ E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\codex-build-check\QRCoder.dl
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\codex-build-check\SharpCompress.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\codex-build-check\Snappier.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\codex-build-check\ZstdSharp.dll
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\publish-test\web.config
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\appsettings.json
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\publish-test\appsettings.json
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\publish-test\SelfOrderingSystemKiosk.deps.json
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\publish-test\SelfOrderingSystemKiosk.runtimeconfig.json
-E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\publish-test\SelfOrderingSystemKiosk.staticwebassets.endpoints.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.exe
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.deps.json
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\SelfOrderingSystemKiosk.runtimeconfig.json
@@ -426,3 +421,5 @@ E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\runtimes\win\li
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\runtimes\unix\lib\net6.0\System.Drawing.Common.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\runtimes\win\lib\net6.0\System.Drawing.Common.dll
 E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\bin\Debug\net8.0\appsettings.Development.json
+E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\refint\SelfOrderingSystemKiosk.dll
+E:\KitchenDisplaySystem\SelfOrderingSystemKiosk\obj\Debug\net8.0\ref\SelfOrderingSystemKiosk.dll

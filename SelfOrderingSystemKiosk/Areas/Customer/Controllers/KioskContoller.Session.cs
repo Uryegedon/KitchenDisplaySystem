@@ -84,6 +84,7 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 HttpOnly = true,
                 IsEssential = true,
                 SameSite = SameSiteMode.Lax,
+                Secure = Request.IsHttps,
                 Expires = DateTimeOffset.UtcNow.Add(OrderingSessionLength)
             };
 

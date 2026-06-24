@@ -4,21 +4,33 @@
     ViewData["Title"] = "Orders Management";
     var branchName = ViewData["BranchName"] as string ?? "Unknown";
     var isOwner = User.IsInRole("Owner");
+    var allBranches = ViewBag.AllBranches as List<SelfOrderingSystemKiosk.Areas.Admin.Models.Branch> ?? new();
+    var branchFilter = ViewBag.BranchFilter as string ?? "all";
 }
 
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-    <h2 style="margin: 0; font-size: 1.5em;">@branchName</h2>
+<div class="page-toolbar">
+    <h2>@branchName</h2>
     @if (isOwner)
     {
-        <span style="color: #888; font-size: 0.9em;">Viewing all branches</span>
+        <form method="get" asp-area="Admin" asp-controller="Orders" asp-action="Index" class="inline-filter-form">
+            <input type="hidden" name="filter" value="@(Context.Request.Query["filter"].ToString())" />
+            <label for="branchFilter">Branch</label>
+            <select name="branchFilter" id="branchFilter" onchange="this.form.submit()">
+                <option value="all" selected="@(branchFilter == "all")">All branches</option>
+                @foreach (var branch in allBranches)
+                {
+                    <option value="@branch.Id" selected="@(branchFilter == branch.Id)">@branch.BranchName</option>
+                }
+            </select>
+        </form>
     }
 </div>
 
-<p style="margin-top: 0;">Track and update order statuses efficiently.</p>
+<p class="page-subtitle">Track and update order statuses efficiently.</p>
 
     @if (ViewBag.FilterMessage != null)
     {
-        <div class="alert alert-info" style="background: #e3f2fd; border: 1px solid #2196f3; color: #1976d2; padding: 12px; border-radius: 5px; margin-bottom: 20px;">
+        <div class="admin-alert-info">
             @ViewBag.FilterMessage
         </div>
     }
@@ -67,22 +79,7 @@
                             <td>₱@o.Total.ToString("N2")</td>
                             <td>@AppClock.ToLocal(o.OrderDate).ToString("MMM dd, yyyy h:mm tt")</td>
                             <td>
-                                @if (o.Status == "Pending")
-                                {
-                                    <span style="color:#e67e22; font-weight:bold;">@o.Status</span>
-                                }
-                                else if (o.Status == "Completed")
-                                {
-                                    <span style="color:#27ae60; font-weight:bold;">@o.Status</span>
-                                }
-                                else if (o.Status == "Cancelled")
-                                {
-                                    <span style="color:#e74c3c; font-weight:bold;">@o.Status</span>
-                                }
-                                else
-                                {
-                                    <span>@o.Status</span>
-                                }
+                                <span class="status-badge @((o.Status ?? string.Empty).ToLowerInvariant().Replace(" ", "-"))">@o.Status</span>
                             </td>
                             <td>
                                 <form method="post" asp-action="UpdateStatus" class="form-inline" onsubmit="return confirmUpdate(event, '@o.OrderNumber')">
@@ -91,7 +88,7 @@
                                         <option value="Pending" selected="@(o.Status == "Pending")">Pending</option>
                                         <option value="In Progress" selected="@(o.Status == "In Progress")">In Progress</option>
                                         <option value="Completed" selected="@(o.Status == "Completed")">Completed</option>
-                                        <option value="Cancelled" selected="@(o.Status == "Cancelled")">Cancelled</option>
+                                        <option value="Canceled" selected="@(string.Equals(o.Status, "Canceled", StringComparison.OrdinalIgnoreCase))">Canceled</option>
                                     </select>
                                     <input type="hidden" name="id" value="@o.Id" />
                                     <button type="submit" class="btn btn-edit">Update</button>

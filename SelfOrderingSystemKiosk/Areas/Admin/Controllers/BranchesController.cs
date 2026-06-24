@@ -15,19 +15,22 @@ namespace SelfOrderingSystemKiosk.Controllers
         private readonly TableOrderingSessionService _tableOrderingSessions;
         private readonly TableRegistryService _tableRegistry;
         private readonly UserService _userService;
+        private readonly ManagementLogService _managementLogs;
 
         public BranchesController(
             BranchService branchService,
             OrderService orderService,
             TableOrderingSessionService tableOrderingSessions,
             TableRegistryService tableRegistry,
-            UserService userService)
+            UserService userService,
+            ManagementLogService managementLogs)
         {
             _branchService = branchService;
             _orderService = orderService;
             _tableOrderingSessions = tableOrderingSessions;
             _tableRegistry = tableRegistry;
             _userService = userService;
+            _managementLogs = managementLogs;
         }
 
         public async Task<IActionResult> Index(string? message = null)
@@ -212,6 +215,16 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
 
             await _branchService.CreateAsync(branch);
+            await _managementLogs.RecordAsync(
+                "Created",
+                "Branch",
+                $"Created branch {branch.BranchName}",
+                branch.Id,
+                branch.BranchName,
+                $"Code: {branch.BranchCode}",
+                branch.Id,
+                User.GetUsername(),
+                category: "Branch");
             return RedirectToAction("Index", new { message = "Branch created successfully!" });
         }
 
@@ -274,6 +287,16 @@ namespace SelfOrderingSystemKiosk.Controllers
 
             branch.CreatedAt = existing.CreatedAt;
             await _branchService.UpdateAsync(branch);
+            await _managementLogs.RecordAsync(
+                "Updated",
+                "Branch",
+                $"Updated branch {branch.BranchName}",
+                branch.Id,
+                branch.BranchName,
+                $"Code: {existing.BranchCode} -> {branch.BranchCode}",
+                branch.Id,
+                User.GetUsername(),
+                category: "Branch");
             return RedirectToAction("Index", new { message = "Branch updated successfully!" });
         }
 
@@ -292,8 +315,30 @@ namespace SelfOrderingSystemKiosk.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(string id)
         {
-            await _branchService.DeleteAsync(id);
-            return RedirectToAction("Index", new { message = "Branch deleted successfully!" });
+            var branch = await _branchService.GetByIdAsync(id);
+            if (branch == null)
+            {
+                return RedirectToAction("Index", new { message = "Branch not found." });
+            }
+
+            if (branch.IsActive)
+            {
+                branch.IsActive = false;
+                await _branchService.UpdateAsync(branch);
+            }
+
+            await _managementLogs.RecordAsync(
+                "Deactivated",
+                "Branch",
+                $"Deactivated branch {branch.BranchName}",
+                id,
+                branch.BranchName,
+                $"Code: {branch.BranchCode}",
+                id,
+                User.GetUsername(),
+                category: "Branch",
+                severity: "Warning");
+            return RedirectToAction("Index", new { message = "Branch deactivated. Historical data was kept." });
         }
 
         [HttpPost]
@@ -314,6 +359,17 @@ namespace SelfOrderingSystemKiosk.Controllers
 
                 branch.IsActive = !branch.IsActive;
                 await _branchService.UpdateAsync(branch);
+                await _managementLogs.RecordAsync(
+                    branch.IsActive ? "Activated" : "Deactivated",
+                    "Branch",
+                    $"{(branch.IsActive ? "Activated" : "Deactivated")} branch {branch.BranchName}",
+                    branch.Id,
+                    branch.BranchName,
+                    $"Active: {!branch.IsActive} -> {branch.IsActive}",
+                    branch.Id,
+                    User.GetUsername(),
+                    category: "Branch",
+                    severity: branch.IsActive ? "Info" : "Warning");
                 return Json(new { success = true, isActive = branch.IsActive });
             }
             return Json(new { success = false, message = "Branch not found." });

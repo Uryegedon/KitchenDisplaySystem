@@ -1,7 +1,7 @@
-@model List<SelfOrderingSystemKiosk.Models.StockMovement>
+@model List<SelfOrderingSystemKiosk.Models.AllLogEntry>
 @using System.Linq
 @{
-    ViewData["Title"] = "Stock history";
+    ViewData["Title"] = "All Logs";
     Layout = "~/Areas/Admin/Views/Shared/_Layout.cshtml";
     var r = ViewBag.Range as string ?? "week";
     var startDate = ViewBag.StartDate as string;
@@ -15,7 +15,7 @@
 <div class="header" style="margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;">
         <div>
             <h2 style="margin: 0 0 6px; font-size: 1.5em;">@branchName</h2>
-            <p style="margin: 0; color: #666;">Ingredient recipe deductions, kitchen/supplies restocks, and manual inventory edits.</p>
+            <p style="margin: 0; color: #666;">Inventory changes, user updates, branch changes, QR generation, and order management actions.</p>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <span style="font-size: 0.9rem;">Range:</span>
@@ -88,12 +88,12 @@
             <thead>
                 <tr>
                     <th>Time (local)</th>
-                    <th>Item</th>
-                    <th>Δ</th>
-                    <th>Before</th>
-                    <th>After</th>
-                    <th class="no-print">Reason</th>
+                    <th>Type</th>
+                    <th>Area</th>
+                    <th>Summary</th>
+                    <th>Change</th>
                     <th class="no-print">Reference</th>
+                    <th>Branch</th>
                     <th>By</th>
                     <th class="no-print">Note</th>
                 </tr>
@@ -101,7 +101,7 @@
             <tbody>
                 @if (Model == null || !Model.Any())
                 {
-                    <tr><td colspan="9" style="text-align: center; padding: 24px; color: #666;">No movements in this range.</td></tr>
+                    <tr><td colspan="9" style="text-align: center; padding: 24px; color: #666;">No logs in this range.</td></tr>
                 }
                 else
                 {
@@ -109,17 +109,10 @@
                     {
                         <tr>
                             <td>@AppClock.ToLocal(m.TimestampUtc).ToString("MMM dd, yyyy h:mm tt")</td>
-                            <td>
-                                <strong>@m.ItemName</strong>
-                                @if (!string.IsNullOrEmpty(m.InventoryItemId))
-                                {
-                                    <span style="font-size: 0.75rem; color: #888;">@m.InventoryItemId</span>
-                                }
-                            </td>
-                            <td style="font-weight: 600; color: @(m.QuantityDelta < 0 ? "#c0392b" : "#27ae60");">@(m.QuantityDelta > 0 ? "+" : "")@m.QuantityDelta</td>
-                            <td>@m.StockBefore</td>
-                            <td>@m.StockAfter</td>
-                            <td class="no-print">@m.Reason</td>
+                            <td><span class="status-badge @(m.LogType.ToLowerInvariant())">@m.LogType</span></td>
+                            <td>@m.Area</td>
+                            <td><strong>@m.Summary</strong></td>
+                            <td>@m.Change</td>
                             <td class="no-print">
                                 <span style="font-size: 0.85rem;">@m.ReferenceType</span>
                                 @if (!string.IsNullOrEmpty(m.ReferenceId))
@@ -127,6 +120,7 @@
                                     <br /><code style="font-size: 0.75rem;">@m.ReferenceId</code>
                                 }
                             </td>
+                            <td style="font-size: 0.85rem;">@(string.IsNullOrWhiteSpace(m.BranchName) ? (string.IsNullOrWhiteSpace(m.BranchId) ? "All" : m.BranchId) : m.BranchName)</td>
                             <td style="font-size: 0.85rem;">@(string.IsNullOrWhiteSpace(m.PerformedBy) ? "-" : m.PerformedBy)</td>
                             <td class="no-print" style="font-size: 0.85rem;">@m.Note</td>
                         </tr>

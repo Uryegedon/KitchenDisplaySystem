@@ -140,6 +140,22 @@ namespace SelfOrderingSystemKiosk.Services
                     new CreateIndexOptions { Name = "ix_branches_branchCode" }),
                 cancellationToken: cancellationToken);
 
+            var populatedBranchCodeFilter = Builders<Branch>.Filter.And(
+                Builders<Branch>.Filter.Exists(b => b.BranchCode),
+                Builders<Branch>.Filter.Ne(b => b.BranchCode, null),
+                Builders<Branch>.Filter.Ne(b => b.BranchCode, string.Empty));
+            await _branches.Indexes.CreateOneAsync(
+                new CreateIndexModel<Branch>(
+                    Builders<Branch>.IndexKeys.Ascending(b => b.BranchCode),
+                    new CreateIndexOptions<Branch>
+                    {
+                        Name = "ux_branches_branchCode_ci",
+                        Unique = true,
+                        Collation = new Collation("en", strength: CollationStrength.Secondary),
+                        PartialFilterExpression = populatedBranchCodeFilter
+                    }),
+                cancellationToken: cancellationToken);
+
             await _branches.Indexes.CreateOneAsync(
                 new CreateIndexModel<Branch>(
                     Builders<Branch>.IndexKeys.Ascending(b => b.IsActive),

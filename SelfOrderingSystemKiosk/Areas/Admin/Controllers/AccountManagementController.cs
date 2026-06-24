@@ -10,13 +10,16 @@ namespace SelfOrderingSystemKiosk.Controllers
     [Authorize(Roles = "Owner,BranchManager")]
     public class AccountManagementController : Controller
     {
+        private const int MinimumPasswordLength = 10;
         private readonly UserService _userService;
         private readonly BranchService _branchService;
+        private readonly ManagementLogService _managementLogs;
 
-        public AccountManagementController(UserService userService, BranchService branchService)
+        public AccountManagementController(UserService userService, BranchService branchService, ManagementLogService managementLogs)
         {
             _userService = userService;
             _branchService = branchService;
+            _managementLogs = managementLogs;
         }
 
         // GET: Admin/AccountManagement
@@ -91,6 +94,10 @@ namespace SelfOrderingSystemKiosk.Controllers
             {
                 ModelState.AddModelError("Password", "Password is required.");
             }
+            else if (user.Password.Length < MinimumPasswordLength)
+            {
+                ModelState.AddModelError("Password", $"Password must be at least {MinimumPasswordLength} characters long.");
+            }
 
             if (string.IsNullOrWhiteSpace(user.FullName))
             {
@@ -108,6 +115,16 @@ namespace SelfOrderingSystemKiosk.Controllers
             user.Password = BCrypt.Net.BCrypt.HashPassword(user.Password);
             
             await _userService.CreateUserAsync(user);
+            await _managementLogs.RecordAsync(
+                "Created",
+                "User",
+                $"Created user {user.Username}",
+                user.Id,
+                user.Username,
+                $"Role: {user.Role}",
+                user.BranchId,
+                User.GetUsername(),
+                category: "User");
 
             TempData["Success"] = "User created successfully!";
             return RedirectToAction("Index");
@@ -198,6 +215,16 @@ namespace SelfOrderingSystemKiosk.Controllers
                 TempData["Error"] = "User changes were not saved. Please refresh and try again.";
                 return RedirectToAction("Edit", new { id });
             }
+            await _managementLogs.RecordAsync(
+                "Updated",
+                "User",
+                $"Updated user {user.Username}",
+                user.Id,
+                user.Username,
+                $"Role: {existingUser.Role} -> {user.Role}",
+                user.BranchId,
+                User.GetUsername(),
+                category: "User");
 
             TempData["Success"] = "User updated successfully!";
             return RedirectToAction("Index");
@@ -246,9 +273,9 @@ namespace SelfOrderingSystemKiosk.Controllers
             {
                 ModelState.AddModelError("NewPassword", "New password is required.");
             }
-            else if (model.NewPassword.Length < 6)
+            else if (model.NewPassword.Length < MinimumPasswordLength)
             {
-                ModelState.AddModelError("NewPassword", "Password must be at least 6 characters long.");
+                ModelState.AddModelError("NewPassword", $"Password must be at least {MinimumPasswordLength} characters long.");
             }
 
             if (model.NewPassword != model.ConfirmPassword)
@@ -265,6 +292,17 @@ namespace SelfOrderingSystemKiosk.Controllers
             var newPasswordHash = BCrypt.Net.BCrypt.HashPassword(model.NewPassword);
             
             await _userService.ChangePasswordAsync(model.UserId, newPasswordHash);
+            await _managementLogs.RecordAsync(
+                "Password changed",
+                "User",
+                $"Changed password for {user.Username}",
+                user.Id,
+                user.Username,
+                "Password hash updated",
+                user.BranchId,
+                User.GetUsername(),
+                category: "User",
+                severity: "Warning");
 
             TempData["Success"] = "Password changed successfully!";
             return RedirectToAction("Index");
@@ -311,6 +349,17 @@ namespace SelfOrderingSystemKiosk.Controllers
             }
 
             await _userService.DeleteUserAsync(id);
+            await _managementLogs.RecordAsync(
+                "Deleted",
+                "User",
+                $"Deleted user {user.Username}",
+                user.Id,
+                user.Username,
+                $"Role: {user.Role}",
+                user.BranchId,
+                User.GetUsername(),
+                category: "User",
+                severity: "Warning");
 
             TempData["Success"] = "User deleted successfully!";
             return RedirectToAction("Index");

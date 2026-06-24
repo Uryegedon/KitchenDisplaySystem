@@ -20,17 +20,20 @@ namespace SelfOrderingSystemKiosk.Controllers
         private readonly IOptions<QrOrderingSettings> _qrSettings;
         private readonly TableRegistryService _tableRegistry;
         private readonly BranchService _branchService;
+        private readonly ManagementLogService _managementLogs;
 
         public TableQrController(
             QrCodeService qrCodeService,
             IOptions<QrOrderingSettings> qrSettings,
             TableRegistryService tableRegistry,
-            BranchService branchService)
+            BranchService branchService,
+            ManagementLogService managementLogs)
         {
             _qrCodeService = qrCodeService;
             _qrSettings = qrSettings;
             _tableRegistry = tableRegistry;
             _branchService = branchService;
+            _managementLogs = managementLogs;
         }
 
         [HttpGet]
@@ -68,6 +71,16 @@ namespace SelfOrderingSystemKiosk.Controllers
             var baseUrl = ResolvePublicBaseUrl(publicSiteUrl);
             var payload = BuildOrderUrl(baseUrl, registeredTable.QrToken, branchId);
             var png = _qrCodeService.GetPngBytes(payload);
+            await _managementLogs.RecordAsync(
+                "Downloaded",
+                "Table QR",
+                $"Downloaded QR for table {table}",
+                registeredTable.Id,
+                table,
+                string.IsNullOrWhiteSpace(floor) ? null : $"Floor: {floor}",
+                branchId,
+                User.GetUsername(),
+                category: "QR");
             var safeName = SanitizeFileSegment(table);
             return File(png, "image/png", $"qr-table-{safeName}.png");
         }
@@ -116,6 +129,16 @@ namespace SelfOrderingSystemKiosk.Controllers
                 ResolvedBaseUrl = baseUrl,
                 Items = items
             };
+            await _managementLogs.RecordAsync(
+                "Generated",
+                "Table QR",
+                $"Generated printable QR sheet for {items.Count} table(s)",
+                null,
+                $"{items.Count} table(s)",
+                string.IsNullOrWhiteSpace(floor) ? null : $"Floor: {floor}",
+                branchId,
+                User.GetUsername(),
+                category: "QR");
 
             return View("Print", page);
         }

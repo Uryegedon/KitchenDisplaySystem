@@ -237,23 +237,23 @@ namespace SelfOrderingSystemKiosk.Areas.Customer.Controllers
                 return false;
 
             var name = item.Item.Trim();
-            if (string.Equals(item.Category, "Unlimited Inclusions", StringComparison.Ordinal))
+            if (string.Equals(item.Category, "Unlimited Inclusions", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            if (string.Equals(item.Category, "Wings", StringComparison.Ordinal))
+            if (string.Equals(item.Category, "Wings", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            if (string.Equals(item.Category, "Drinks", StringComparison.Ordinal))
+            if (string.Equals(item.Category, "Drinks", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            if (string.Equals(item.Category, "Add Ons", StringComparison.Ordinal))
+            if (string.Equals(item.Category, "Add Ons", StringComparison.OrdinalIgnoreCase))
             {
                 return name.Equals("Plain Rice", StringComparison.OrdinalIgnoreCase)
                     || name.Equals("Garlic Rice", StringComparison.OrdinalIgnoreCase)
                     || name.Equals("Extra Gravy", StringComparison.OrdinalIgnoreCase);
             }
 
-            if (string.Equals(item.Category, "Appetizer", StringComparison.Ordinal))
+            if (string.Equals(item.Category, "Appetizer", StringComparison.OrdinalIgnoreCase))
             {
                 return name.Equals("Nachos", StringComparison.OrdinalIgnoreCase)
                     || name.StartsWith("Potato Thins", StringComparison.OrdinalIgnoreCase);

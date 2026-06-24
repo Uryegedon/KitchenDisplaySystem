@@ -195,6 +195,43 @@ namespace SelfOrderingSystemKiosk.Services
             await _users.DeleteOneAsync(u => u.Id == userId);
         }
 
+        public async Task EnsureIndexesAsync(CancellationToken cancellationToken = default)
+        {
+            var caseInsensitive = new Collation("en", strength: CollationStrength.Secondary);
+            var populatedUsernameFilter = Builders<AdminUser>.Filter.And(
+                Builders<AdminUser>.Filter.Exists(u => u.Username),
+                Builders<AdminUser>.Filter.Ne(u => u.Username, null),
+                Builders<AdminUser>.Filter.Ne(u => u.Username, string.Empty));
+            var populatedEmailFilter = Builders<AdminUser>.Filter.And(
+                Builders<AdminUser>.Filter.Exists(u => u.Email),
+                Builders<AdminUser>.Filter.Ne(u => u.Email, null),
+                Builders<AdminUser>.Filter.Ne(u => u.Email, string.Empty));
+
+            await _users.Indexes.CreateOneAsync(
+                new CreateIndexModel<AdminUser>(
+                    Builders<AdminUser>.IndexKeys.Ascending(u => u.Username),
+                    new CreateIndexOptions<AdminUser>
+                    {
+                        Name = "ux_users_username_ci",
+                        Unique = true,
+                        Collation = caseInsensitive,
+                        PartialFilterExpression = populatedUsernameFilter
+                    }),
+                cancellationToken: cancellationToken);
+
+            await _users.Indexes.CreateOneAsync(
+                new CreateIndexModel<AdminUser>(
+                    Builders<AdminUser>.IndexKeys.Ascending(u => u.Email),
+                    new CreateIndexOptions<AdminUser>
+                    {
+                        Name = "ux_users_email_ci",
+                        Unique = true,
+                        Collation = caseInsensitive,
+                        PartialFilterExpression = populatedEmailFilter
+                    }),
+                cancellationToken: cancellationToken);
+        }
+
         /// <summary>
         /// Checks if a username is unique (excluding a specific user)
         /// </summary>

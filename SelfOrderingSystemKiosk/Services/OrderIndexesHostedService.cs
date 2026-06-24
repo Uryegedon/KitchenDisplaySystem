@@ -8,7 +8,9 @@ namespace SelfOrderingSystemKiosk.Services
     {
         private readonly OrderService _orderService;
         private readonly StockMovementService _stockMovementService;
+        private readonly ManagementLogService _managementLogService;
         private readonly BranchService _branchService;
+        private readonly UserService _userService;
         private readonly DeliveryImportService _deliveryImportService;
         private readonly IngredientStockService _ingredientStockService;
         private readonly ILogger<OrderIndexesHostedService> _logger;
@@ -16,14 +18,18 @@ namespace SelfOrderingSystemKiosk.Services
         public OrderIndexesHostedService(
             OrderService orderService,
             StockMovementService stockMovementService,
+            ManagementLogService managementLogService,
             BranchService branchService,
+            UserService userService,
             DeliveryImportService deliveryImportService,
             IngredientStockService ingredientStockService,
             ILogger<OrderIndexesHostedService> logger)
         {
             _orderService = orderService;
             _stockMovementService = stockMovementService;
+            _managementLogService = managementLogService;
             _branchService = branchService;
+            _userService = userService;
             _deliveryImportService = deliveryImportService;
             _ingredientStockService = ingredientStockService;
             _logger = logger;
@@ -49,11 +55,27 @@ namespace SelfOrderingSystemKiosk.Services
             }
             try
             {
+                await _managementLogService.EnsureIndexesAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Management log index creation failed.");
+            }
+            try
+            {
                 await _branchService.EnsureIndexesAsync(cancellationToken);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Branch collection index creation failed.");
+            }
+            try
+            {
+                await _userService.EnsureIndexesAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "User collection index creation failed.");
             }
             try
             {
